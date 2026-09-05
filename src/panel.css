@@ -212,10 +212,11 @@ input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 select { width: 150px; }
-#ctl-legend_loc { width: 120px; }
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--_accent); }
 
-/* Figure size (pair): width/height as two labeled sub-rows, each its own slider + readout. */
+/* Generic "pair" control (kept for schema flexibility; no current control uses
+   it — figure size was removed, see docs/ux-design.md "Round five"): two
+   labeled sub-rows, each its own slider + readout. */
 .pair-rows { display: flex; flex-direction: column; gap: 2px; }
 .pair-row { display: flex; align-items: center; gap: 4px; }
 .pair-label { display: inline-block; width: 44px; color: var(--_muted); font-size: 11px; }
@@ -286,11 +287,21 @@ button.add-line {
 }
 button.add-line:hover { color: var(--_accent); }
 
-/* Legend custom-position sliders */
-.legend-xy { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
-.legend-xy label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--_muted); }
-.legend-xy input[type="range"] { width: 96px; }
-.legend-xy .readout { min-width: 32px; }
+/* Legend position: x/y sliders first, "Snap to" underneath (see
+   docs/ux-design.md, "Round five"). The control itself is block, not the
+   usual flex row, so the two pieces stack instead of sitting side by side. */
+.row[data-control="legend_loc"] .control { display: block; }
+.legend-xy { display: flex; flex-direction: column; gap: 2px; }
+.legend-xy-row { display: flex; align-items: center; gap: 6px; }
+.legend-xy-row .legend-label { display: inline-block; width: 10px; color: var(--_muted); font-size: 11px; }
+.legend-snap { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.legend-snap .snap-label { color: var(--_muted); font-size: 11px; }
+select.snap { width: 120px; }
+
+/* Style preset: the note under it says the change needs a re-run; while one
+   is pending (the rerunKeys set has "style") it is highlighted. */
+p.next-run { grid-column: 1 / -1; margin: 2px 0 0; color: var(--_muted); font-size: 11px; }
+p.next-run.pending { color: var(--_accent); font-weight: 700; }
 
 /* --- Reset menu --- */
 .menu {

@@ -123,6 +123,10 @@ describe("registration and rendering", () => {
     expect(rows.length).toBe(CONTROLS.length);
   });
 
+  it("has no figsize control (figure size was removed from the panel)", () => {
+    expect(ctl(panel, "figsize")).toBeNull();
+  });
+
   it("creates a group per schema group, tagged with data-group, in schema order", () => {
     const groups = panel.shadowRoot!.querySelectorAll(".group[data-group]");
     expect(groups.length).toBe(GROUPS.length);
@@ -457,18 +461,6 @@ describe("writing", () => {
     expect(last).not.toContain(FENCE_START);
   });
 
-  it("writes a pair control as [w, h]", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
-    const inputs = ctl(panel, "figsize").querySelectorAll("input");
-    (inputs[0] as HTMLInputElement).value = "8";
-    (inputs[1] as HTMLInputElement).value = "5";
-    change(inputs[1]!);
-
-    const last = sink.writes[sink.writes.length - 1]!;
-    expect(parseBlock(last)!.settings.rc["figure.figsize"]).toEqual([8, 5]);
-  });
-
   it("writes a segmented enum control as its string value, and shows a glyph label with the name in the title (linestyle --)", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
@@ -568,51 +560,88 @@ describe("writing", () => {
 });
 
 describe("legend position", () => {
-  it("named option writes the string value", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
-    const select = input(panel, "legend_loc") as HTMLSelectElement;
-    select.value = "upper right";
-    change(select);
+  // The x slider keeps id="ctl-legend_loc" (see docs/ux-design.md, "Round
+  // five"), so `input(panel, "legend_loc")` finds it directly.
+  function xRangeEl(p: PlotpolishPanel): HTMLInputElement {
+    return input(p, "legend_loc") as HTMLInputElement;
+  }
+  function yRangeEl(p: PlotpolishPanel): HTMLInputElement {
+    return ctl(p, "legend_loc").querySelector('input[aria-label="Legend y"]') as HTMLInputElement;
+  }
+  function snapSelect(p: PlotpolishPanel): HTMLSelectElement {
+    return ctl(p, "legend_loc").querySelector("select.snap") as HTMLSelectElement;
+  }
 
-    expect(panel.getSettings().rc["legend.loc"]).toBe("upper right");
-    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(true);
+  it("shows x and y sliders with readouts by default, plus a 'Snap to' select", () => {
+    const xRange = xRangeEl(panel);
+    const yRange = yRangeEl(panel);
+    expect(xRange.type).toBe("range");
+    expect(xRange.min).toBe("0");
+    expect(xRange.max).toBe("1");
+    expect(xRange.step).toBe("0.01");
+    expect(xRange.getAttribute("aria-label")).toBe("Legend x");
+    expect(yRange.type).toBe("range");
+    expect(yRange.getAttribute("aria-label")).toBe("Legend y");
+    expect(ctl(panel, "legend_loc").querySelectorAll(".readout").length).toBe(2);
+    expect(snapSelect(panel)).not.toBeNull();
   });
 
-  it("'Custom position…' writes [0.6, 0.2] and reveals the sliders", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
-    const select = input(panel, "legend_loc") as HTMLSelectElement;
-    select.value = "__custom__";
-    change(select);
-
-    expect(panel.getSettings().rc["legend.loc"]).toEqual([0.6, 0.2]);
-    expect(select.value).toBe("__custom__");
-    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(false);
+  it("falls back to a named location's representative corner when there is no figure", () => {
+    // Default value is "best", which falls back to the same corner as "upper right".
+    expect(xRangeEl(panel).value).toBe("0.75");
+    expect(yRangeEl(panel).value).toBe("0.75");
+    expect(snapSelect(panel).value).toBe("best");
   });
 
-  it("dragging a slider writes [x, y]", () => {
+  it("seeds the sliders from the live figure's legend xy for a named value", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLegend({ frameon: true, framealpha: 0.8, loc: "best", fontsize: 10, xy: [0.62, 0.18] });
+    await attachBackend(panel, backend);
+
+    expect(xRangeEl(panel).value).toBe("0.62");
+    expect(yRangeEl(panel).value).toBe("0.18");
+    const readouts = ctl(panel, "legend_loc").querySelectorAll(".readout");
+    expect(readouts[0]!.textContent).toBe("0.62");
+    expect(readouts[1]!.textContent).toBe("0.18");
+    expect(snapSelect(panel).value).toBe("best");
+  });
+
+  it("moving the x slider writes [x, y] as numbers", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
-    const select = input(panel, "legend_loc") as HTMLSelectElement;
-    select.value = "__custom__";
-    change(select);
-
-    const xRange = panel.shadowRoot!.querySelector('.legend-xy input[aria-label="Legend x"]') as HTMLInputElement;
+    const xRange = xRangeEl(panel);
     xRange.value = "0.3";
     fireInput(xRange);
 
-    const rc = panel.getSettings().rc["legend.loc"];
-    expect(rc).toEqual([0.3, 0.2]);
+    expect(panel.getSettings().rc["legend.loc"]).toEqual([0.3, 0.75]);
   });
 
-  it("shows __custom__ selected for an array legend.loc value", () => {
-    const settings: StyleSettings = { style: "default", rc: { "legend.loc": [0.4, 0.5] } };
-    panel.sink = new MemorySink(generateBlock(settings)!);
+  it("the snap select shows 'Custom' for an array value, and the name for a string", () => {
+    panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "legend.loc": [0.4, 0.5] } })!);
+    expect(snapSelect(panel).value).toBe("__custom__");
 
-    const select = input(panel, "legend_loc") as HTMLSelectElement;
-    expect(select.value).toBe("__custom__");
-    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(false);
+    panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "legend.loc": "lower left" } })!);
+    expect(snapSelect(panel).value).toBe("lower left");
+  });
+
+  it("choosing a named location writes the string and re-introspects once, so the sliders follow the resulting position after settle()", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const introspectsBefore = backend.calls.filter((c) => c.fn === "introspect_figure").length;
+
+    const select = snapSelect(panel);
+    select.value = "upper left";
+    change(select);
+    // Where the mock reports the legend landed, as of the extra
+    // introspect_figure call the panel makes once apply_live resolves.
+    backend.figure = figureWithLegend({ frameon: true, framealpha: 0.8, loc: "upper left", fontsize: 10, xy: [0.05, 0.75] });
+    await panel.settle();
+
+    expect(panel.getSettings().rc["legend.loc"]).toBe("upper left");
+    const introspectsAfter = backend.calls.filter((c) => c.fn === "introspect_figure").length;
+    expect(introspectsAfter).toBe(introspectsBefore + 1);
+    expect(xRangeEl(panel).value).toBe("0.05");
+    expect(yRangeEl(panel).value).toBe("0.75");
   });
 });
 
@@ -656,6 +685,25 @@ describe("rerun indicators", () => {
 
     expect(tabRerun(panel, "look").hidden).toBe(false);
     expect(ctl(panel, "style").querySelector(".badge.rerun")).not.toBeNull();
+  });
+});
+
+describe("style preset needs a run", () => {
+  it("shows a muted note under the preset that turns .pending while the change is unapplied, cleared by refresh()", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const note = ctl(panel, "style").querySelector("p.next-run") as HTMLElement;
+    expect(note).not.toBeNull();
+    expect(note.textContent).toBe("Applies on the next run.");
+    expect(note.classList.contains("pending")).toBe(false);
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    expect(note.classList.contains("pending")).toBe(true);
+
+    await panel.refresh();
+    expect(note.classList.contains("pending")).toBe(false);
   });
 });
 
@@ -1269,26 +1317,6 @@ describe("commit as you type", () => {
     fireInput(dpiInput);
     expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
     expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("150");
-  });
-
-  it("a pair field commits [w, h] on 'input' from two labeled range sub-rows, each with its own readout", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
-    const row = ctl(panel, "figsize");
-    const inputs = row.querySelectorAll("input");
-    expect(inputs.length).toBe(2);
-    expect((inputs[0] as HTMLInputElement).type).toBe("range");
-    expect((inputs[1] as HTMLInputElement).type).toBe("range");
-    const labels = Array.from(row.querySelectorAll(".pair-label")).map((l) => l.textContent);
-    expect(labels).toEqual(["Width", "Height"]);
-
-    (inputs[0] as HTMLInputElement).value = "8";
-    (inputs[1] as HTMLInputElement).value = "5";
-    fireInput(inputs[1]!);
-    expect(panel.getSettings().rc["figure.figsize"]).toEqual([8, 5]);
-    const readouts = row.querySelectorAll(".readout");
-    expect(readouts[0]!.textContent).toBe("8");
-    expect(readouts[1]!.textContent).toBe("5");
   });
 
   it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", () => {

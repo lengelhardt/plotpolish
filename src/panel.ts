@@ -64,12 +64,12 @@ function parseLayoutAttr(value: string | null): LayoutMode {
   return value === "rail" ? "rail" : value === "float" ? "float" : "pill";
 }
 
-interface LegendXyView {
-  wrap: HTMLElement;
+interface LegendLocView {
   xRange: HTMLInputElement;
   yRange: HTMLInputElement;
   xOut: HTMLElement;
   yOut: HTMLElement;
+  snap: HTMLSelectElement;
 }
 
 interface LineRowView {
@@ -87,13 +87,15 @@ interface ControlView {
   revert: HTMLButtonElement;
   segmented?: HTMLElement;
   swatchList?: HTMLElement;
-  legendXy?: LegendXyView;
+  legendLoc?: LegendLocView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
-  /** pair (figsize): the width/height sub-rows' own readouts, in input order. */
+  /** pair: the width/height sub-rows' own readouts, in input order. */
   pairOuts?: HTMLElement[];
   lineRows?: LineRowView[];
   addLineBtn?: HTMLButtonElement;
+  /** style: the "Applies on the next run." note under the preset select. */
+  nextRunNote?: HTMLElement;
 }
 
 interface GroupView {
@@ -131,6 +133,25 @@ const DRAG_THRESHOLD_PX = 4;
 const LINESTYLE_GLYPHS: Readonly<Record<string, string>> = { "-": "―", "--": "– –", "-.": "–·", ":": "···" };
 const LINESTYLE_LABELS: Readonly<Record<string, string>> = { "-": "Solid", "--": "Dashed", "-.": "Dash-dot", ":": "Dotted" };
 const LINESTYLE_VALUES: readonly string[] = ["-", "--", "-.", ":"];
+
+/**
+ * Representative lower-left corner (axes fractions) for each named legend
+ * location, used to seed the x/y sliders when a named string is in effect
+ * and the live figure has not reported where it actually drew the legend.
+ */
+const LEGEND_FALLBACK_XY: Readonly<Record<string, readonly [number, number]>> = {
+  best: [0.75, 0.75],
+  "upper right": [0.75, 0.75],
+  "upper left": [0.05, 0.75],
+  "lower left": [0.05, 0.05],
+  "lower right": [0.75, 0.05],
+  right: [0.75, 0.45],
+  "center right": [0.75, 0.45],
+  "center left": [0.05, 0.45],
+  "lower center": [0.4, 0.05],
+  "upper center": [0.4, 0.75],
+  center: [0.4, 0.45],
+};
 
 function schemaDefaults(): Record<string, RcValue> {
   const rc: Record<string, RcValue> = {};
@@ -734,6 +755,10 @@ export class PlotpolishPanel extends HTMLElement {
         const seen = this.figureRc[key];
         if (seen !== undefined) previous[key] = seen;
       }
+      // A named (string) legend.loc moves the legend to wherever matplotlib
+      // decides to draw it, so the x/y sliders need the live figure's own
+      // idea of where that landed; re-introspect just for this case.
+      const legendLocIsNamed = typeof batch["legend.loc"] === "string";
       this.applyChain = this.applyChain
         .then(() => client.applyLive(batch, true, previous))
         .then((result) => {
@@ -747,6 +772,13 @@ export class PlotpolishPanel extends HTMLElement {
             this.backendMessage = "";
           }
           this.update();
+          if (legendLocIsNamed) {
+            return client.introspect().then((intro) => {
+              this.figure = intro.figure;
+              this.update();
+            });
+          }
+          return undefined;
         })
         .catch((e: unknown) => {
           this.backendState = "error";
@@ -1109,6 +1141,19 @@ export class PlotpolishPanel extends HTMLElement {
     return this.backendState === "ready" && this.figure !== null && !this.figure.axes.some((a) => a.legend !== null);
   }
 
+  /**
+   * Where to put the x/y sliders while `legend.loc` is a named string: the
+   * lower-left corner matplotlib actually drew the legend at, from the last
+   * introspection (first axes with a legend and a known `xy`), or else a
+   * representative corner for that name.
+   */
+  private legendXyForName(name: string): readonly [number, number] {
+    const axesWithXy = this.figure?.axes.find((a) => a.legend !== null && a.legend.xy);
+    const xy = axesWithXy?.legend?.xy;
+    if (xy) return xy;
+    return LEGEND_FALLBACK_XY[name] ?? LEGEND_FALLBACK_XY.center!;
+  }
+
   private legendNoteNeeded(group: GroupSpec): boolean {
     if (group.hideWhen !== "no-legend") return false;
     if (!this.noLegendOnFigure()) return false;
@@ -1292,12 +1337,13 @@ export class PlotpolishPanel extends HTMLElement {
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
     let segmented: HTMLElement | undefined;
     let swatchList: HTMLElement | undefined;
-    let legendXy: LegendXyView | undefined;
+    let legendLoc: LegendLocView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
     let pairOuts: HTMLElement[] | undefined;
     let lineRowsView: LineRowView[] | undefined;
     let addLineBtnView: HTMLButtonElement | undefined;
+    let nextRunNote: HTMLElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -1313,6 +1359,12 @@ export class PlotpolishPanel extends HTMLElement {
         select.addEventListener("change", () => this.setStyle(select.value));
         inputs.push(select);
         control.append(select);
+        // Spans the full row width, under the preset select (see the "row"
+        // grid: an unplaced child would otherwise land in the narrow label
+        // column), so it reads as a note about the whole control.
+        const note = el("p", { class: "next-run" }, "Applies on the next run.");
+        row.append(note);
+        nextRunNote = note;
         break;
       }
       case "bool": {
@@ -1519,38 +1571,45 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "legendloc": {
-        const select = el("select", { id });
-        for (const opt of spec.options ?? []) select.append(el("option", { value: opt.value }, opt.label));
-        select.append(el("option", { value: "__custom__" }, "Custom position…"));
-        select.addEventListener("change", () => {
-          if (select.value === "__custom__") this.setKeys(spec, [0.6, 0.2]);
-          else this.setKeys(spec, select.value);
-        });
-        inputs.push(select);
-
-        const xRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
+        // Sliders first (see docs/ux-design.md, "Round five"): the x/y range
+        // keeps this control's id, so it is what `#ctl-legend_loc` finds.
+        const xRange = el("input", { type: "range", id, min: "0", max: "1", step: "0.01" });
         xRange.setAttribute("aria-label", "Legend x");
         const yRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
         yRange.setAttribute("aria-label", "Legend y");
         const xOut = el("span", { class: "readout" });
         const yOut = el("span", { class: "readout" });
         const commitXy = () => {
-          xOut.textContent = xRange.value;
-          yOut.textContent = yRange.value;
-          const x = Number(xRange.value);
-          const y = Number(yRange.value);
+          const x = round(Number(xRange.value));
+          const y = round(Number(yRange.value));
+          xOut.textContent = x.toFixed(2);
+          yOut.textContent = y.toFixed(2);
           if (Number.isFinite(x) && Number.isFinite(y)) this.setKeys(spec, [x, y]);
         };
         xRange.addEventListener("input", commitXy);
         yRange.addEventListener("input", commitXy);
-        const xyWrap = el(
+        inputs.push(xRange, yRange);
+
+        // "Snap to": a first "Custom" option (shown selected for an array
+        // value; never itself chosen to mean anything) plus the named
+        // locations from the schema.
+        const snap = el("select", { class: "snap" });
+        snap.append(el("option", { value: "__custom__" }, "Custom"));
+        for (const opt of spec.options ?? []) snap.append(el("option", { value: opt.value }, opt.label));
+        snap.addEventListener("change", () => {
+          if (snap.value !== "__custom__") this.setKeys(spec, snap.value);
+        });
+        inputs.push(snap);
+
+        const xyRows = el(
           "div",
-          { class: "legend-xy", hidden: true },
-          el("label", {}, "x", xRange, xOut),
-          el("label", {}, "y", yRange, yOut),
+          { class: "legend-xy" },
+          el("div", { class: "legend-xy-row" }, el("span", { class: "legend-label" }, "x"), xRange, xOut),
+          el("div", { class: "legend-xy-row" }, el("span", { class: "legend-label" }, "y"), yRange, yOut),
         );
-        legendXy = { wrap: xyWrap, xRange, yRange, xOut, yOut };
-        control.append(select, xyWrap);
+        const snapRow = el("div", { class: "legend-snap" }, el("span", { class: "snap-label" }, "Snap to"), snap);
+        legendLoc = { xRange, yRange, xOut, yOut, snap };
+        control.append(xyRows, snapRow);
         break;
       }
     }
@@ -1560,12 +1619,13 @@ export class PlotpolishPanel extends HTMLElement {
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
-    if (legendXy) view.legendXy = legendXy;
+    if (legendLoc) view.legendLoc = legendLoc;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;
     if (pairOuts) view.pairOuts = pairOuts;
     if (lineRowsView) view.lineRows = lineRowsView;
     if (addLineBtnView) view.addLineBtn = addLineBtnView;
+    if (nextRunNote) view.nextRunNote = nextRunNote;
     this.views.set(spec.id, view);
     return row;
   }
@@ -1778,6 +1838,7 @@ export class PlotpolishPanel extends HTMLElement {
           select.replaceChildren(...names.map((n) => el("option", { value: n }, n === this.settings.style && !this.styles.includes(n) ? `${n} (not available here)` : n)));
         }
         select.value = this.settings.style;
+        if (view.nextRunNote) view.nextRunNote.classList.toggle("pending", this.rerunKeys.has("style"));
         break;
       }
       case "bool":
@@ -1892,22 +1953,28 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "legendloc": {
-        const select = view.inputs[0] as HTMLSelectElement;
-        const xy = view.legendXy!;
+        const { xRange, yRange, xOut, yOut, snap } = view.legendLoc!;
+        let x: number;
+        let y: number;
         if (Array.isArray(value)) {
-          select.value = "__custom__";
-          xy.wrap.hidden = false;
+          snap.value = "__custom__";
           const arr = value as number[];
-          const x = String(arr[0] ?? 0);
-          const y = String(arr[1] ?? 0);
-          xy.xRange.value = x;
-          xy.yRange.value = y;
-          xy.xOut.textContent = x;
-          xy.yOut.textContent = y;
+          x = arr[0] ?? 0;
+          y = arr[1] ?? 0;
         } else {
-          xy.wrap.hidden = true;
-          select.value = value === undefined ? "best" : String(value);
+          const name = value === undefined ? "best" : String(value);
+          if (!Array.from(snap.options).some((o) => o.value === name)) {
+            snap.append(el("option", { value: name }, `${name} (from style)`));
+          }
+          snap.value = name;
+          [x, y] = this.legendXyForName(name);
         }
+        const xs = x.toFixed(2);
+        const ys = y.toFixed(2);
+        if (!this.isEditing(xRange)) xRange.value = xs;
+        if (!this.isEditing(yRange)) yRange.value = ys;
+        xOut.textContent = xs;
+        yOut.textContent = ys;
         break;
       }
     }

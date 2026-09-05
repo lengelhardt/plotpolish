@@ -174,7 +174,7 @@ def test_save_keys_set_rcparams_only():
 def test_rerun_keys_are_deferred_and_untouched():
     fig, ax = make_figure()
     before = mpl.rcParams["font.family"]
-    result = apply_live({"font.family": "serif", "axes.prop_cycle": ["#000000"], "nope.key": 1})
+    result = apply_live({"font.family": "serif", "nope.key": 1})
     assert sorted(result["deferred"]) == sorted(RERUN_KEYS)
     assert result["unknown"] == ["nope.key"]
     assert result["applied"] == []
@@ -225,6 +225,75 @@ def test_previous_ignores_unknown_keys_and_partial_dicts():
     assert sorted(result["applied"]) == ["axes.grid", "lines.linewidth"]
     assert default_line.get_linewidth() == 4
     assert _grid_on(ax.xaxis)
+
+
+def test_prop_cycle_sets_per_line_color_width_style():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines  # default_line: no explicit lw; user_line: lw=3
+    result = apply_live({"axes.prop_cycle": {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2, 1],
+        "linestyle": ["-", "--"],
+    }})
+    assert "axes.prop_cycle" in result["applied"]
+    assert default_line.get_color() == "#E69F00"
+    assert default_line.get_linewidth() == 2
+    assert default_line.get_linestyle() == "-"
+    assert user_line.get_color() == "#56B4E9"
+    assert user_line.get_linestyle() == "--"
+    assert user_line.get_linewidth() == 3  # user's lw=3 wins, width left alone
+    assert mpl.rcParams["axes.prop_cycle"].by_key()["color"] == ["#E69F00", "#56B4E9"]
+    assert mpl.rcParams["axes.prop_cycle"].by_key()["linewidth"] == [2.0, 1.0]
+
+
+def test_prop_cycle_second_call_changing_only_colors_keeps_widths():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines
+    apply_live({"axes.prop_cycle": {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2, 1],
+        "linestyle": ["-", "--"],
+    }})
+    apply_live({"axes.prop_cycle": {"color": ["#000000", "#FFFFFF"]}})
+    assert default_line.get_color() == "#000000"
+    assert user_line.get_color() == "#FFFFFF"
+    # widths/styles were absent from the second call's value: untouched
+    assert default_line.get_linewidth() == 2
+    assert user_line.get_linewidth() == 3
+    assert default_line.get_linestyle() == "-"
+    assert user_line.get_linestyle() == "--"
+
+
+def test_prop_cycle_previous_with_dict_old_value():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines
+    # Simulate a style change moving mpl.rcParams without touching the figure:
+    # comparing against rcParams as-is would make every line look user-set.
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=["#111111", "#222222"])
+    apply_live(
+        {"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linewidth": [2, 1]}},
+        previous={"axes.prop_cycle": {
+            "color": ["#1f77b4", "#ff7f0e"],
+            "linewidth": [1.5, 1.5],
+        }},
+    )
+    assert default_line.get_color() == "#E69F00"
+    assert default_line.get_linewidth() == 2
+    assert user_line.get_color() == "#56B4E9"
+    assert user_line.get_linewidth() == 3  # still user-set, left alone
+
+
+def test_prop_cycle_only_defaults_false_forces_everything():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines
+    apply_live(
+        {"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linewidth": [2, 1]}},
+        only_defaults=False,
+    )
+    assert default_line.get_linewidth() == 2
+    assert user_line.get_linewidth() == 1  # forced even though user set lw=3
+    assert default_line.get_color() == "#E69F00"
+    assert user_line.get_color() == "#56B4E9"
 
 
 def test_every_live_key_has_a_path():

@@ -12,6 +12,42 @@ def test_prop_cycle_serializes_to_color_list():
     assert rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"]) == ["#E69F00", "#56B4E9"]
 
 
+def test_prop_cycle_dict_form_round_trip():
+    value = {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2, 1],
+        "linestyle": ["-", "--"],
+    }
+    cyc = json_to_rc("axes.prop_cycle", value)
+    assert rc_to_json("axes.prop_cycle", cyc) == {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2.0, 1.0],
+        "linestyle": ["-", "--"],
+    }
+    mpl.rcParams["axes.prop_cycle"] = cyc
+    assert rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"]) == {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2.0, 1.0],
+        "linestyle": ["-", "--"],
+    }
+
+
+def test_prop_cycle_dict_form_optional_keys_omitted_when_absent():
+    cyc = mpl.cycler(color=["#E69F00", "#56B4E9"], linewidth=[2, 1])
+    assert rc_to_json("axes.prop_cycle", cyc) == {
+        "color": ["#E69F00", "#56B4E9"],
+        "linewidth": [2.0, 1.0],
+    }
+
+
+def test_prop_cycle_mismatched_lengths_raise_value_error():
+    with pytest.raises(ValueError):
+        json_to_rc("axes.prop_cycle", {
+            "color": ["#E69F00", "#56B4E9"],
+            "linewidth": [2],
+        })
+
+
 def test_font_family_list_becomes_first_entry():
     assert rc_to_json("font.family", ["serif", "DejaVu Serif"]) == "serif"
     assert rc_to_json("font.family", "monospace") == "monospace"

@@ -1,0 +1,10 @@
+{
+  "style": "default",
+  "rc": {
+    "axes.prop_cycle": {
+      "color": ["#E69F00", "#56B4E9"],
+      "linewidth": [2, 1],
+      "linestyle": ["-", "--"]
+    }
+  }
+}

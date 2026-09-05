@@ -7,8 +7,12 @@ Design constraints (see docs/design.md):
   file: no intra-package imports, no reading of data files, no global state.
 * Pure functions, JSON-friendly values in and out. Imports are limited to
   ``matplotlib``, ``json`` and the standard library.
-* Nothing here ever touches axis labels, titles, limits, scales, annotations
-  or per-series colors. Those belong to the user's code.
+* Nothing here ever touches axis labels, titles, limits, scales or
+  annotations. Those belong to the user's code. The one per-series exception
+  is ``axes.prop_cycle``: its color/linewidth/linestyle are applied to each
+  line through the property cycle (see ``_apply_prop_cycle``), but a line
+  whose own value was set explicitly and no longer matches the old cycle is
+  left alone under ``only_defaults``.
 """
 
 import json
@@ -18,6 +22,7 @@ import traceback
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib import ticker as _ticker
+from matplotlib.colors import to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
 __version__ = "0.1.0"
@@ -62,7 +67,7 @@ CURATED_KEYS = (
 SAVE_KEYS = ("savefig.dpi", "savefig.transparent", "savefig.bbox")
 
 # Keys that only take effect when artists are created: need a host re-run.
-RERUN_KEYS = ("axes.prop_cycle", "font.family")
+RERUN_KEYS = ("font.family",)
 
 _REL_TOL = 1e-6
 
@@ -84,9 +89,25 @@ def _plain(value):
 
 
 def rc_to_json(key, value):
-    """Serialize one rcParam value the way the panel expects it."""
+    """Serialize one rcParam value the way the panel expects it.
+
+    ``axes.prop_cycle`` is either a plain list of color strings (legacy,
+    colors only — the cycler's only key is ``"color"``) or, once per-line
+    width/style are involved, a dict ``{"color": [...], "linewidth": [...],
+    "linestyle": [...]}`` with ``linewidth``/``linestyle`` present only when
+    the cycler actually carries them.
+    """
     if key == "axes.prop_cycle":
-        return [c.get("color") for c in value if "color" in c]
+        items = list(value)
+        keys = set(value.keys)
+        if keys == {"color"}:
+            return [c["color"] for c in items]
+        result = {"color": [c["color"] for c in items]} if "color" in keys else {"color": []}
+        if "linewidth" in keys:
+            result["linewidth"] = [float(c["linewidth"]) for c in items]
+        if "linestyle" in keys:
+            result["linestyle"] = [str(c["linestyle"]) for c in items]
+        return result
     if key == "font.family":
         if isinstance(value, (list, tuple)):
             return str(value[0]) if value else "sans-serif"
@@ -110,6 +131,19 @@ def rc_to_json(key, value):
 def json_to_rc(key, value):
     """Inverse of :func:`rc_to_json`: a value that ``mpl.rcParams[key] = …`` accepts."""
     if key == "axes.prop_cycle":
+        if isinstance(value, dict):
+            kw = {
+                k: ([float(x) for x in v] if k == "linewidth" else list(v))
+                for k, v in value.items()
+                if k in ("color", "linewidth", "linestyle") and v
+            }
+            lengths = {k: len(v) for k, v in kw.items()}
+            if len(set(lengths.values())) > 1:
+                raise ValueError(
+                    "axes.prop_cycle: color/linewidth/linestyle must all be the same "
+                    "length, got %s" % lengths
+                )
+            return mpl.cycler(**kw)
         return mpl.cycler(color=list(value))
     if key == "figure.figsize":
         return [float(value[0]), float(value[1])]
@@ -278,6 +312,8 @@ def _find_overrides(fig, rc):
     base = float(mpl.rcParams["font.size"])
 
     def differs(key, actual, expected=None):
+        if key == "axes.prop_cycle":
+            return  # per-line values vs. the cycle is apply_live's job, not a badge
         if key not in rc or actual is None:
             return
         exp = rc[key] if expected is None else expected
@@ -501,6 +537,77 @@ def _legend_texts(ax):
     return leg.get_texts() if leg is not None else []
 
 
+def _colors_equal(a, b):
+    """Color equality that treats equivalent spellings (e.g. case) as equal."""
+    try:
+        return _to_rgba(a) == _to_rgba(b)
+    except (ValueError, TypeError):
+        return a == b
+
+
+# axes.prop_cycle property name -> (getter, setter, caster) on a Line2D.
+_PROP_CYCLE_ATTRS = {
+    "color": ("get_color", "set_color", str),
+    "linewidth": ("get_linewidth", "set_linewidth", float),
+    "linestyle": ("get_linestyle", "set_linestyle", str),
+}
+
+
+def _cycle_props(value):
+    """Normalize an ``axes.prop_cycle`` JSON value to ``{prop: [values, ...]}``.
+
+    ``value`` may be a plain list of colors (legacy), a dict with "color"
+    and optionally "linewidth"/"linestyle", or ``None``/empty. Only keys
+    that are actually present with a non-empty list survive.
+    """
+    if not value:
+        return {}
+    if isinstance(value, (list, tuple)):
+        return {"color": list(value)}
+    return {k: list(v) for k, v in value.items() if k in _PROP_CYCLE_ATTRS and v}
+
+
+def _apply_prop_cycle(fig, new, old, only):
+    """Apply per-line color/linewidth/linestyle through the property cycle.
+
+    For each axes and each line at index ``i``, the new value for a
+    property comes from ``new``'s list at ``i % len(list)``; the old value
+    (what the line would already show if it followed the previous cycle)
+    comes the same way from ``old``. When ``old`` carries no entry for a
+    property — no old cycle at all, or an old cycle that never mentioned
+    linewidth/linestyle — the fallback is ``mpl.rcParams``'s current value
+    for linewidth/linestyle, and the line's own current color for color
+    (which trivially "matches", so a first per-line color change is never
+    blocked by ``only_defaults``).
+    """
+    new_props = _cycle_props(new)
+    if not new_props:
+        return
+    old_props = _cycle_props(old)
+
+    for ax in fig.axes:
+        for i, line in enumerate(ax.lines):
+            for prop, new_list in new_props.items():
+                getter_name, setter_name, caster = _PROP_CYCLE_ATTRS[prop]
+                new_val = new_list[i % len(new_list)]
+                old_list = old_props.get(prop)
+                if old_list:
+                    old_val = old_list[i % len(old_list)]
+                elif prop == "color":
+                    old_val = line.get_color()
+                else:
+                    old_val = mpl.rcParams["lines." + prop]
+                if only:
+                    current = getattr(line, getter_name)()
+                    matches = (
+                        _colors_equal(current, old_val) if prop == "color"
+                        else _close_or_equal(current, old_val)
+                    )
+                    if not matches:
+                        continue
+                getattr(line, setter_name)(caster(new_val))
+
+
 def _apply_line_prop(getter_name, setter_name, caster):
     def apply(fig, new, old, only):
         for ax in fig.axes:
@@ -571,6 +678,7 @@ _LIVE_HANDLERS = {
     "lines.linewidth": _apply_line_prop("get_linewidth", "set_linewidth", float),
     "lines.linestyle": _apply_line_prop("get_linestyle", "set_linestyle", str),
     "lines.markersize": _apply_line_prop("get_markersize", "set_markersize", float),
+    "axes.prop_cycle": _apply_prop_cycle,
     "legend.frameon": _apply_legend_frameon,
     "legend.framealpha": _apply_legend_framealpha,
     "legend.loc": _apply_legend_loc,

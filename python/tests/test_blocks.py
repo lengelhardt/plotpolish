@@ -21,6 +21,8 @@ def load(name):
 
 
 def same(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(same(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     if isinstance(a, bool) or isinstance(b, bool):

@@ -166,10 +166,10 @@ function cloneSettings(s: StyleSettings): StyleSettings {
 }
 
 /** Cycle or truncate `arr` to exactly `len` entries (matplotlib's cycler semantics). */
-function resizeArray<T>(arr: readonly T[], len: number): T[] {
-  if (arr.length === 0 || len === 0) return [];
+/** Truncate or pad `arr` to `len`, padding with `fill` (never by cycling: a per-line pattern must not repeat). */
+function resizeArray<T>(arr: readonly T[], len: number, fill: T): T[] {
   const out: T[] = [];
-  for (let i = 0; i < len; i++) out.push(arr[i % arr.length]!);
+  for (let i = 0; i < len; i++) out.push(i < arr.length ? arr[i]! : fill);
   return out;
 }
 
@@ -1508,8 +1508,8 @@ export class PlotpolishPanel extends HTMLElement {
             if (isPropCycle(current) && (current.linewidth || current.linestyle)) {
               const len = preset.colors.length;
               const next: PropCycleValue = { color: [...preset.colors] };
-              if (current.linewidth) next.linewidth = resizeArray(current.linewidth, len);
-              if (current.linestyle) next.linestyle = resizeArray(current.linestyle, len);
+              if (current.linewidth) next.linewidth = resizeArray(current.linewidth, len, this.allLinesWidth());
+              if (current.linestyle) next.linestyle = resizeArray(current.linestyle, len, this.allLinesStyle());
               this.setKeys(spec, next);
             } else {
               this.setKeys(spec, [...preset.colors]);
@@ -1635,20 +1635,28 @@ export class PlotpolishPanel extends HTMLElement {
   // -------------------------------------------------------------------------
 
   /** Number of per-line rows to show: schema bounds, the live figure's line count, and the current value's array length. */
+  /** Rows the user added with "+ line" this session, beyond what the figure and settings imply. */
+  private extraLineRows = 0;
+
+  /**
+   * Rows shown: the lines in the live figure, any row whose width or style
+   * was set explicitly, and rows the user added, within [minLines, maxLines].
+   * The color palette's length is deliberately NOT a row count: a ten-color
+   * preset does not mean ten lines.
+   */
   private lineCycleRowCount(spec: ControlSpec): number {
     const minLines = spec.minLines ?? 2;
     const maxLines = spec.maxLines ?? 8;
-    // The user's own override only — not the baseline/default palette, whose
-    // length (matplotlib's 10-color default) is not a row count.
     const value = this.settings.rc[spec.keys[0]!];
     const figLines = this.figure && this.figure.axes.length ? Math.max(...this.figure.axes.map((a) => a.n_lines)) : 0;
-    let valueLen = 0;
+    let explicit = 0;
     if (isPropCycle(value)) {
-      valueLen = Math.max(value.color.length, value.linewidth?.length ?? 0, value.linestyle?.length ?? 0);
-    } else if (Array.isArray(value)) {
-      valueLen = (value as string[]).length;
+      const allWidth = this.allLinesWidth();
+      const allStyle = this.allLinesStyle();
+      value.linewidth?.forEach((w, i) => { if (Math.abs(w - allWidth) > 1e-9) explicit = Math.max(explicit, i + 1); });
+      value.linestyle?.forEach((st, i) => { if (st !== allStyle) explicit = Math.max(explicit, i + 1); });
     }
-    return Math.min(maxLines, Math.max(minLines, figLines, valueLen));
+    return Math.min(maxLines, Math.max(minLines, figLines, explicit, this.extraLineRows));
   }
 
   /** Per-row color/width/style for rows [0, rowCount), from the effective prop_cycle plus the all-lines defaults. */
@@ -1682,34 +1690,56 @@ export class PlotpolishPanel extends HTMLElement {
     return typeof v === "string" ? v : "-";
   }
 
-  /** Read the visible rows' current DOM values and write a full PropCycleValue (or plain color[] when width/style match the all-lines default everywhere). */
+  /**
+   * Read the visible rows and write the property cycle. The arrays span the
+   * whole effective palette (cycler zips equal-length arrays), so colors for
+   * lines beyond the table are preserved; those entries carry the all-lines
+   * width and style.
+   */
   private commitLineCycle(spec: ControlSpec): void {
     const rowCount = this.lineCycleRowCount(spec);
     const rows = this.views.get(spec.id)!.lineRows!;
+    const palette = this.lineRowValues(spec, rowCount).color.length ? this.effectivePalette(spec) : [];
+    const length = Math.max(rowCount, palette.length);
+    const fallbackWidth = this.allLinesWidth();
+    const fallbackStyle = this.allLinesStyle();
     const color: string[] = [];
     const width: number[] = [];
     const style: string[] = [];
-    const fallbackWidth = this.allLinesWidth();
-    const fallbackStyle = this.allLinesStyle();
-    for (let i = 0; i < rowCount; i++) {
-      const r = rows[i]!;
-      color.push(r.color.value);
-      const w = Number(r.width.value);
-      width.push(Number.isFinite(w) && w > 0 ? w : fallbackWidth);
-      const activeBtn = Array.from(r.styleSeg.children).find(
-        (b) => (b as HTMLButtonElement).getAttribute("aria-pressed") === "true",
-      ) as HTMLButtonElement | undefined;
-      style.push(activeBtn?.dataset.value ?? fallbackStyle);
+    for (let i = 0; i < length; i++) {
+      if (i < rowCount) {
+        const r = rows[i]!;
+        color.push(r.color.value);
+        const w = Number(r.width.value);
+        width.push(Number.isFinite(w) && w > 0 ? w : fallbackWidth);
+        const activeBtn = Array.from(r.styleSeg.children).find(
+          (b) => (b as HTMLButtonElement).getAttribute("aria-pressed") === "true",
+        ) as HTMLButtonElement | undefined;
+        style.push(activeBtn?.dataset.value ?? fallbackStyle);
+      } else {
+        color.push(palette[i % palette.length]!);
+        width.push(fallbackWidth);
+        style.push(fallbackStyle);
+      }
     }
     this.setKeys(spec, this.buildPropCycleValue(color, width, style));
   }
 
+  /** The effective color list for axes.prop_cycle (user value, baseline, or matplotlib's default). */
+  private effectivePalette(spec: ControlSpec): string[] {
+    const value = this.effective(spec.keys[0]!);
+    const colors = isPropCycle(value) ? value.color : Array.isArray(value) ? (value as string[]) : [];
+    if (colors.length) return [...colors];
+    return [...((CONTROL_FOR_KEY.get("axes.prop_cycle")?.default as string[] | undefined) ?? ["#1f77b4"])];
+  }
+
+  /** "+ line": reveal one more row (nothing is written until the row is edited). */
   private addLineRow(spec: ControlSpec): void {
     const maxLines = spec.maxLines ?? 8;
     const current = this.lineCycleRowCount(spec);
     if (current >= maxLines) return;
-    const { color, width, style } = this.lineRowValues(spec, current + 1);
-    this.setKeys(spec, this.buildPropCycleValue(color, width, style));
+    this.extraLineRows = current + 1;
+    this.update();
   }
 
   /** width/linestyle are included only when at least one row differs from the all-lines default, so the block stays short. */

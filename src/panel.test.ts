@@ -1491,9 +1491,11 @@ describe("linecycle (Per line)", () => {
     widthInput.value = "3";
     fireInput(widthInput);
 
-    const defaultColors = (CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[]).slice(0, 3);
+    // Arrays span the whole palette so later lines keep their colors; entries beyond the rows hold the all-lines width.
+    const defaultColors = CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[];
     const rc = panel.getSettings().rc["axes.prop_cycle"];
-    expect(rc).toEqual({ color: defaultColors, linewidth: [1.5, 3, 1.5] });
+    expect(rc).toEqual({ color: defaultColors, linewidth: [1.5, 3, ...Array<number>(defaultColors.length - 2).fill(1.5)] });
+    expect(visibleLineRows(panel).length).toBe(3); // still three rows: the palette length is not a row count
   });
 
   it("choosing a line style adds linestyle for every row", async () => {
@@ -1508,9 +1510,9 @@ describe("linecycle (Per line)", () => {
     const dashedBtn = seg.querySelector('button[data-value="--"]') as HTMLButtonElement;
     dashedBtn.click();
 
-    const defaultColors = (CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[]).slice(0, 2);
+    const defaultColors = CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[];
     const rc = panel.getSettings().rc["axes.prop_cycle"];
-    expect(rc).toEqual({ color: defaultColors, linestyle: ["--", "-"] });
+    expect(rc).toEqual({ color: defaultColors, linestyle: ["--", ...Array<string>(defaultColors.length - 1).fill("-")] });
   });
 
   it("choosing a Look preset afterwards keeps the linewidth array, resized to the preset's color count", async () => {
@@ -1531,9 +1533,25 @@ describe("linecycle (Per line)", () => {
 
     const preset = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!;
     const rc = panel.getSettings().rc["axes.prop_cycle"];
-    expect(rc).toEqual({ color: preset.colors, linewidth: [1.5, 3, 1.5, 1.5, 3, 1.5, 1.5, 3] });
+    // Truncated to the preset's 8 colors; the per-line pattern is never cycled.
+    expect(rc).toEqual({ color: preset.colors, linewidth: [1.5, 3, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5] });
+    expect(visibleLineRows(panel).length).toBe(3);
     // A PropCycleValue whose `color` matches the preset still shows the preset as pressed (rcEqual on `.color` alone).
     expect(presetBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("choosing a color preset does not change the number of rows (a 7-color palette is not 7 lines)", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(2);
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+    expect(visibleLineRows(panel).length).toBe(2);
+    const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;
+    (list.querySelector('button[data-preset="tol-bright"]') as HTMLButtonElement).click();
+    expect(visibleLineRows(panel).length).toBe(2);
+    const rc = panel.getSettings().rc["axes.prop_cycle"];
+    expect(Array.isArray(rc) && rc.length).toBe(7); // the palette itself is kept whole
   });
 
   it("'+ line' adds a row, up to maxLines", () => {
@@ -1692,7 +1710,9 @@ describe("all-lines width and style are masters over the per-line table", () => 
     w2.value = "3";
     w2.dispatchEvent(new Event("input", { bubbles: true }));
     const cycle = p.getSettings().rc["axes.prop_cycle"];
-    expect(isPropCycle(cycle) ? cycle.linewidth : null).toEqual([1.5, 3]);
+    const cycleWidths = isPropCycle(cycle) ? cycle.linewidth! : [];
+    expect(cycleWidths.slice(0, 2)).toEqual([1.5, 3]);
+    expect(cycleWidths.slice(2).every((w) => w === 1.5)).toBe(true);
 
     const row = p.shadowRoot!.querySelector('.row[data-control="linewidth"]') as HTMLElement;
     expect(row.classList.contains("mixed")).toBe(true);
@@ -1716,7 +1736,8 @@ describe("all-lines width and style are masters over the per-line table", () => 
     const seg = lineRows(p)[0]!.querySelector(".segmented.line-style") as HTMLElement;
     (seg.querySelector('button[data-value="--"]') as HTMLButtonElement).click();
     const cycle = p.getSettings().rc["axes.prop_cycle"];
-    expect(isPropCycle(cycle) ? cycle.linestyle : null).toEqual(["--", "-"]);
+    const styles = isPropCycle(cycle) ? cycle.linestyle! : [];
+    expect(styles.slice(0, 2)).toEqual(["--", "-"]);
 
     const row = p.shadowRoot!.querySelector('.row[data-control="linestyle"]') as HTMLElement;
     expect(row.classList.contains("mixed")).toBe(true);

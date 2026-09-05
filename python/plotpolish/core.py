@@ -45,6 +45,7 @@ CURATED_KEYS = (
     "legend.fontsize",
     "lines.linewidth",
     "lines.linestyle",
+    "lines.marker",
     "lines.markersize",
     "axes.prop_cycle",
     "axes.grid",
@@ -375,6 +376,7 @@ def _find_overrides(fig, rc):
         for line in ax.lines:
             differs("lines.linewidth", line.get_linewidth())
             differs("lines.linestyle", line.get_linestyle())
+            differs("lines.marker", str(line.get_marker()))
             differs("lines.markersize", line.get_markersize())
         leg = ax.get_legend()
         if leg is not None:
@@ -736,6 +738,7 @@ _LIVE_HANDLERS = {
     "ytick.minor.visible": _apply_minor_visible("y"),
     "lines.linewidth": _apply_line_prop("get_linewidth", "set_linewidth", float),
     "lines.linestyle": _apply_line_prop("get_linestyle", "set_linestyle", str),
+    "lines.marker": _apply_line_prop("get_marker", "set_marker", str),
     "lines.markersize": _apply_line_prop("get_markersize", "set_markersize", float),
     "axes.prop_cycle": _apply_prop_cycle,
     "legend.frameon": _apply_legend_frameon,

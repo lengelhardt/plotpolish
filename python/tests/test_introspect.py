@@ -128,3 +128,9 @@ def test_title_family_set_in_code_is_flagged():
     fig, ax = plt.subplots()
     ax.set_title("t", family="serif")
     assert "font.family" in introspect_figure()["overridden"]
+
+
+def test_explicit_marker_is_flagged():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], marker="o")
+    assert "lines.marker" in introspect_figure()["overridden"]

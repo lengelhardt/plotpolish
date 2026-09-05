@@ -311,6 +311,57 @@
       ]
     },
     {
+      "id": "marker",
+      "group": "lines",
+      "tier": "more",
+      "label": "Marker style",
+      "type": "enum",
+      "keys": [
+        "lines.marker"
+      ],
+      "default": "None",
+      "category": "live",
+      "help": "lines.marker: a symbol at every data point. 'None' draws lines only.",
+      "options": [
+        {
+          "value": "None",
+          "label": "None"
+        },
+        {
+          "value": "o",
+          "label": "● Circle"
+        },
+        {
+          "value": "s",
+          "label": "■ Square"
+        },
+        {
+          "value": "^",
+          "label": "▲ Triangle"
+        },
+        {
+          "value": "D",
+          "label": "◆ Diamond"
+        },
+        {
+          "value": "x",
+          "label": "✕ X"
+        },
+        {
+          "value": "+",
+          "label": "+ Plus"
+        },
+        {
+          "value": "*",
+          "label": "★ Star"
+        },
+        {
+          "value": ".",
+          "label": "· Point"
+        }
+      ]
+    },
+    {
       "id": "markersize",
       "group": "lines",
       "tier": "more",

@@ -325,3 +325,15 @@ def test_autolayout_respects_a_figure_the_user_laid_out():
     assert type(fig.get_layout_engine()).__name__ == "ConstrainedLayoutEngine"
     apply_live({"figure.autolayout": True}, only_defaults=False)
     assert type(fig.get_layout_engine()).__name__ == "TightLayoutEngine"
+
+
+def test_marker_applies_to_default_lines_only():
+    fig, ax = make_figure()
+    ax.plot([0, 1], [2, 2], marker="s", label="user marker")
+    apply_live({"lines.marker": "o"})
+    markers = [l.get_marker() for l in ax.lines]
+    assert markers[0] == "o" and markers[1] == "o"  # both plotted without a marker
+    assert markers[2] == "s"  # user's explicit marker wins
+    assert mpl.rcParams["lines.marker"] == "o"
+    apply_live({"lines.marker": "None"}, previous={"lines.marker": "o"})
+    assert ax.lines[0].get_marker() == "None"

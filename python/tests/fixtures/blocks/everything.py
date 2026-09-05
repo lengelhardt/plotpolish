@@ -13,6 +13,7 @@ mpl.rcParams.update({
     "font.family": "serif",
     "lines.linewidth": 2.5,
     "lines.linestyle": "--",
+    "lines.marker": "o",
     "lines.markersize": 8,
     "axes.grid": True,
     "grid.alpha": 0.3,

@@ -14,6 +14,7 @@
     "legend.fontsize": 11.5,
     "lines.linewidth": 2.5,
     "lines.linestyle": "--",
+    "lines.marker": "o",
     "lines.markersize": 8,
     "axes.prop_cycle": [
       "#E69F00",

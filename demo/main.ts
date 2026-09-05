@@ -135,9 +135,20 @@ textarea.addEventListener("keydown", (event) => {
 // Panel events
 // ---------------------------------------------------------------------------
 
+let autoRerunTimer: ReturnType<typeof setTimeout> | null = null;
 panel.addEventListener("plotpolish-rerun-needed", (event) => {
   const detail = (event as CustomEvent<RerunNeededEventDetail>).detail;
   setStatus(`Re-run to see: ${detail.keys.join(", ")}`);
+  // Demo convenience: once Python is loaded, re-run automatically so a style
+  // sheet change shows within a second. Hosts decide this for themselves
+  // (a program that reads input() or prints a lot may not want it).
+  if (backendMode === "pyodide" && pyodide && !runButton.disabled) {
+    if (autoRerunTimer) clearTimeout(autoRerunTimer);
+    autoRerunTimer = setTimeout(() => {
+      autoRerunTimer = null;
+      void run();
+    }, 400);
+  }
 });
 
 panel.addEventListener("plotpolish-error", (event) => {

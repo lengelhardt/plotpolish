@@ -12,7 +12,10 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "types": ["vite/client"],
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "plotpolish": ["./src/index.ts"]
+    }
   },
   "include": ["src", "demo/*.ts", "vite.config.ts", "demo/vite.config.ts"]
 }

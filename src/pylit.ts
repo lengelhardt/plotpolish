@@ -8,7 +8,8 @@
  *   list    := "[" [ scalar { "," scalar } [ "," ] ] "]"
  *   tuple   := "(" [ scalar { "," scalar } [ "," ] ] ")"
  *   scalar  := string | number
- *   cycler  := "mpl.cycler" "(" "color" "=" list ")"
+ *   cycler  := "mpl.cycler" "(" kw "=" list { "," kw "=" list } [","] ")"
+ *   kw      := "color" | "linewidth" | "linestyle"
  *
  * Anything else is a `PyLitError`. That strictness is deliberate: a block the
  * tool did not write must surface as an error, never be silently reinterpreted.
@@ -18,7 +19,7 @@ export type PyScalar = number | boolean | string;
 export type PyValue = PyScalar | PyScalar[] | PyCycler | PyTuple;
 
 export interface PyCycler {
-  cycler: { color: string[] };
+  cycler: { color?: string[]; linewidth?: number[]; linestyle?: string[] };
 }
 
 export interface PyTuple {
@@ -243,16 +244,33 @@ class Parser {
   }
 
   cycler(): PyCycler {
-    const start = this.next(); // mpl.cycler
+    this.next(); // mpl.cycler
     this.expectPunct("(");
-    const kw = this.next();
-    if (kw.kind !== "name" || kw.value !== "color") throw new PyLitError("Only mpl.cycler(color=[...]) is supported", start.pos);
-    this.expectPunct("=");
-    const colors = this.list();
-    if (!colors.every((c) => typeof c === "string")) throw new PyLitError("Colors must be strings", start.pos);
-    if (this.isPunct(",")) this.next();
+    const result: { color?: string[]; linewidth?: number[]; linestyle?: string[] } = {};
+    while (!this.isPunct(")")) {
+      const kw = this.next();
+      if (kw.kind !== "name") throw new PyLitError("Expected a keyword in mpl.cycler(...)", kw.pos);
+      if (kw.value !== "color" && kw.value !== "linewidth" && kw.value !== "linestyle") {
+        throw new PyLitError(`Unsupported mpl.cycler keyword ${JSON.stringify(kw.value)}`, kw.pos);
+      }
+      if (result[kw.value] !== undefined) throw new PyLitError(`Duplicate mpl.cycler keyword ${JSON.stringify(kw.value)}`, kw.pos);
+      this.expectPunct("=");
+      const list = this.list();
+      if (kw.value === "linewidth") {
+        if (!list.every((v) => typeof v === "number")) throw new PyLitError("mpl.cycler linewidth values must be numbers", kw.pos);
+        result.linewidth = list as number[];
+      } else if (kw.value === "color") {
+        if (!list.every((v) => typeof v === "string")) throw new PyLitError("mpl.cycler color values must be strings", kw.pos);
+        result.color = list as string[];
+      } else {
+        if (!list.every((v) => typeof v === "string")) throw new PyLitError("mpl.cycler linestyle values must be strings", kw.pos);
+        result.linestyle = list as string[];
+      }
+      if (this.isPunct(",")) this.next();
+      else if (!this.isPunct(")")) throw new PyLitError('Expected "," or ")"', this.peek().pos);
+    }
     this.expectPunct(")");
-    return { cycler: { color: colors as string[] } };
+    return { cycler: result };
   }
 }
 
@@ -287,7 +305,14 @@ export function formatPyValue(value: PyValue): string {
   }
   if (typeof value === "string") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(formatPyValue).join(", ")}]`;
-  if (isPyCycler(value)) return `mpl.cycler(color=${formatPyValue(value.cycler.color)})`;
+  if (isPyCycler(value)) {
+    const { color, linewidth, linestyle } = value.cycler;
+    const parts: string[] = [];
+    if (color) parts.push(`color=${formatPyValue(color)}`);
+    if (linewidth) parts.push(`linewidth=${formatPyValue(linewidth)}`);
+    if (linestyle) parts.push(`linestyle=${formatPyValue(linestyle)}`);
+    return `mpl.cycler(${parts.join(", ")})`;
+  }
   if (isPyTuple(value)) {
     if (value.tuple.length === 0) return "()";
     if (value.tuple.length === 1) return `(${formatPyValue(value.tuple[0]!)},)`;

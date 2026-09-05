@@ -99,6 +99,31 @@ describe("cycler", () => {
     const { value } = parsePyDict('{"a": mpl.cycler(color=["#a", "#b"],)}');
     expect(value.a).toEqual({ cycler: { color: ["#a", "#b"] } });
   });
+
+  it("parses all three keywords: color, linewidth, linestyle", () => {
+    const { value } = parsePyDict('{"a": mpl.cycler(color=["#a", "#b"], linewidth=[2, 1], linestyle=["-", "--"])}');
+    expect(value.a).toEqual({ cycler: { color: ["#a", "#b"], linewidth: [2, 1], linestyle: ["-", "--"] } });
+  });
+
+  it("parses two keywords (color and linewidth, no linestyle)", () => {
+    const { value } = parsePyDict('{"a": mpl.cycler(color=["#a"], linewidth=[2])}');
+    expect(value.a).toEqual({ cycler: { color: ["#a"], linewidth: [2] } });
+  });
+
+  it("tolerates a trailing comma after the last of several keywords", () => {
+    const { value } = parsePyDict('{"a": mpl.cycler(color=["#a"], linewidth=[2],)}');
+    expect(value.a).toEqual({ cycler: { color: ["#a"], linewidth: [2] } });
+  });
+
+  it("parses keywords in any order", () => {
+    const { value } = parsePyDict('{"a": mpl.cycler(linestyle=["-", "--"], linewidth=[2, 1], color=["#a", "#b"])}');
+    expect(value.a).toEqual({ cycler: { color: ["#a", "#b"], linewidth: [2, 1], linestyle: ["-", "--"] } });
+  });
+
+  it("parses a cycler with only linestyle (color is not required by the grammar itself)", () => {
+    const { value } = parsePyDict('{"a": mpl.cycler(linestyle=["-", "--"])}');
+    expect(value.a).toEqual({ cycler: { linestyle: ["-", "--"] } });
+  });
 });
 
 describe("tuples", () => {
@@ -199,8 +224,24 @@ describe("errors", () => {
     expect(() => parsePyDict('{"a": cycler(color=["#fff"])}')).toThrow(PyLitError);
   });
 
-  it("rejects mpl.cycler with a keyword other than color", () => {
-    expect(() => parsePyDict('{"a": mpl.cycler(linestyle=["--"])}')).toThrow(PyLitError);
+  it("rejects mpl.cycler with an unknown keyword", () => {
+    expect(() => parsePyDict('{"a": mpl.cycler(marker=["o"])}')).toThrow(PyLitError);
+  });
+
+  it("rejects mpl.cycler with a duplicate keyword", () => {
+    expect(() => parsePyDict('{"a": mpl.cycler(color=["#a"], color=["#b"])}')).toThrow(PyLitError);
+  });
+
+  it("rejects mpl.cycler linewidth given strings instead of numbers", () => {
+    expect(() => parsePyDict('{"a": mpl.cycler(color=["#a"], linewidth=["thick"])}')).toThrow(PyLitError);
+  });
+
+  it("rejects mpl.cycler linestyle given numbers instead of strings", () => {
+    expect(() => parsePyDict('{"a": mpl.cycler(color=["#a"], linestyle=[1, 2])}')).toThrow(PyLitError);
+  });
+
+  it("rejects mpl.cycler color given numbers instead of strings", () => {
+    expect(() => parsePyDict('{"a": mpl.cycler(color=[1, 2])}')).toThrow(PyLitError);
   });
 
   it("rejects an unexpected character like @", () => {
@@ -289,6 +330,24 @@ describe("formatPyValue", () => {
     );
   });
 
+  it("formats a cycler with all three keywords in the fixed order color, linewidth, linestyle", () => {
+    expect(
+      formatPyValue({ cycler: { color: ["#E69F00", "#56B4E9"], linewidth: [2, 1], linestyle: ["-", "--"] } }),
+    ).toBe('mpl.cycler(color=["#E69F00", "#56B4E9"], linewidth=[2, 1], linestyle=["-", "--"])');
+  });
+
+  it("formats a cycler in the fixed keyword order regardless of the object's own key order", () => {
+    expect(
+      formatPyValue({ cycler: { linestyle: ["-", "--"], linewidth: [2, 1], color: ["#a", "#b"] } }),
+    ).toBe('mpl.cycler(color=["#a", "#b"], linewidth=[2, 1], linestyle=["-", "--"])');
+  });
+
+  it("formats a cycler omitting absent keywords", () => {
+    expect(formatPyValue({ cycler: { color: ["#a"], linestyle: ["-"] } })).toBe(
+      'mpl.cycler(color=["#a"], linestyle=["-"])',
+    );
+  });
+
   it("formats tuples", () => {
     expect(formatPyValue({ tuple: [0.6, 0.2] })).toBe("(0.6, 0.2)");
     expect(formatPyValue({ tuple: [1, 2, 3] })).toBe("(1, 2, 3)");
@@ -363,6 +422,15 @@ describe("round trip", () => {
         .map(([k, v]) => `${JSON.stringify(k)}: ${formatPyValue(v)}`)
         .join(", ") +
       "}";
+    const { value } = parsePyDict(src);
+    expect(value).toEqual(original);
+  });
+
+  it("formatPyValue then parsePyDict recovers a per-line cycler", () => {
+    const original: Record<string, PyValue> = {
+      cycle: { cycler: { color: ["#E69F00", "#56B4E9"], linewidth: [2, 1], linestyle: ["-", "--"] } },
+    };
+    const src = `{"cycle": ${formatPyValue(original.cycle!)}}`;
     const { value } = parsePyDict(src);
     expect(value).toEqual(original);
   });

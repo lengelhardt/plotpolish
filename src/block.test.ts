@@ -12,7 +12,7 @@ import {
   type StyleSettings,
 } from "./block";
 import { FENCE_END, FENCE_START } from "./constants";
-import { RC_KEYS } from "./schema";
+import { RC_KEYS, rcEqual, type PropCycleValue } from "./schema";
 
 function splitLines(source: string): string[] {
   return source.split(/\r?\n/);
@@ -150,6 +150,27 @@ describe("generateBlock", () => {
     expect(block).toContain('"axes.prop_cycle": mpl.cycler(color=["#111", "#222"]),');
   });
 
+  it("emits axes.prop_cycle (PropCycleValue) with color, linewidth, linestyle in that order", () => {
+    const propCycle: PropCycleValue = { color: ["#E69F00", "#56B4E9"], linewidth: [2, 1], linestyle: ["-", "--"] };
+    const block = generateBlock({ style: "default", rc: { "axes.prop_cycle": propCycle } });
+    expect(block).toBe(
+      [
+        FENCE_START,
+        "import matplotlib as mpl",
+        "mpl.rcParams.update({",
+        '    "axes.prop_cycle": mpl.cycler(color=["#E69F00", "#56B4E9"], linewidth=[2, 1], linestyle=["-", "--"]),',
+        "})",
+        FENCE_END,
+      ].join("\n"),
+    );
+  });
+
+  it("emits axes.prop_cycle (PropCycleValue) omitting absent keys", () => {
+    const propCycle: PropCycleValue = { color: ["#a"], linestyle: ["-"] };
+    const block = generateBlock({ style: "default", rc: { "axes.prop_cycle": propCycle } })!;
+    expect(block).toContain('"axes.prop_cycle": mpl.cycler(color=["#a"], linestyle=["-"]),');
+  });
+
   it("emits legend.loc (number[]) as a tuple, not a list", () => {
     const block = generateBlock({ style: "default", rc: { "legend.loc": [0.6, 0.2] } })!;
     expect(block).toContain('"legend.loc": (0.6, 0.2),');
@@ -280,6 +301,39 @@ describe("parseBlock", () => {
     ]);
     const parsed = parseBlock(src)!;
     expect(parsed.settings.rc["lines.linewidth"]).toEqual([1, 2]);
+  });
+
+  it("reads a color-only axes.prop_cycle cycler back as string[] (legacy round trip)", () => {
+    const src = fenceBody([
+      "import matplotlib as mpl",
+      "mpl.rcParams.update({",
+      '    "axes.prop_cycle": mpl.cycler(color=["#111", "#222"]),',
+      "})",
+    ]);
+    const parsed = parseBlock(src)!;
+    expect(parsed.settings.rc["axes.prop_cycle"]).toEqual(["#111", "#222"]);
+  });
+
+  it("reads a per-line axes.prop_cycle cycler back as a PropCycleValue", () => {
+    const src = fenceBody([
+      "import matplotlib as mpl",
+      "mpl.rcParams.update({",
+      '    "axes.prop_cycle": mpl.cycler(color=["#E69F00", "#56B4E9"], linewidth=[2, 1], linestyle=["-", "--"]),',
+      "})",
+    ]);
+    const parsed = parseBlock(src)!;
+    const expected: PropCycleValue = { color: ["#E69F00", "#56B4E9"], linewidth: [2, 1], linestyle: ["-", "--"] };
+    expect(parsed.settings.rc["axes.prop_cycle"]).toEqual(expected);
+  });
+
+  it('rejects a cycler for axes.prop_cycle that is missing "color"', () => {
+    const src = fenceBody([
+      "import matplotlib as mpl",
+      "mpl.rcParams.update({",
+      '    "axes.prop_cycle": mpl.cycler(linestyle=["-", "--"]),',
+      "})",
+    ]);
+    expect(captureFenceError(() => parseBlock(src)).kind).toBe("malformed");
   });
 });
 
@@ -460,6 +514,16 @@ describe("replaceFence", () => {
     expect(result).toBe(upsertBlock(cleaned, settings));
     expect(() => findFence(result)).not.toThrow();
     expect(parseBlock(result)!.settings).toEqual(settings);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rcEqual (schema.ts) and the PropCycleValue / string[] legacy equivalence
+// ---------------------------------------------------------------------------
+
+describe("rcEqual", () => {
+  it("treats a colors-only array and an equivalent PropCycleValue as equal", () => {
+    expect(rcEqual(["#a"], { color: ["#a"] })).toBe(true);
   });
 });
 

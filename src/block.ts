@@ -8,7 +8,7 @@
 
 import { FENCE_END, FENCE_START } from "./constants";
 import { formatPyValue, isPyCycler, isPyTuple, parsePyDict, parsePyString, PyLitError, type PyScalar, type PyValue } from "./pylit";
-import { CONTROL_FOR_KEY, RC_KEYS, type RcValue } from "./schema";
+import { CONTROL_FOR_KEY, isPropCycle, RC_KEYS, type PropCycleValue, type RcValue } from "./schema";
 
 export interface StyleSettings {
   /** A name from `plt.style.available`, or "default". */
@@ -114,8 +114,16 @@ export function findFence(source: string): FenceRange | null {
 // ---------------------------------------------------------------------------
 
 function toPyValue(key: string, value: RcValue): PyValue {
-  if (key === "axes.prop_cycle" && Array.isArray(value)) {
-    return { cycler: { color: value.map(String) } };
+  if (key === "axes.prop_cycle") {
+    if (Array.isArray(value)) {
+      return { cycler: { color: value.map(String) } };
+    }
+    if (isPropCycle(value)) {
+      const cycler: { color: string[]; linewidth?: number[]; linestyle?: string[] } = { color: value.color };
+      if (value.linewidth) cycler.linewidth = value.linewidth;
+      if (value.linestyle) cycler.linestyle = value.linestyle;
+      return { cycler };
+    }
   }
   // matplotlib rejects a list for legend.loc's (x, y) form; it must be a tuple.
   if (key === "legend.loc" && Array.isArray(value)) {
@@ -162,7 +170,15 @@ const STYLE_RE = /^\s*mpl\.style\.use\((.*)\)\s*$/;
 function fromPyValue(key: string, value: PyValue, line: number): RcValue {
   if (isPyCycler(value)) {
     if (key !== "axes.prop_cycle") throw new FenceError("malformed", `mpl.cycler is only valid for "axes.prop_cycle" (line ${line + 1}).`, line);
-    return value.cycler.color;
+    const { color, linewidth, linestyle } = value.cycler;
+    if (!color) {
+      throw new FenceError("malformed", `mpl.cycler for "axes.prop_cycle" is missing "color", which is required (line ${line + 1}).`, line);
+    }
+    if (linewidth === undefined && linestyle === undefined) return color;
+    const result: PropCycleValue = { color };
+    if (linewidth !== undefined) result.linewidth = linewidth;
+    if (linestyle !== undefined) result.linestyle = linestyle;
+    return result;
   }
   if (isPyTuple(value)) {
     if (value.tuple.every((v) => typeof v === "number")) return value.tuple as number[];

@@ -108,7 +108,7 @@ const mainBackend = {
 
 Identical to `PyodideBackend` in this repo and to Trinket's own
 `snapshotVariables()` idiom (pyodide.js 1642-1655). The `running` check is
-plotpolish's own policy: Trinket does not serialise helper calls against a
+plotpolish's own policy: Trinket does not serialize helper calls against a
 program suspended at an `await`, and a synchronous `runPython` at that point
 would interleave with the student's program.
 
@@ -149,18 +149,20 @@ newest figure is attached and introspectable.
 
 ### UI
 
-A "Plot style" tab in `#outputTabs` beside Result / Instructions / Variables,
-and a sibling panel `<div id="plotstyle-wrap" class="hide"><plotpolish-panel theme="light"></plotpolish-panel></div>`
-next to `#variables-wrap` (pyodide.html 405-479), both inside
-`{% if config.features.plotStyle %}`. Wire it locally in pyodide.js the way
-`variablesTab` is (3456-3470, `showVariables()/hideVariables()` at
-2424-2434), deliberately bypassing the shared tab framework so other
-language embeds are untouched. Panel CSS follows the Variables precedent:
-inline, feature-gated, ID-scoped.
+Per docs/ux-design.md (revised): the panel's six category tabs live in
+matplotlib's own toolbar row. After each run, in the `finishRun` hook,
+insert `<plotpolish-panel>` into the figure's `div.mpl-toolbar` after the
+format `<select>` (WebAgg rebuilds that toolbar every run), hide
+`span.mpl-message` and the `ui-dialog-titlebar`, and set
+`panel.figureElement` to the figure container so the narrow-width rail and
+the popover can position themselves. Controls open in a draggable
+fixed-position popover, so nothing in Trinket's layout moves. No tab in
+`#outputTabs` is needed; the `features.plotStyle` flag gates the insertion.
 
 Trinket's embed has no CSS custom properties and no dark mode; everything is
 hard-coded light. Set `theme="light"` explicitly so the panel does not
-follow a student's OS dark preference on a light page.
+follow a student's OS dark preference on a light page. Trinket may already
+scale the 42 px WebAgg toolbar buttons; if not, about 30 px suits the pill.
 
 ### Vendoring
 
@@ -227,7 +229,7 @@ already covers same-origin `/components/...` paths; no policy change.
 * **CSP:** `config/default.yaml` 569-597, `script-src 'self' {origin}
   'unsafe-inline' 'unsafe-eval' {cdn}` with cdnjs and jsDelivr as the only CDN
   origins, meant to shrink, not grow.
-* **Theming:** none. No CSS variables, no dark mode, hard-coded light colours
+* **Theming:** none. No CSS variables, no dark mode, hard-coded light colors
   in `public/css/embed/embed.css` and inline styles.
 
 ### Runtime
@@ -250,7 +252,7 @@ All references are to `picup-trinket-oss` at the survey date.
   Documented as a deliberate, reusable pattern in
   `docs/design/variable-explorer-mvp.md` and `pyodide-debugger-mvp.md`.
 * Concurrency: `running` (line 88) is the run flag, but `expandNode()` calls
-  `pyodide.runPython` with no guard, so nothing in Trinket serialises helper
+  `pyodide.runPython` with no guard, so nothing in Trinket serializes helper
   calls against a program suspended at an `await`. The adapter must reject
   `runPython` while `running` is true; the panel then shows the backend error
   and keeps writing the block.

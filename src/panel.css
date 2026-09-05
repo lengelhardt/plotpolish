@@ -200,7 +200,7 @@ input.switch:checked::after { left: 14px; }
 .range-number { display: inline-flex; align-items: center; gap: 6px; }
 input[type="range"] { width: 7em; accent-color: var(--_accent); }
 
-/* Colour-cycle swatch list */
+/* Color-cycle swatch list */
 .swatch-list { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 .swatch-list .preset {
   display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; font-size: 12px;

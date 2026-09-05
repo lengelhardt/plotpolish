@@ -12,46 +12,72 @@ no more than a handful of choices at any one moment. Every knob is reachable
 in at most two clicks: category, then control, or category, then "More",
 then control. Nothing from the first version is removed; it is tiered.
 
-## Where the panel lives
+## Where the panel lives (revised 2026-09-05, after trying the strip)
 
-Options considered:
+The first tiered build put the panel in a strip under the figure with a
+breadcrumb. In use it wasted screen space (about 400 px tall, two-column
+form, every widget far wider than needed) and the breadcrumb made getting
+back awkward. Revised decisions:
 
-| Option | For | Against |
+* **Navigation lives in matplotlib's own toolbar row.** The six category
+  tabs sit in one accent-colored pill with a leading "Style" label, to the
+  right of matplotlib's buttons, in the space its "Left button pans…" hint
+  used. They are always visible, so there is no breadcrumb and no Back.
+  Clicking a tab opens its popover; clicking the active tab closes it. The
+  pill must be eye-catching: accent background, filled active tab, clearly
+  not one of matplotlib's gray buttons.
+* **Fallback: a vertical rail** of the same six text tabs on the figure's
+  right edge, over the plot margin, about 50 px wide, used when the toolbar
+  is too narrow for the pill.
+* **Controls open in a draggable popover**, not a sheet or a dock:
+  - opens anchored just above the tab that was clicked, with a small caret;
+  - a fixed-position layer, so it floats over the plot or anything else and
+    nothing in the page shifts;
+  - drag by its header, mouse or touch; once dragged the caret goes and it
+    becomes a palette: **switching tabs swaps the content in place**; a ⌖
+    button or double-clicking the header re-anchors it to the active tab;
+  - position remembered for the session;
+  - never closes on outside clicks (panning the plot must not dismiss it);
+    closes by ✕, Esc, or clicking the active tab;
+  - sized to content: about 300 px wide for Look, 320 for Axes, never more
+    than 380; about 96 percent opaque with a soft shadow;
+  - no resize handles; never more than one popover.
+* The host inserts `<plotpolish-panel>` into `div.mpl-toolbar` after the
+  format `<select>`, hides `span.mpl-message` and the "Figure 1" title bar,
+  and may scale matplotlib's 42 px buttons to about 30 px. WebAgg rebuilds
+  the toolbar every run, so the host re-inserts the panel where it already
+  calls `refresh()`.
+
+## Drilling down: the widgets (compact budget)
+
+12 px text throughout; one control per 26 px row, label left of widget, 4 px
+gap; 8 px popover padding; 22 px header.
+
+| Widget | Use | Size |
 | --- | --- | --- |
-| Popup or modal in front of the plot | room, focus | hides the plot, so live preview is invisible; modals in iframes clip |
-| A tab beside Result / Variables | cheapest in Trinket | hides the plot |
-| **Strip docked below the figure toolbar** | plot stays visible, controls sit next to what they change, one button when collapsed, works in every host | takes height from the console while open |
-| Side drawer over the console | plot visible, tall | Trinket embeds are too narrow |
-| Popover from a toolbar button | on demand, tiny | floats over the canvas; fragile positioning |
+| switch | on/off | 28 × 16 px |
+| segmented pills | two to four choices; glyphs for line styles | 22 px tall, segments ≥ 28 px |
+| slider + readout | continuous values | 96 px slider, 32 px value; no separate number box |
+| dropdown | long lists (style preset) | 150 px |
+| swatch strips | color presets | 64 px strip each, all on one line, names as tooltips only, accent ring on the selected one |
+| number pair | figure size | two 52 px boxes |
 
-**Decision: docked strip below the figure, collapsed to a single "Style"
-button by default.** In Trinket's fullscreen there is room below a correctly
-sized figure. The panel is position-agnostic, so a later "detach" button can
-turn the strip into a draggable palette with a title bar and "dock" can put it
-back; the host owns that wrapper and Trinket can ship without it.
+Per category: primary rows, then a "More ▸" row that expands inline into
+the second tier and remembers being open. Nothing else in the popover: no
+description sentence, no status line, no banner, no per-category reset
+button.
 
-## Drilling down: the widgets
+Look, closed:
 
-* **Level one is a row of category chips**, radio-style, one active. It
-  answers "what do you want to change?" in one glance.
-* **Level two is one category's controls.** The widget follows the shape of
-  the choice: a switch for on/off; segmented buttons for two to four options
-  such as tick direction or line style; a slider with a number field for
-  continuous values such as line width, text size, opacity; a dropdown only
-  for long lists such as style sheets and legend position; a swatch row for
-  colour cycles.
-* **"More" inside each category** is a closed `<details>` holding the long
-  tail. This is the progressive disclosure that fixes "overwhelming" without
-  deleting anything.
-* **Breadcrumb with Back** at the top of level two, plus Esc.
-* **"Your changes" chips on level one**, one per override, each with an ✕.
-  The inverse of drilling down: it shows what is set without browsing and
-  explains exactly why the block contains what it does.
-* **Reset per category and Reset all**, both visible where the choice was made.
-* Deferred: a style-sheet gallery of thumbnails (student-friendly but costs
-  roughly two hundred kilobytes of bundled images, since Trinket fetches
-  nothing at runtime), and a filter box (useful for adults, rarely for
-  students).
+```
+┌ Look ─────────────────────── ⌖ ✕ ┐
+│ Preset   [default          ▾] ↻   │
+│ Colors   ▪▪▪▪▪▪▪▪ ▪▪▪▪▪▪▪▪ ▪▪▪▪▪▪▪ │
+│ More ▸                             │
+└────────────────────────────────────┘   about 300 × 96 px
+```
+
+Axes with More open: about 320 × 220 px.
 
 ## The search tree
 
@@ -61,7 +87,7 @@ tooltip and in the generated block.
 
 | Category | Primary (visible at once) | More |
 | --- | --- | --- |
-| **Look** | style preset, colours | figure size |
+| **Look** | style preset, colors | figure size |
 | **Text** | text size (base) | title, axis label, tick label, legend sizes; font |
 | **Lines** | line width | line style, marker size |
 | **Axes** | grid on/off, box around the plot | grid opacity and style; axes line width; tick direction; minor ticks |
@@ -118,17 +144,32 @@ matplotlib's own hit testing in Python. Feasible on the main-thread path
 where the canvas is live; the worker forwards mouse events too, so possible
 there with more plumbing. Belongs after the tiered layout has proven itself.
 
-## Implementation contract (for the panel shell)
+## Feedback (revised)
 
-* `<plotpolish-panel>` gains `open` (boolean property and attribute) and
-  `category` (group id or null). Collapsed: one row with a "Style" toggle, a
-  changes summary and Reset all. Expanded, level one: chips and "Your
-  changes". Level two: Back, breadcrumb, category reset, primary rows, then
-  `<details class="more">`.
+* **Re-run needed:** a ↻ dot on the affected tab and a small badge beside the
+  control. No banner. The `plotpolish-rerun-needed` event lets the host pulse
+  its Run button.
+* **Changes:** a small dot on any tab whose category has a set value, plus
+  the marker on each set control. The "Your changes" chip list from the
+  first tiered build is dropped; if students need the full list it returns
+  as a "Changes ▾" item in the reset menu.
+* **Status** ("Live preview on · matplotlib 3.8.4") becomes a tooltip on the
+  pill. Errors show inline: a fence error puts a red mark on the pill and the
+  popover shows the message with the "Replace block" button.
+* **Reset** is one small "↺ ▾" menu at the end of the pill with
+  "Reset <Category>", "Reset all", and "Show code".
+
+## Implementation contract (for the panel shell, v3)
+
+* `<plotpolish-panel>` renders, in order: the tab pill (or rail), the
+  popover layer, the reset menu. Properties: `open` (popover visible),
+  `category` (active tab id or null), `figureElement` (the host's figure
+  container, used to place the rail and to bound re-anchoring),
+  `showCategory(id | null)`, `toggle()`. Layout is chosen automatically:
+  `layout` attribute reflects "pill" or "rail"; the host may force it.
 * Rows keep `.row[data-control=<id>]` and inputs keep `id="ctl-<id>"`; every
   row exists in the DOM at all times and is shown or hidden by category and
   tier, so state syncing stays a single `update()` pass.
-* `controls.json` carries the tree: `groups[].subgroups`, `groups[].hideWhen`,
-  `controls[].tier` and `controls[].subgroup`. The panel derives widgets from
-  type plus option count; no per-control widget hints.
-* Public API, events, sink and backend behaviour are unchanged.
+* `controls.json` carries the tree unchanged from the tiered build.
+* Public API for sink, backend, settings and events is unchanged. US
+  spelling everywhere in user-facing text.

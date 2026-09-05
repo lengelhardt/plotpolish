@@ -8,7 +8,7 @@ Design constraints (see docs/design.md):
 * Pure functions, JSON-friendly values in and out. Imports are limited to
   ``matplotlib``, ``json`` and the standard library.
 * Nothing here ever touches axis labels, titles, limits, scales, annotations
-  or per-series colours. Those belong to the user's code.
+  or per-series colors. Those belong to the user's code.
 """
 
 import json
@@ -72,7 +72,7 @@ _REL_TOL = 1e-6
 # --------------------------------------------------------------------------
 
 def _plain(value):
-    """Turn numpy scalars / tuples into plain JSON-serialisable Python."""
+    """Turn numpy scalars / tuples into plain JSON-serializable Python."""
     if hasattr(value, "item") and not isinstance(value, (str, bytes)):
         try:
             return value.item()
@@ -84,7 +84,7 @@ def _plain(value):
 
 
 def rc_to_json(key, value):
-    """Serialise one rcParam value the way the panel expects it."""
+    """Serialize one rcParam value the way the panel expects it."""
     if key == "axes.prop_cycle":
         return [c.get("color") for c in value if "color" in c]
     if key == "font.family":
@@ -272,7 +272,7 @@ def _find_overrides(fig, rc):
     Heuristic: if the figure's artists do not sit at the current rcParam
     value, the user's code (or a style applied after creation) set them.
     A user who explicitly passes the default value is indistinguishable
-    from one who did not; that is documented behaviour.
+    from one who did not; that is documented behavior.
     """
     over = set()
     base = float(mpl.rcParams["font.size"])
@@ -604,7 +604,7 @@ def apply_live(rc, only_defaults=True, previous=None):
     makes every artist look user-set and live preview silently stops
     applying. Passing ``previous`` lets the caller supply the true "old"
     baseline instead. Keys missing from ``previous`` (or omitted entirely)
-    fall back to today's behaviour of reading ``mpl.rcParams``.
+    fall back to today's behavior of reading ``mpl.rcParams``.
     """
     fig = current_figure()
     result = {"applied": [], "deferred": [], "unknown": [], "has_figure": fig is not None}

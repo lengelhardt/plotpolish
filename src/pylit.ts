@@ -249,7 +249,7 @@ class Parser {
     if (kw.kind !== "name" || kw.value !== "color") throw new PyLitError("Only mpl.cycler(color=[...]) is supported", start.pos);
     this.expectPunct("=");
     const colors = this.list();
-    if (!colors.every((c) => typeof c === "string")) throw new PyLitError("Colours must be strings", start.pos);
+    if (!colors.every((c) => typeof c === "string")) throw new PyLitError("Colors must be strings", start.pos);
     if (this.isPunct(",")) this.next();
     this.expectPunct(")");
     return { cycler: { color: colors as string[] } };

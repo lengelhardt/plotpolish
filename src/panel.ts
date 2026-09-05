@@ -1036,7 +1036,7 @@ export class PlotpolishPanel extends HTMLElement {
       case "colorcycle": {
         const colors = value as string[];
         const preset = spec.presets?.find((p) => rcEqual(p.colors, colors));
-        return preset ? preset.label : "Custom colours";
+        return preset ? preset.label : "Custom colors";
       }
       case "legendloc": {
         if (Array.isArray(value)) {

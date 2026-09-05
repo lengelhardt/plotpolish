@@ -82,7 +82,7 @@ def test_legend_custom_xy_loc_is_reported_and_overridden():
     assert "legend.loc" in result["overridden"]
 
 
-def test_result_is_json_serialisable():
+def test_result_is_json_serializable():
     import json
 
     fig, ax = plt.subplots()

@@ -102,8 +102,8 @@ Every control declares one of three categories in `controls.json`:
 | Category | Meaning | UI |
 | --- | --- | --- |
 | `live` | Has an artist-level equivalent; `apply_live` changes the retained figure immediately. | Applies on change. |
-| `save` | Read by `savefig`, not by artists; `apply_live` sets the rcParam so the next save honours it. | Labelled "applies when saving". |
-| `rerun` | rcParams-only (style sheet, colour cycle, font family). | Labelled "re-run to see"; the panel raises a `rerun-needed` event. |
+| `save` | Read by `savefig`, not by artists; `apply_live` sets the rcParam so the next save honors it. | Labelled "applies when saving". |
+| `rerun` | rcParams-only (style sheet, color cycle, font family). | Labelled "re-run to see"; the panel raises a `rerun-needed` event. |
 
 `apply_live` only touches artists that currently sit at the *current*
 rcParam default (e.g. a line whose linewidth equals `rcParams["lines.linewidth"]`).
@@ -160,7 +160,7 @@ drift.
 
 ## Deliberately out of scope for 0.1
 
-Per-artist editing (labels, limits, per-series colour), any persistence
+Per-artist editing (labels, limits, per-series color), any persistence
 other than the fenced block, telemetry, remote asset loading, `figure.dpi`.
 
 ## Package name

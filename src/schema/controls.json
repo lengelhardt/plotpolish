@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md.",
   "groups": [
-    { "id": "look",   "label": "Look",   "help": "The overall style: preset, colours, figure size." },
+    { "id": "look",   "label": "Look",   "help": "The overall style: preset, colors, figure size." },
     { "id": "text",   "label": "Text",   "help": "Sizes and font for every piece of text." },
     { "id": "lines",  "label": "Lines",  "help": "Plotted lines and markers." },
     { "id": "axes",   "label": "Axes",   "help": "Grid, the box around the plot, tick marks.",
@@ -12,15 +12,15 @@
   "controls": [
     { "id": "style", "group": "look", "tier": "primary", "label": "Style preset", "type": "style", "keys": [], "default": "default", "category": "rerun",
       "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; everything else here overrides it." },
-    { "id": "prop_cycle", "group": "look", "tier": "primary", "label": "Colours", "type": "colorcycle", "keys": ["axes.prop_cycle"], "category": "rerun",
-      "help": "The order of colours given to successive lines (axes.prop_cycle).",
+    { "id": "prop_cycle", "group": "look", "tier": "primary", "label": "Colors", "type": "colorcycle", "keys": ["axes.prop_cycle"], "category": "rerun",
+      "help": "The order of colors given to successive lines (axes.prop_cycle).",
       "default": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"],
       "presets": [
         { "id": "tab10", "label": "matplotlib default",
           "colors": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"] },
-        { "id": "okabe-ito", "label": "Colourblind-safe (Okabe–Ito)",
+        { "id": "okabe-ito", "label": "Colorblind-safe (Okabe–Ito)",
           "colors": ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"] },
-        { "id": "tol-bright", "label": "Colourblind-safe (Tol bright)",
+        { "id": "tol-bright", "label": "Colorblind-safe (Tol bright)",
           "colors": ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"] }
       ] },
     { "id": "figsize", "group": "look", "tier": "more", "label": "Figure size (inches)", "type": "pair", "keys": ["figure.figsize"], "default": [6.4, 4.8], "category": "live", "min": 1, "max": 30, "step": 0.1,

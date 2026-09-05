@@ -521,7 +521,7 @@ describe("writing", () => {
     expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe("figure");
   });
 
-  it("writes the preset colours for a colorcycle preset button and shows swatches", () => {
+  it("writes the preset colors for a colorcycle preset button and shows swatches", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;

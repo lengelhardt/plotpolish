@@ -58,7 +58,7 @@ def test_legend_loc_xy_json_is_accepted_by_matplotlib():
     assert mpl.rcParams["legend.loc"] == (0.6, 0.2)
 
 
-def test_colour_presets_are_valid_colours():
+def test_color_presets_are_valid_colors():
     from matplotlib.colors import to_hex
 
     (control,) = [c for c in CONTROLS if c["type"] == "colorcycle"]

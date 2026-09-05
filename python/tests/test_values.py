@@ -4,7 +4,7 @@ import pytest
 from plotpolish import json_to_rc, rc_to_json, resolve_size
 
 
-def test_prop_cycle_serialises_to_colour_list():
+def test_prop_cycle_serializes_to_color_list():
     cyc = mpl.cycler(color=["#E69F00", "#56B4E9"])
     assert rc_to_json("axes.prop_cycle", cyc) == ["#E69F00", "#56B4E9"]
     back = json_to_rc("axes.prop_cycle", ["#E69F00", "#56B4E9"])

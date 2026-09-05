@@ -8,7 +8,7 @@ environment for physics students), but it depends on nothing Trinket-specific:
 a JupyterLab extension or a standalone Pyodide page adopts it by writing two
 small adapters.
 
-**Status:** 0.1 — pre-release scaffold. Licence: BSD-3-Clause. No
+**Status:** 0.1 — pre-release scaffold. License: BSD-3-Clause. No
 monetization, no telemetry, no nag UI.
 
 ## Design rules (these are fixed)
@@ -55,7 +55,7 @@ monetization, no telemetry, no nag UI.
 4. **Live preview is split honestly.** Controls with artist-level
    equivalents (figure size, grid, ticks, spines, legend frame) apply
    instantly to the retained figure. rcParams-only knobs (style sheet,
-   colour cycle, font family) need a host re-run and are labelled as such.
+   color cycle, font family) need a host re-run and are labelled as such.
    The panel header says, in one line, that the user's own code always wins
    over these defaults.
 
@@ -67,10 +67,10 @@ monetization, no telemetry, no nag UI.
 6. **Curated controls for 0.1** (about twenty, not the whole of rcParams):
    style preset; figure size, savefig dpi/transparent/bbox; font size and
    family, title/label/tick/legend sizes; line width/style/marker size and a
-   colour cycle with a colourblind-safe option; grid, spines, axes line
+   color cycle with a colorblind-safe option; grid, spines, axes line
    width, tick direction, minor ticks; legend frame/location/alpha; reset.
    **Never reachable from this panel:** axis labels, titles, limits, scale,
-   annotations, per-series colour. Those are the user's code.
+   annotations, per-series color. Those are the user's code.
 
 See [docs/design.md](docs/design.md) for the reasoning behind the
 implementation choices (why the generator is in TypeScript, how live preview

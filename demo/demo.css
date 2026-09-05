@@ -105,13 +105,18 @@ h2 {
 /*
  * .columns is a CSS grid with three named areas: editor, runbar, figure.
  * "figure" spans both rows in the right-hand column: .figure-wrap is
- * itself a column flexbox holding #figure, then <plotpolish-panel>
- * docked directly below it as a full-width strip, then #output -- so
- * the panel lives inside the figure column rather than in a column of
- * its own. The left column is editor over runbar, in DOM order, so
- * below the 1100px breakpoint, where .columns switches to plain block
- * layout (see media query), everything stacks in DOM order for free:
- * editor, runbar, figure, panel, output. No reordering CSS needed.
+ * itself a column flexbox holding #figure, then #panel-dock, then
+ * #output -- so the panel lives inside the figure column rather than in
+ * a column of its own. <plotpolish-panel> itself is no longer a block
+ * docked below the figure: demo/main.ts's mountPanel() moves the one
+ * panel element inline into WebAgg's own `.mpl-toolbar` row after every
+ * run, and only falls back to sitting in #panel-dock (a small toolbar-
+ * like row) when there is no toolbar yet -- mock mode, or before the
+ * first Pyodide run. The left column is editor over runbar, in DOM
+ * order, so below the 1100px breakpoint, where .columns switches to
+ * plain block layout (see media query), everything stacks in DOM order
+ * for free: editor, runbar, figure, panel-dock, output. No reordering
+ * CSS needed.
  */
 .columns {
   flex: 1 1 auto;
@@ -144,12 +149,13 @@ h2 {
 }
 
 /*
- * .figure-wrap is the whole right column: figure, then the panel strip,
- * then the traceback output, stacked in that order and scrolling as one
- * independent unit (see "Both columns scroll independently" in the
- * layout brief). It is a column flexbox so <plotpolish-panel> stretches
- * to the column's full width for free (flex default align-items:
- * stretch), and `gap` spaces the three children evenly.
+ * .figure-wrap is the whole right column: figure, then the #panel-dock
+ * fallback row, then the traceback output, stacked in that order and
+ * scrolling as one independent unit (see "Both columns scroll
+ * independently" in the layout brief). It is a column flexbox so
+ * #panel-dock stretches to the column's full width for free (flex
+ * default align-items: stretch), and `gap` spaces the three children
+ * evenly.
  */
 .figure-wrap {
   grid-area: figure;
@@ -202,9 +208,24 @@ h2 {
   color: var(--fg);
 }
 
-plotpolish-panel {
-  display: block;
-  padding: 8px;
+/*
+ * #panel-dock: fallback home for <plotpolish-panel> when there is no
+ * WebAgg toolbar to embed it in yet (mock mode, or before the first
+ * Pyodide run). Styled like a small toolbar row of its own so the pill
+ * still reads as "the panel", just without a figure alongside it yet.
+ * Empty (once mountPanel() has relocated the panel into a real
+ * .mpl-toolbar) it collapses away, same pattern as #output:empty below.
+ */
+#panel-dock {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+#panel-dock:empty {
+  display: none;
 }
 
 #figure {
@@ -225,10 +246,49 @@ plotpolish-panel {
   min-height: 500px;
 }
 
+/*
+ * Reclaim WebAgg's own chrome so <plotpolish-panel> has room to sit
+ * inline in `.mpl-toolbar` next to matplotlib's buttons (see
+ * docs/ux-design.md, "Where the panel lives"): drop the "Figure 1"
+ * title bar and the "Left button pans..." message (the panel takes over
+ * that space), shrink the 42px-tall toolbar's buttons/select to fit a
+ * ~30px pill, and make the toolbar a tight flex row so nothing wraps.
+ * WebAgg rebuilds this whole DOM on every run, so these rules are scoped
+ * under #figure rather than targeting elements directly -- they apply
+ * again for free each time.
+ */
+#figure .ui-dialog-titlebar {
+  display: none;
+}
+
+#figure .mpl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+#figure .mpl-toolbar span.mpl-message {
+  display: none;
+}
+
+#figure .mpl-toolbar button.mpl-widget {
+  height: 30px;
+}
+
+#figure .mpl-toolbar button.mpl-widget img {
+  height: 20px;
+  width: 20px;
+}
+
+#figure .mpl-toolbar select.mpl-widget {
+  height: 26px;
+}
+
 #output {
   /* Spacing above #output comes from .figure-wrap's flex `gap`, not a
-     margin here, since #output now sits after <plotpolish-panel> rather
-     than always directly after #figure. */
+     margin here, since #output now sits after #panel-dock rather than
+     always directly after #figure. */
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;

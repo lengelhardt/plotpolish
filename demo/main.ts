@@ -73,6 +73,7 @@ const figureDiv = required<HTMLDivElement>("figure");
 const outputPre = required<HTMLPreElement>("output");
 const themeToggle = required<HTMLButtonElement>("theme-toggle");
 const panel = required<PlotpolishPanel>("panel");
+const panelDock = required<HTMLDivElement>("panel-dock");
 
 textarea.value = SAMPLE_SOURCE;
 
@@ -145,6 +146,51 @@ panel.addEventListener("plotpolish-error", (event) => {
 });
 
 // ---------------------------------------------------------------------------
+// Panel mounting.
+//
+// The panel's real home (per docs/ux-design.md's "Implementation contract
+// (for the panel shell, v3)") is inline in WebAgg's own toolbar row, right
+// after the format <select>, with `figureElement` pointing at the WebAgg
+// wrapper div so the panel can place its rail/popover relative to the
+// figure. WebAgg rebuilds `#figure`'s whole DOM (title bar, canvas, toolbar)
+// on every run, so `mountPanel()` re-finds the toolbar and re-inserts the
+// *same* <plotpolish-panel> element (never a new one -- its `sink`/`backend`
+// live as plain instance properties on that object, so moving it in the DOM
+// cannot lose them). When there is no toolbar yet -- mock mode, or before
+// the first Pyodide run -- the panel falls back to the `#panel-dock` row
+// under the figure so it stays visible and usable.
+//
+// This function must be idempotent: it is called after every successful
+// run and (separately) once for mock mode, and re-running it when nothing
+// changed should not thrash the DOM.
+// ---------------------------------------------------------------------------
+
+function mountPanel(): void {
+  // `figureElement` is not yet part of PlotpolishPanel's public type (the
+  // panel shell is being rewritten to the v3 contract concurrently); this
+  // cast lets us set it either way and keeps `tsc --noEmit` passing today
+  // and after that lands.
+  const withFigureElement = panel as unknown as { figureElement: HTMLElement | null };
+
+  const toolbar = figureDiv.querySelector<HTMLElement>(".mpl-toolbar");
+  if (toolbar) {
+    const wrapper = toolbar.parentElement ?? figureDiv;
+    const select = toolbar.querySelector<HTMLElement>("select.mpl-widget");
+    const anchor = select ? select.nextSibling : toolbar.firstChild;
+    if (panel.parentElement !== toolbar || panel.previousElementSibling !== select) {
+      toolbar.insertBefore(panel, anchor);
+    }
+    withFigureElement.figureElement = wrapper;
+    panel.removeAttribute("layout");
+  } else {
+    if (panel.parentElement !== panelDock) {
+      panelDock.appendChild(panel);
+    }
+    withFigureElement.figureElement = figureDiv;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Backend mode
 // ---------------------------------------------------------------------------
 
@@ -153,6 +199,7 @@ const backendMode: "mock" | "pyodide" = params.get("backend") === "mock" ? "mock
 
 if (backendMode === "mock") {
   panel.backend = new MockBackend();
+  mountPanel();
   setStatus("Mock mode: no Python runs. Click Run to see the status message.");
 } else {
   setStatus("Click Run to load Python (downloads Pyodide + matplotlib from jsDelivr).");
@@ -221,6 +268,7 @@ async function runProgram(py: PyodideInterface): Promise<void> {
     await py.runPythonAsync(source);
     setStatus("Done.");
     await panel.refresh();
+    mountPanel();
   } catch (err) {
     outputPre.textContent = err instanceof Error ? err.message : String(err);
     setStatus("Error while running the program.", true);

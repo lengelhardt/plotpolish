@@ -229,6 +229,7 @@ a stray revert button. Decisions:
   boxes remain only where a slider would not fit: the per-line width cells,
   which lose their spinner buttons and are wide enough for "2.75".
 * **Per-line table**: header and rows share one grid so the column headings
-  sit over their columns; the style control is content-width, not
+  sit over their columns; the swatch column has no heading ("COLOR" was
+  redundant); the style control is content-width, not
   stretched; the control's revert button sits at the right end of the
   "Per line" label row; no dead space between the label and the table.

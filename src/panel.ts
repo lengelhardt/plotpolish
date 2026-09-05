@@ -94,6 +94,13 @@ export class PlotpolishPanel extends HTMLElement {
 
   private settings: StyleSettings = defaultSettings();
   private baseline: Record<string, RcValue> = schemaDefaults();
+  /**
+   * What the retained figure is believed to sit at, per key: the rc values at
+   * the last refresh plus every value this panel has since applied. Sent to
+   * apply_live as `previous`, because set_style moves mpl.rcParams while the
+   * figure stays as it was drawn.
+   */
+  private figureRc: Record<string, RcValue> = {};
   private styles: string[] = ["default"];
   private overridden = new Set<string>();
   private unknownKeys: string[] = [];
@@ -216,6 +223,7 @@ export class PlotpolishPanel extends HTMLElement {
         const [styles, intro] = await Promise.all([this.client.listStyles(), this.client.introspect()]);
         this.styles = styles.length ? styles : ["default"];
         this.baseline = { ...schemaDefaults(), ...intro.rc };
+        this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
         this.stale = false;
         this.rerunKeys.clear();
@@ -394,9 +402,18 @@ export class PlotpolishPanel extends HTMLElement {
       this.pendingApply = {};
       if (!Object.keys(batch).length || !this.client) return;
       const client = this.client;
+      const previous: Record<string, RcValue> = {};
+      for (const key of Object.keys(batch)) {
+        const seen = this.figureRc[key];
+        if (seen !== undefined) previous[key] = seen;
+      }
       this.applyChain = this.applyChain
-        .then(() => client.applyLive(batch))
+        .then(() => client.applyLive(batch, true, previous))
         .then((result) => {
+          for (const key of result.applied) {
+            const value = batch[key];
+            if (value !== undefined) this.figureRc[key] = value;
+          }
           if (result.deferred.length) this.noteRerun(result.deferred);
           if (this.backendState === "error") {
             this.backendState = "ready";

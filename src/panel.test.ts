@@ -417,7 +417,7 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
-    expect(calls[0]!.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true });
+    expect(calls[0]!.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true, previous: { "lines.linewidth": 1.5 } });
   });
 
   it("coalesces two rapid changes to different controls into one apply_live call", async () => {
@@ -432,7 +432,11 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
-    expect(calls[0]!.args).toEqual({ rc: { "lines.linewidth": 4, "lines.markersize": 10 }, only_defaults: true });
+    expect(calls[0]!.args).toEqual({
+      rc: { "lines.linewidth": 4, "lines.markersize": 10 },
+      only_defaults: true,
+      previous: { "lines.linewidth": 1.5, "lines.markersize": 6 },
+    });
   });
 
   it("does not call apply_live for a rerun-category control, and dispatches rerun-needed", async () => {
@@ -494,7 +498,7 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(2);
-    expect(calls[1]!.args).toEqual({ rc: { "lines.linewidth": 5 }, only_defaults: true });
+    expect(calls[1]!.args).toEqual({ rc: { "lines.linewidth": 5 }, only_defaults: true, previous: { "lines.linewidth": 5 } });
   });
 
   it("reverting a key applies the baseline value", async () => {
@@ -511,7 +515,7 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     const last = calls[calls.length - 1]!;
-    expect(last.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true });
+    expect(last.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true, previous: { "lines.linewidth": 7 } });
     expect(panel.getSettings().rc["lines.linewidth"]).toBeUndefined();
   });
 

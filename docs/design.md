@@ -113,6 +113,17 @@ would do. The same comparison drives `introspect_figure`'s
 explicitly passes the default value is indistinguishable from one who
 didn't — and the README says so.
 
+`set_style()` resets and moves `mpl.rcParams` between runs, but the
+retained figure's artists do not move with it — so right after a style
+change, `mpl.rcParams[key]` no longer describes the value the figure was
+actually drawn against, and comparing an artist to it makes every artist
+look user-set (live preview then silently stops applying). `apply_live`
+takes an optional `previous` dict of rc keys to the JSON values the panel
+believes the figure currently sits at — recorded from the last
+`introspect_figure()['rc']` plus the panel's own successful applies — and
+uses it in place of `mpl.rcParams[key]` for the `only_defaults` comparison
+whenever a key is present in it, falling back to `mpl.rcParams` otherwise.
+
 ## Python helper transport
 
 Hosts already run "a small Python helper in a throwaway namespace, hand

@@ -563,7 +563,7 @@ _LIVE_HANDLERS = {
 LIVE_KEYS = ("font.size",) + tuple(_TEXT_SIZE_HANDLERS) + tuple(_LIVE_HANDLERS)
 
 
-def apply_live(rc, only_defaults=True):
+def apply_live(rc, only_defaults=True, previous=None):
     """Apply artist-level equivalents of ``rc`` to the live figure.
 
     ``rc`` maps rc keys to JSON values (as produced by the panel). For every
@@ -575,20 +575,37 @@ def apply_live(rc, only_defaults=True):
     With ``only_defaults=True`` (the default) an artist is only changed if it
     currently sits at the old rc value — a line the user drew with ``lw=3``
     is left alone, which mirrors what a re-run of their code would do.
+
+    ``previous``, if given, is a dict mapping rc keys to the JSON values the
+    caller believes the retained figure currently sits at (the panel records
+    these from the last ``introspect_figure()['rc']`` plus its own successful
+    applies). It exists because ``set_style()`` resets/moves ``mpl.rcParams``
+    without touching the retained figure: after a style change,
+    ``mpl.rcParams[key]`` no longer describes what the figure's artists were
+    drawn against, so comparing against it (the ``only_defaults`` default)
+    makes every artist look user-set and live preview silently stops
+    applying. Passing ``previous`` lets the caller supply the true "old"
+    baseline instead. Keys missing from ``previous`` (or omitted entirely)
+    fall back to today's behaviour of reading ``mpl.rcParams``.
     """
     fig = current_figure()
     result = {"applied": [], "deferred": [], "unknown": [], "has_figure": fig is not None}
     rc = dict(rc or {})
 
+    def old_value(key):
+        if isinstance(previous, dict) and key in previous:
+            return previous[key]
+        return rc_to_json(key, mpl.rcParams[key])
+
     # font.size first: relative sizes ("large") resolve against it.
-    base_old = float(mpl.rcParams["font.size"])
+    base_old = float(old_value("font.size"))
     base_new = float(rc["font.size"]) if "font.size" in rc else base_old
     if "font.size" in rc:
         if fig is not None and not _close(base_old, base_new):
             for key, handler in _TEXT_SIZE_HANDLERS.items():
                 if key in rc:
                     continue  # explicitly set below
-                current = mpl.rcParams[key]
+                current = old_value(key)
                 if isinstance(current, str):  # relative: follows font.size
                     handler(fig, current, current, only_defaults, base_old=base_old, base_new=base_new)
         mpl.rcParams["font.size"] = base_new
@@ -599,13 +616,13 @@ def apply_live(rc, only_defaults=True):
             continue
         if key in _TEXT_SIZE_HANDLERS:
             if fig is not None:
-                _TEXT_SIZE_HANDLERS[key](fig, value, mpl.rcParams[key], only_defaults,
+                _TEXT_SIZE_HANDLERS[key](fig, value, old_value(key), only_defaults,
                                          base_old=base_old, base_new=base_new)
             mpl.rcParams[key] = value
             result["applied"].append(key)
         elif key in _LIVE_HANDLERS:
             if fig is not None:
-                _LIVE_HANDLERS[key](fig, value, rc_to_json(key, mpl.rcParams[key]), only_defaults)
+                _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
             mpl.rcParams[key] = json_to_rc(key, value)
             result["applied"].append(key)
         elif key in SAVE_KEYS:

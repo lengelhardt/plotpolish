@@ -162,6 +162,52 @@ def test_rerun_keys_are_deferred_and_untouched():
     assert mpl.rcParams["font.family"] == before
 
 
+def test_previous_overrides_rcparams_reference():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines
+    # Simulate a style change moving the baseline without touching the figure.
+    mpl.rcParams["lines.linewidth"] = 1.0
+    apply_live({"lines.linewidth": 2}, previous={"lines.linewidth": 1.5})
+    assert default_line.get_linewidth() == 2  # was 1.5 (the true old default)
+    assert user_line.get_linewidth() == 3  # user's lw=3 still wins
+    assert mpl.rcParams["lines.linewidth"] == 2
+
+
+def test_without_previous_moved_baseline_skips_artists():
+    fig, ax = make_figure()
+    default_line, user_line = ax.lines
+    mpl.rcParams["lines.linewidth"] = 1.0
+    apply_live({"lines.linewidth": 2})
+    assert default_line.get_linewidth() == 1.5  # untouched: looked "user-set"
+    assert user_line.get_linewidth() == 3
+    assert mpl.rcParams["lines.linewidth"] == 2
+
+
+def test_previous_for_grid_after_style_change():
+    fig, ax = make_figure()
+    ax.grid(True)  # figure created under a grid-on style
+    mpl.rcParams["axes.grid"] = False  # baseline moved
+    apply_live({"axes.grid": False}, previous={"axes.grid": True})
+    assert not _grid_on(ax.xaxis)
+
+
+def test_previous_font_size_base():
+    fig, ax = make_figure()
+    mpl.rcParams["font.size"] = 14  # baseline moved after the figure was drawn at 10
+    apply_live({"font.size": 20}, previous={"font.size": 10, "axes.titlesize": "large"})
+    assert ax.title.get_fontsize() == pytest.approx(24)
+    assert ax.xaxis.label.get_fontsize() == pytest.approx(20)
+
+
+def test_previous_ignores_unknown_keys_and_partial_dicts():
+    fig, ax = make_figure()
+    default_line = ax.lines[0]
+    result = apply_live({"lines.linewidth": 4, "axes.grid": True}, previous={"nope": 1})
+    assert sorted(result["applied"]) == ["axes.grid", "lines.linewidth"]
+    assert default_line.get_linewidth() == 4
+    assert _grid_on(ax.xaxis)
+
+
 def test_every_live_key_has_a_path():
     fig, ax = make_figure()
     defaults = {k: mpl.rcParamsDefault[k] for k in LIVE_KEYS}

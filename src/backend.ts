@@ -116,7 +116,15 @@ export class HelperClient {
     return this.call<IntrospectResult>("introspect_figure", keys ? { keys } : {});
   }
 
-  applyLive(rc: Record<string, RcValue>, onlyDefaults = true): Promise<ApplyResult> {
-    return this.call<ApplyResult>("apply_live", { rc, only_defaults: onlyDefaults });
+  /**
+   * Apply artist-level equivalents. `previous` tells the helper what the
+   * retained figure currently sits at for each key, so the "is this artist
+   * still at the default?" test does not depend on `mpl.rcParams`, which
+   * `set_style` moves without touching the figure.
+   */
+  applyLive(rc: Record<string, RcValue>, onlyDefaults = true, previous?: Record<string, RcValue>): Promise<ApplyResult> {
+    const args: Record<string, unknown> = { rc, only_defaults: onlyDefaults };
+    if (previous) args.previous = previous;
+    return this.call<ApplyResult>("apply_live", args);
   }
 }

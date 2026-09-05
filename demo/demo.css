@@ -1,0 +1,234 @@
+/* Plain CSS, no frameworks. Light theme by default; body.theme-dark flips it. */
+
+:root {
+  color-scheme: light;
+  --bg: #f7f7f8;
+  --fg: #1a1a1a;
+  --panel-bg: #ffffff;
+  --border: #d8d8dc;
+  --accent: #2f6fed;
+  --accent-fg: #ffffff;
+  --muted: #6b6b70;
+  --error: #c0392b;
+}
+
+body.theme-dark {
+  color-scheme: dark;
+  --bg: #17181b;
+  --fg: #e7e7ea;
+  --panel-bg: #202226;
+  --border: #35373c;
+  --accent: #5b8def;
+  --accent-fg: #0b0b0c;
+  --muted: #9a9aa2;
+  --error: #ff6b5e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  flex: 0 0 auto;
+}
+
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#theme-toggle,
+#run {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+#run {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+#run:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.note {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  flex: 0 0 auto;
+}
+
+.note a {
+  color: var(--accent);
+}
+
+.columns {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.col-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+.col-panel {
+  flex: 0 0 380px;
+  width: 380px;
+  min-width: 260px;
+}
+
+.col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  flex: 0 0 auto;
+}
+
+.col-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status.status-error {
+  color: var(--error);
+}
+
+#source {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.panel-wrap {
+  flex: 0 0 auto;
+  max-height: 55%;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+stylefence-panel {
+  display: block;
+  padding: 8px;
+}
+
+.figure-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+#figure {
+  min-height: 220px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#output {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--error);
+}
+
+#output:empty {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .columns {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .col-editor {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex: 1 1 420px;
+  }
+
+  .col-panel {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  #source {
+    min-height: 260px;
+  }
+}

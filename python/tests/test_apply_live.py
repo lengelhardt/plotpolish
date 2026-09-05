@@ -305,3 +305,22 @@ def test_every_live_key_has_a_path():
     result = apply_live(payload)
     assert sorted(result["applied"]) == sorted(LIVE_KEYS)
     assert result["deferred"] == [] and result["unknown"] == []
+
+
+def test_autolayout_sets_and_clears_the_tight_layout_engine():
+    fig, ax = make_figure()
+    assert fig.get_layout_engine() is None or type(fig.get_layout_engine()).__name__ != "TightLayoutEngine"
+    apply_live({"figure.autolayout": True})
+    assert type(fig.get_layout_engine()).__name__ == "TightLayoutEngine"
+    assert mpl.rcParams["figure.autolayout"] is True
+    apply_live({"figure.autolayout": False})
+    assert type(fig.get_layout_engine()).__name__ != "TightLayoutEngine"
+
+
+def test_autolayout_respects_a_figure_the_user_laid_out():
+    fig = plt.figure(layout="constrained")
+    fig.add_subplot().plot([0, 1])
+    apply_live({"figure.autolayout": True})  # constrained != rc default False, so treated as user-set
+    assert type(fig.get_layout_engine()).__name__ == "ConstrainedLayoutEngine"
+    apply_live({"figure.autolayout": True}, only_defaults=False)
+    assert type(fig.get_layout_engine()).__name__ == "TightLayoutEngine"

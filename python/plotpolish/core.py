@@ -33,6 +33,7 @@ TOOL_NAME = "plotpolish"
 # python/tests/test_schema_contract.py.
 CURATED_KEYS = (
     "figure.figsize",
+    "figure.autolayout",
     "savefig.dpi",
     "savefig.transparent",
     "savefig.bbox",
@@ -292,6 +293,7 @@ def _describe_figure(fig):
     return {
         "figsize": [float(w), float(h)],
         "dpi": float(fig.dpi),
+        "autolayout": _layout_is_tight(fig),
         "axes": [_describe_axes(ax) for ax in fig.axes],
     }
 
@@ -333,6 +335,7 @@ def _find_overrides(fig, rc):
         if key in rc and actual is not None:
             differs(key, actual, resolve_size(rc[key], base))
 
+    differs("figure.autolayout", _layout_is_tight(fig))
     if "figure.figsize" in rc:
         w, h = fig.get_size_inches()
         fw, fh = rc["figure.figsize"]
@@ -436,6 +439,35 @@ def _apply_figsize(fig, new, old, only):
     if only and not (_close(w, old[0]) and _close(h, old[1])):
         return
     fig.set_size_inches(float(new[0]), float(new[1]), forward=True)
+
+
+def _layout_state(fig):
+    """'tight', 'none' (no engine or the placeholder), or 'other' (constrained, compressed, custom)."""
+    engine = fig.get_layout_engine()
+    if engine is None:
+        return "none"
+    name = type(engine).__name__
+    if name == "TightLayoutEngine":
+        return "tight"
+    if name == "PlaceHolderLayoutEngine":
+        return "none"
+    return "other"
+
+
+def _layout_is_tight(fig):
+    return _layout_state(fig) == "tight"
+
+
+def _apply_autolayout(fig, new, old, only):
+    """figure.autolayout: tight_layout on every draw, via the figure's layout engine.
+
+    A figure the user gave another engine (constrained, compressed) is never
+    switched under them when only_defaults is set.
+    """
+    state = _layout_state(fig)
+    if only and (state == "other" or (state == "tight") != bool(old)):
+        return
+    fig.set_layout_engine("tight" if new else "none")
 
 
 def _apply_grid(fig, new, old, only):
@@ -665,6 +697,7 @@ _TEXT_SIZE_HANDLERS = {
 
 _LIVE_HANDLERS = {
     "figure.figsize": _apply_figsize,
+    "figure.autolayout": _apply_autolayout,
     "axes.grid": _apply_grid,
     "grid.alpha": _apply_grid_kw("alpha"),
     "grid.linestyle": _apply_grid_kw("linestyle"),

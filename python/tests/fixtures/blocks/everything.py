@@ -5,6 +5,7 @@ mpl.rcParams.update({
     "axes.prop_cycle": mpl.cycler(color=["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]),
     "figure.figsize": [8, 5],
     "font.size": 14,
+    "figure.autolayout": True,
     "axes.titlesize": "x-large",
     "axes.labelsize": 13,
     "xtick.labelsize": "small",

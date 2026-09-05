@@ -42,6 +42,7 @@ export interface AxesDescription {
 export interface FigureDescription {
   figsize: [number, number];
   dpi: number;
+  autolayout?: boolean;
   axes: AxesDescription[];
 }
 

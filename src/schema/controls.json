@@ -164,6 +164,19 @@
       "help": "Base size in points (font.size). Title, labels and legend scale from it unless set below."
     },
     {
+      "id": "autolayout",
+      "group": "text",
+      "tier": "primary",
+      "label": "Fit labels in figure",
+      "type": "bool",
+      "keys": [
+        "figure.autolayout"
+      ],
+      "default": false,
+      "category": "live",
+      "help": "Re-lays out the figure on every draw so axis labels and titles stay inside the edges (figure.autolayout, matplotlib's tight_layout). Turn on after enlarging text."
+    },
+    {
       "id": "title_size",
       "group": "text",
       "tier": "more",

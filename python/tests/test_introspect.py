@@ -89,3 +89,11 @@ def test_result_is_json_serializable():
     ax.plot([0, 1], [0, 1], label="a")
     ax.legend()
     json.dumps(introspect_figure())
+
+
+def test_tight_layout_figure_is_reported_and_flagged():
+    fig = plt.figure(layout="tight")
+    fig.add_subplot().plot([0, 1])
+    result = introspect_figure()
+    assert result["figure"]["autolayout"] is True
+    assert "figure.autolayout" in result["overridden"]

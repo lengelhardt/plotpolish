@@ -240,3 +240,19 @@ figure became a 3200 × 2400 canvas that swallowed the page. Font family is
 now live: `font.family` is set on every Text artist that still uses the old
 family and on future tick labels, so the change shows without a re-run. The
 style sheet is the only re-run-only knob left.
+
+## Round five (2026-09-05)
+
+* **Figure size removed from the panel.** Even bounded, a wide figure at the
+  browser's 200 dpi overflowed the pane, and WebAgg already lets the student
+  drag the figure's corner. The key is no longer curated; a block that sets
+  it is kept as an unknown key.
+* **Legend position defaults to the sliders.** x and y are always visible,
+  seeded from where matplotlib actually drew the legend (lower-left corner
+  of its box in axes fractions, read back from the live figure), with a
+  "Snap to" dropdown of the named locations underneath. Choosing a named
+  spot writes the string and the sliders move to the resulting position.
+* **Style preset needs a run, and says so.** Under the preset the popover
+  shows "Applies on the next run", highlighted while a change is pending.
+  The demo re-runs the program automatically when a re-run-only setting
+  changes; hosts decide for themselves.

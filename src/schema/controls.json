@@ -4,7 +4,7 @@
     {
       "id": "look",
       "label": "Look",
-      "help": "The overall style: preset, colors, figure size."
+      "help": "The overall style: preset and colors."
     },
     {
       "id": "text",
@@ -57,7 +57,7 @@
       "keys": [],
       "default": "default",
       "category": "rerun",
-      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; everything else here overrides it."
+      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; the other controls override it. Applies on the next run."
     },
     {
       "id": "prop_cycle",
@@ -127,25 +127,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": "figsize",
-      "group": "look",
-      "tier": "more",
-      "label": "Figure size (inches)",
-      "type": "pair",
-      "keys": [
-        "figure.figsize"
-      ],
-      "default": [
-        6.4,
-        4.8
-      ],
-      "category": "live",
-      "min": 2,
-      "max": 10,
-      "step": 0.1,
-      "help": "Width × height of new figures in inches (figure.figsize). Bounded so the plot stays inside the page."
     },
     {
       "id": "font_size",
@@ -495,7 +476,7 @@
       ],
       "default": "best",
       "category": "live",
-      "help": "legend.loc. 'Custom position' places the legend's lower-left corner at (x, y) as fractions of the axes.",
+      "help": "legend.loc. Drag x and y to place the legend's lower-left corner as fractions of the axes; 'Snap to' picks one of matplotlib's named spots (Best lets matplotlib choose).",
       "options": [
         {
           "value": "best",

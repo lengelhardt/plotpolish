@@ -118,16 +118,16 @@ describe("generateBlock", () => {
     const rc: StyleSettings["rc"] = {};
     rc["axes.grid"] = true;
     rc["font.size"] = 11;
-    rc["figure.figsize"] = [5, 4];
+    rc["axes.prop_cycle"] = ["#111111", "#222222"];
     const block = generateBlock({ style: "default", rc })!;
-    const idxFigsize = block.indexOf('"figure.figsize"');
+    const idxCycle = block.indexOf('"axes.prop_cycle"');
     const idxFont = block.indexOf('"font.size"');
     const idxGrid = block.indexOf('"axes.grid"');
-    expect(idxFigsize).toBeGreaterThan(-1);
-    expect(idxFont).toBeGreaterThan(idxFigsize);
+    expect(idxCycle).toBeGreaterThan(-1);
+    expect(idxFont).toBeGreaterThan(idxCycle);
     expect(idxGrid).toBeGreaterThan(idxFont);
     // sanity check against the schema itself
-    expect(RC_KEYS.indexOf("figure.figsize")).toBeLessThan(RC_KEYS.indexOf("font.size"));
+    expect(RC_KEYS.indexOf("axes.prop_cycle")).toBeLessThan(RC_KEYS.indexOf("font.size"));
     expect(RC_KEYS.indexOf("font.size")).toBeLessThan(RC_KEYS.indexOf("axes.grid"));
   });
 
@@ -136,10 +136,10 @@ describe("generateBlock", () => {
     rc["font.size"] = 11;
     rc["zzz.unknown.first"] = 1;
     rc["aaa.unknown.second"] = 2;
-    rc["figure.figsize"] = [5, 4];
+    rc["axes.prop_cycle"] = ["#111111"];
     const block = generateBlock({ style: "default", rc })!;
     const keyLines = block.split("\n").filter((l) => /^\s*"/.test(l));
-    expect(keyLines[0]).toContain('"figure.figsize"');
+    expect(keyLines[0]).toContain('"axes.prop_cycle"');
     expect(keyLines[1]).toContain('"font.size"');
     expect(keyLines[2]).toContain('"zzz.unknown.first"');
     expect(keyLines[3]).toContain('"aaa.unknown.second"');
@@ -176,7 +176,7 @@ describe("generateBlock", () => {
     expect(block).toContain('"legend.loc": (0.6, 0.2),');
   });
 
-  it("still emits figure.figsize as a list", () => {
+  it("emits a numeric list for a list-valued key (figure.figsize, now an unknown key) as a list", () => {
     const block = generateBlock({ style: "default", rc: { "figure.figsize": [8, 5] } })!;
     expect(block).toContain('"figure.figsize": [8, 5],');
   });
@@ -218,7 +218,8 @@ describe("parseBlock", () => {
       "})",
     ]);
     const parsed = parseBlock(src)!;
-    expect(parsed.unknownKeys).toEqual(["totally.unknown.key"]);
+    // figure.figsize left the curated set in round five; it is now kept as an unknown key too.
+    expect(parsed.unknownKeys).toEqual(["totally.unknown.key", "figure.figsize"]);
     expect(parsed.settings.rc["totally.unknown.key"]).toBe(5);
     expect(parsed.settings.rc["figure.figsize"]).toEqual([6, 4]);
   });

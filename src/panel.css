@@ -218,7 +218,7 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .readout { display: inline-block; min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; color: var(--_muted); }
 
 /* Color-cycle swatch list */
-.swatch-list { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.swatch-list { display: inline-flex; flex-direction: row; flex-wrap: nowrap; gap: 4px; align-items: center; }
 .swatch-list .preset { display: inline-flex; padding: 2px; border-radius: 4px; background: var(--_field-bg); }
 .swatch-list .preset[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }
 .swatches { display: inline-flex; }

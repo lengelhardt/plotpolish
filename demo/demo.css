@@ -224,7 +224,7 @@ h2 {
   padding: 0 8px;
 }
 
-#panel-dock:empty {
+#panel-dock:not(:has(plotpolish-panel)) {
   display: none;
 }
 
@@ -270,6 +270,24 @@ h2 {
 
 #figure .mpl-toolbar span.mpl-message {
   display: none;
+}
+
+/* WebAgg's button groups are inline-block; as flex items they may shrink and
+   wrap their buttons onto two lines. Keep each group on one line. */
+#figure .mpl-toolbar .mpl-button-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#figure .mpl-toolbar select.mpl-widget {
+  flex: 0 0 auto;
+  width: auto;
+  font-size: 12px;
+}
+
+#figure .mpl-toolbar plotpolish-panel {
+  margin-left: 8px;
 }
 
 #figure .mpl-toolbar button.mpl-widget {

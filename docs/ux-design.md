@@ -234,9 +234,9 @@ a stray revert button. Decisions:
   stretched; the control's revert button sits at the right end of the
   "Per line" label row; no dead space between the label and the table.
 
-Follow-ups after trying round four: figure size sliders are bounded to
-3–10 in wide and 2–7.5 in tall, because at the browser's 200 dpi a 16 × 12
-figure became a 3200 × 2400 canvas that swallowed the page. Font family is
+Follow-ups after trying round four: figure size sliders were first bounded
+to 3–10 in wide and 2–7.5 in tall (a 16 × 12 figure at the browser's 200 dpi
+became a 3200 × 2400 canvas), then removed altogether in round five. Font family is
 now live: `font.family` is set on every Text artist that still uses the old
 family and on future tick labels, so the change shows without a re-run. The
 style sheet is the only re-run-only knob left.
@@ -256,3 +256,18 @@ style sheet is the only re-run-only knob left.
   shows "Applies on the next run", highlighted while a change is pending.
   The demo re-runs the program automatically when a re-run-only setting
   changes; hosts decide for themselves.
+
+Follow-ups after trying round five:
+
+* **Per-line rows follow the figure, not the palette.** Choosing a
+  seven-color preset had produced seven rows. Row count is now the lines in
+  the live figure, any row set explicitly, and rows added with "+ line". The
+  cycle's arrays still span the whole palette so later lines keep their
+  colors; entries beyond the rows carry the all-lines width and style, and a
+  per-line pattern is never cycled when a palette changes length.
+* **Slider readouts update while dragging.** The typed-field guard had also
+  frozen the fontsize and dpi readouts while their sliders had focus. One
+  test now drags every slider in every category.
+* **Marker style** (`lines.marker`) added under Lines › More between Line
+  style and Marker size: None, circle, square, triangle, diamond, x, plus,
+  star, point. Live, respecting lines that set their own marker.

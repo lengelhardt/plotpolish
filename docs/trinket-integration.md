@@ -149,20 +149,22 @@ newest figure is attached and introspectable.
 
 ### UI
 
-Per docs/ux-design.md (revised): the panel's six category tabs live in
-matplotlib's own toolbar row. After each run, in the `finishRun` hook,
-insert `<plotpolish-panel>` into the figure's `div.mpl-toolbar` after the
-format `<select>` (WebAgg rebuilds that toolbar every run), hide
-`span.mpl-message` and the `ui-dialog-titlebar`, and set
-`panel.figureElement` to the figure container so the narrow-width rail and
-the popover can position themselves. Controls open in a draggable
-fixed-position popover, so nothing in Trinket's layout moves. No tab in
+Per docs/ux-design.md (rounds three to five): the panel renders a small
+pill of six category tabs that **floats over the figure's top-right
+corner**, and its controls open in a draggable fixed-position popover, so
+nothing in Trinket's layout moves. After each run, in the `finishRun` hook,
+append `<plotpolish-panel>` anywhere inside the figure pane (it is a
+fixed-position layer; the WebAgg toolbar row works and survives the
+toolbar's rebuild if re-appended) and set `panel.figureElement` to the
+figure container so the pill and popover can position themselves. Hide
+`span.mpl-message` and the `ui-dialog-titlebar` to reclaim space. No tab in
 `#outputTabs` is needed; the `features.plotStyle` flag gates the insertion.
+Optionally listen for `plotpolish-rerun-needed` and re-run the program, as
+the demo does, so a style-sheet change shows without a click.
 
 Trinket's embed has no CSS custom properties and no dark mode; everything is
 hard-coded light. Set `theme="light"` explicitly so the panel does not
-follow a student's OS dark preference on a light page. Trinket may already
-scale the 42 px WebAgg toolbar buttons; if not, about 30 px suits the pill.
+follow a student's OS dark preference on a light page.
 
 ### Vendoring
 

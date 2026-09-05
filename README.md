@@ -53,9 +53,8 @@ monetization, no telemetry, no nag UI.
      shows it in a selectable textarea, because the clipboard API can fail).
 
 4. **Live preview is split honestly.** Controls with artist-level
-   equivalents (figure size, grid, ticks, spines, legend frame) apply
-   instantly to the retained figure. rcParams-only knobs (style sheet,
-   color cycle, font family) need a host re-run and are labelled as such.
+   equivalents (grid, ticks, spines, legend position and frame, text sizes) apply
+   instantly to the retained figure. The style sheet is rcParams-only, needs a host re-run, and says so.
    The panel header says, in one line, that the user's own code always wins
    over these defaults.
 
@@ -65,8 +64,9 @@ monetization, no telemetry, no nag UI.
    inside the bundle — so it works under a strict CSP.
 
 6. **Curated controls for 0.1** (about twenty, not the whole of rcParams):
-   style preset; figure size, savefig dpi/transparent/bbox; font size and
-   family, title/label/tick/legend sizes; line width/style/marker size and a
+   style preset; savefig dpi/transparent/bbox; font size and family,
+   title/label/tick/legend sizes, fit-labels; line width/style, marker
+   style/size, per-line color/width/style, and a
    color cycle with a colorblind-safe option; grid, spines, axes line
    width, tick direction, minor ticks; legend frame/location/alpha; reset.
    **Never reachable from this panel:** axis labels, titles, limits, scale,

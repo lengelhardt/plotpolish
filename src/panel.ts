@@ -236,13 +236,9 @@ export class StylefencePanel extends HTMLElement {
     this.settings = defaultSettings();
     this.writeToSink();
     if (this.client && this._features.livePreview) {
-      const restore: Record<string, RcValue> = {};
-      for (const key of Object.keys(previous.rc)) {
-        const base = this.baseline[key];
-        if (base !== undefined) restore[key] = base;
-      }
-      if (previous.style !== "default") void this.applyStyle("default");
-      else this.scheduleApply(restore);
+      const keys = Object.keys(previous.rc);
+      if (previous.style !== "default") this.applyStyle("default", keys);
+      else this.scheduleApply(this.baselineFor(keys));
     }
     this.rerunKeys.clear();
     if (previous.style !== "default") this.noteRerun(["style"]);
@@ -347,27 +343,46 @@ export class StylefencePanel extends HTMLElement {
     this.settings.style = name;
     this.writeToSink();
     this.noteRerun(["style"]);
-    if (this.client) void this.applyStyle(name);
+    if (this.client) this.applyStyle(name, []);
     this.emitChange();
     this.update();
   }
 
-  /** set_style in the session, then put the current overrides back on top. */
-  private async applyStyle(name: string): Promise<void> {
-    if (!this.client) return;
-    this.stale = true;
-    try {
-      const rc = await this.client.setStyle(name, this.hostRcKeys);
-      this.baseline = { ...schemaDefaults(), ...rc };
-      if (Object.keys(this.settings.rc).length && this._features.livePreview) {
-        this.scheduleApply({ ...this.settings.rc });
-      }
-    } catch (e) {
-      this.backendState = "error";
-      this.backendMessage = e instanceof Error ? e.message : String(e);
-      this.emitError(e, "set_style");
+  /** Baseline values for `keys` (what the figure should return to when an override is cleared). */
+  private baselineFor(keys: string[]): Record<string, RcValue> {
+    const out: Record<string, RcValue> = {};
+    for (const key of keys) {
+      const base = this.baseline[key];
+      if (base !== undefined) out[key] = base;
     }
-    this.update();
+    return out;
+  }
+
+  /**
+   * set_style in the session (queued behind pending live applies so
+   * `settle()` covers it), refresh the baseline, then re-apply the current
+   * overrides on top — plus the baseline for `restoreKeys` that were just cleared.
+   */
+  private applyStyle(name: string, restoreKeys: string[]): void {
+    const client = this.client;
+    if (!client) return;
+    this.stale = true;
+    this.applyChain = this.applyChain
+      .then(() => client.setStyle(name, this.hostRcKeys))
+      .then((rc) => {
+        this.baseline = { ...schemaDefaults(), ...rc };
+        if (this._features.livePreview) {
+          const again = { ...this.baselineFor(restoreKeys), ...this.settings.rc };
+          if (Object.keys(again).length) this.scheduleApply(again);
+        }
+        this.update();
+      })
+      .catch((e: unknown) => {
+        this.backendState = "error";
+        this.backendMessage = e instanceof Error ? e.message : String(e);
+        this.emitError(e, "set_style");
+        this.update();
+      });
   }
 
   private scheduleApply(rc: Record<string, RcValue>): void {
@@ -398,9 +413,11 @@ export class StylefencePanel extends HTMLElement {
     }, APPLY_DEBOUNCE_MS);
   }
 
-  /** Resolves when any pending live-apply work has finished. For tests and hosts. */
+  /** Resolves when pending live-apply / set_style work has finished. For tests and hosts. */
   async settle(): Promise<void> {
-    if (this.applyTimer) {
+    for (let i = 0; i < 10; i++) {
+      await this.applyChain;
+      if (!this.applyTimer) break;
       await new Promise((r) => setTimeout(r, APPLY_DEBOUNCE_MS + 5));
     }
     await this.applyChain;

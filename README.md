@@ -110,17 +110,36 @@ Swap in `matplotlib==3.8.4` on a Python ≤ 3.12 for the other supported version
 ## Host integration in brief
 
 ```ts
-import { StylefencePanel, MemorySink, PyodideBackend } from "stylefence";
+import { MemorySink, PyodideBackend } from "stylefence"; // registers <stylefence-panel>
 
 const panel = document.querySelector("stylefence-panel")!;
 panel.sink = new MemorySink(editor.getValue(), (s) => editor.setValue(s));
-panel.backend = new PyodideBackend(pyodide);   // host already loaded pyodide
+panel.backend = new PyodideBackend(pyodide);        // host already loaded pyodide
 panel.addEventListener("stylefence-rerun-needed", () => showRerunHint());
+panel.addEventListener("stylefence-change", (e) => console.log(e.detail.block));
+runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
 ```
 
-`FigureBackend.runPython` must resolve with the value of the snippet's last
-expression as a string. If your host captures stdout instead, append
-`print(__stylefence_result__)` to the code before running it.
+* **Sink.** `getSource()` / `setSource()` over your editor buffer. If your sink
+  implements `subscribe(listener)`, the panel re-parses the fence when the
+  user edits. `getSource()` may return `null` for a write-only sink
+  (`ClipboardSink`); then `setSource()` receives just the block.
+* **Backend.** `runPython(code)` must run `code` in a throwaway namespace and
+  resolve with the value of the snippet's last expression as a string. If your
+  host captures stdout instead, append `print(__stylefence_result__)` first.
+  Each snippet carries the whole helper module, so nothing has to be installed
+  into the interpreter.
+* **After every run, call `panel.refresh()`** so the panel re-reads the style
+  list, the effective rcParams and the live figure (and clears the "re-run to
+  see" hint).
+* **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
+  figure transport needs pumping (a worker with Agg plus a hand-rolled
+  webagg_core bridge, say) should trigger their redraw on `stylefence-change`.
+* **`panel.features`**: `{ livePreview, showCode, groups }`. Set
+  `livePreview: false` to disable backend calls on control changes.
+* **Theme:** `theme="light"|"dark"` attribute, or leave unset to follow
+  `prefers-color-scheme`. Override `--sf-bg`, `--sf-fg`, `--sf-accent`,
+  `--sf-border`, `--sf-muted`, `--sf-font` and friends on the element.
 
 When the user changes the style dropdown, the panel calls the helper's
 `set_style()`, which resets the interpreter's rcParams to library defaults
@@ -128,6 +147,17 @@ and applies the new style *between* runs, so a previously applied style
 cannot leak into the next run. Hosts that set rcParams once at startup (not
 before every run) should list those keys in `panel.hostRcKeys` so the reset
 preserves them; Trinket re-applies its values on every run and needs nothing.
+
+## Demo
+
+```bash
+npm run demo
+```
+
+Open the printed URL with `?backend=mock` for an offline mode that exercises
+the panel and the fence without Python. Without the query string, the page
+offers to load Pyodide 0.28.1 plus matplotlib from the jsDelivr CDN after you
+click Run — that is a download of tens of MB, so it never starts by itself.
 
 ## Environment facts for the first host
 

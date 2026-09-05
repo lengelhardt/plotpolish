@@ -109,7 +109,7 @@ h2 {
  * docked directly below it as a full-width strip, then #output -- so
  * the panel lives inside the figure column rather than in a column of
  * its own. The left column is editor over runbar, in DOM order, so
- * below the 900px breakpoint, where .columns switches to plain block
+ * below the 1100px breakpoint, where .columns switches to plain block
  * layout (see media query), everything stacks in DOM order for free:
  * editor, runbar, figure, panel, output. No reordering CSS needed.
  */

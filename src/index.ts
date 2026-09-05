@@ -14,7 +14,7 @@ export { HELPER_SOURCE, HelperClient, BackendError, buildSnippet } from "./backe
 export type { FigureBackend, IntrospectResult, ApplyResult, FigureDescription, AxesDescription } from "./backend";
 export { MemorySink, ClipboardSink } from "./sink";
 export type { CodeSink, ClipboardSinkOptions } from "./sink";
-export { StylefencePanel, registerPanel } from "./panel";
+export { PlotpolishPanel, registerPanel } from "./panel";
 export type { PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail } from "./panel";
 export { PyodideBackend } from "./adapters/pyodide";
 export type { PyodideLike } from "./adapters/pyodide";

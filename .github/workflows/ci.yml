@@ -52,7 +52,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: |
-          if ! grep -q "def introspect_figure" dist/stylefence.js; then
+          if ! grep -q "def introspect_figure" dist/plotpolish.js; then
             echo "Error: Python helper not found in bundle"
             exit 1
           fi

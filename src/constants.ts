@@ -1,12 +1,12 @@
 /** The one place the tool's name appears in code. Renaming = editing this file. */
-export const TOOL_NAME = "stylefence";
+export const TOOL_NAME = "plotpolish";
 
 export const VERSION = "0.1.0";
 
 /** Custom element tag. */
-export const ELEMENT_TAG = "stylefence-panel";
+export const ELEMENT_TAG = "plotpolish-panel";
 
-/** Prefix for DOM events dispatched by the panel (`stylefence-change`, …). */
+/** Prefix for DOM events dispatched by the panel (`plotpolish-change`, …). */
 export const EVENT_PREFIX = TOOL_NAME;
 
 /** Fence markers. Matched at column 0 only; trailing whitespace tolerated. */

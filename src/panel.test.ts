@@ -1,5 +1,5 @@
 /**
- * Tests for <stylefence-panel>. Importing "./panel" registers the custom
+ * Tests for <plotpolish-panel>. Importing "./panel" registers the custom
  * element (registerPanel() runs at module load); each test creates a fresh
  * instance, appends it to document.body, and removes it afterwards.
  */
@@ -9,17 +9,17 @@ import {
 } from "./block";
 import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
-  StylefencePanel, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
+  PlotpolishPanel, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
 } from "./panel";
 import { CONTROLS, GROUPS } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
-function ctl(panel: StylefencePanel, id: string): HTMLElement {
+function ctl(panel: PlotpolishPanel, id: string): HTMLElement {
   return panel.shadowRoot!.querySelector(`[data-control="${id}"]`) as HTMLElement;
 }
 
-function input(panel: StylefencePanel, id: string): HTMLElement {
+function input(panel: PlotpolishPanel, id: string): HTMLElement {
   return panel.shadowRoot!.querySelector(`#ctl-${id}`) as HTMLElement;
 }
 
@@ -34,15 +34,15 @@ function flush(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
 }
 
-async function attachBackend(panel: StylefencePanel, backend: MockBackend): Promise<void> {
+async function attachBackend(panel: PlotpolishPanel, backend: MockBackend): Promise<void> {
   panel.backend = backend;
   await panel.refresh();
 }
 
-let panel: StylefencePanel;
+let panel: PlotpolishPanel;
 
 beforeEach(() => {
-  panel = document.createElement("stylefence-panel");
+  panel = document.createElement("plotpolish-panel");
   document.body.append(panel);
 });
 
@@ -53,7 +53,7 @@ afterEach(() => {
 describe("registration and rendering", () => {
   it("registers the custom element", () => {
     expect(customElements.get(ELEMENT_TAG)).toBeDefined();
-    expect(panel).toBeInstanceOf(StylefencePanel);
+    expect(panel).toBeInstanceOf(PlotpolishPanel);
   });
 
   it("creates one row per control", () => {
@@ -438,7 +438,7 @@ describe("backend", () => {
   it("does not call apply_live for a rerun-category control, and dispatches rerun-needed", async () => {
     await attachBackend(panel, backend);
     const events: RerunNeededEventDetail[] = [];
-    panel.addEventListener("stylefence-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
+    panel.addEventListener("plotpolish-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
 
     const family = input(panel, "font_family") as HTMLSelectElement;
     family.value = "serif";
@@ -456,7 +456,7 @@ describe("backend", () => {
     await attachBackend(panel, backend);
     panel.hostRcKeys = ["figure.autolayout"];
     const events: RerunNeededEventDetail[] = [];
-    panel.addEventListener("stylefence-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
+    panel.addEventListener("plotpolish-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
 
     const styleSelect = input(panel, "style") as HTMLSelectElement;
     styleSelect.value = "ggplot";
@@ -518,7 +518,7 @@ describe("backend", () => {
   it("surfaces a backend error from apply_live in the status and as an event", async () => {
     await attachBackend(panel, backend);
     const events: PanelErrorEventDetail[] = [];
-    panel.addEventListener("stylefence-error", (e) => events.push((e as CustomEvent<PanelErrorEventDetail>).detail));
+    panel.addEventListener("plotpolish-error", (e) => events.push((e as CustomEvent<PanelErrorEventDetail>).detail));
 
     backend.failNext = "boom";
     const lw = input(panel, "linewidth") as HTMLInputElement;
@@ -535,7 +535,7 @@ describe("backend", () => {
   it("surfaces a backend error from refresh", async () => {
     await attachBackend(panel, backend); // clean baseline
     const events: PanelErrorEventDetail[] = [];
-    panel.addEventListener("stylefence-error", (e) => events.push((e as CustomEvent<PanelErrorEventDetail>).detail));
+    panel.addEventListener("plotpolish-error", (e) => events.push((e as CustomEvent<PanelErrorEventDetail>).detail));
 
     backend.failNext = "boom2";
     await panel.refresh();
@@ -614,11 +614,11 @@ describe("fontsize display", () => {
 });
 
 describe("events", () => {
-  it("dispatches stylefence-change with settings, block and source", () => {
+  it("dispatches plotpolish-change with settings, block and source", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const events: ChangeEventDetail[] = [];
-    panel.addEventListener("stylefence-change", (e) => events.push((e as CustomEvent<ChangeEventDetail>).detail));
+    panel.addEventListener("plotpolish-change", (e) => events.push((e as CustomEvent<ChangeEventDetail>).detail));
 
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";

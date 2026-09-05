@@ -1,7 +1,7 @@
 import matplotlib as mpl
 import pytest
 
-from stylefence import json_to_rc, rc_to_json, resolve_size
+from plotpolish import json_to_rc, rc_to_json, resolve_size
 
 
 def test_prop_cycle_serialises_to_colour_list():

@@ -2,14 +2,14 @@
 import { defineConfig } from "vite";
 
 // Library build. The Python helper is inlined by importing
-// ../python/stylefence/core.py?raw, so the bundle carries it verbatim and
+// ../python/plotpolish/core.py?raw, so the bundle carries it verbatim and
 // nothing is fetched at runtime.
 export default defineConfig({
   build: {
     lib: {
       entry: "src/index.ts",
       formats: ["es"],
-      fileName: "stylefence",
+      fileName: "plotpolish",
     },
     sourcemap: true,
     target: "es2020",

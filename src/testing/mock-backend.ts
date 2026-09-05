@@ -1,7 +1,7 @@
 /**
  * MockBackend: a FigureBackend that never runs Python. It pulls the dispatch
  * request out of the snippet and answers from in-memory state that mirrors
- * the semantics of python/stylefence/core.py closely enough for panel tests.
+ * the semantics of python/plotpolish/core.py closely enough for panel tests.
  */
 
 import type { FigureBackend, FigureDescription } from "../backend";

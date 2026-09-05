@@ -1,4 +1,4 @@
-"""stylefence helper — the matplotlib-facing half of the panel.
+"""plotpolish helper — the matplotlib-facing half of the panel.
 
 Design constraints (see docs/design.md):
 
@@ -22,7 +22,7 @@ from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
 __version__ = "0.1.0"
 
-TOOL_NAME = "stylefence"
+TOOL_NAME = "plotpolish"
 
 # rc keys the panel knows about. Kept in sync with src/schema/controls.json by
 # python/tests/test_schema_contract.py.

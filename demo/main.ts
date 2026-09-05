@@ -1,5 +1,5 @@
 /**
- * Standalone demo page for stylefence. Two backend modes, chosen by the
+ * Standalone demo page for plotpolish. Two backend modes, chosen by the
  * `backend` URL query parameter:
  *
  *   (absent)         -> "pyodide" mode. Pyodide + matplotlib are NOT loaded
@@ -8,13 +8,13 @@
  *   ?backend=mock    -> "mock" mode. Uses MockBackend; Run never executes
  *                        Python and just reports that in the status line.
  *
- * This file imports "stylefence" (aliased in vite.config.ts to ../src/index.ts,
+ * This file imports "plotpolish" (aliased in vite.config.ts to ../src/index.ts,
  * i.e. the library source, not dist/) plus MockBackend by relative path,
  * exactly as the task brief allows for a demo page.
  */
 
-import { StylefencePanel, MemorySink, PyodideBackend } from "stylefence";
-import type { PanelErrorEventDetail, RerunNeededEventDetail } from "stylefence";
+import { PlotpolishPanel, MemorySink, PyodideBackend } from "plotpolish";
+import type { PanelErrorEventDetail, RerunNeededEventDetail } from "plotpolish";
 import { MockBackend } from "../src/testing/mock-backend";
 
 // ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ const statusEl = required<HTMLElement>("status");
 const figureDiv = required<HTMLDivElement>("figure");
 const outputPre = required<HTMLPreElement>("output");
 const themeToggle = required<HTMLButtonElement>("theme-toggle");
-const panel = required<StylefencePanel>("panel");
+const panel = required<PlotpolishPanel>("panel");
 
 textarea.value = SAMPLE_SOURCE;
 
@@ -134,12 +134,12 @@ textarea.addEventListener("keydown", (event) => {
 // Panel events
 // ---------------------------------------------------------------------------
 
-panel.addEventListener("stylefence-rerun-needed", (event) => {
+panel.addEventListener("plotpolish-rerun-needed", (event) => {
   const detail = (event as CustomEvent<RerunNeededEventDetail>).detail;
   setStatus(`Re-run to see: ${detail.keys.join(", ")}`);
 });
 
-panel.addEventListener("stylefence-error", (event) => {
+panel.addEventListener("plotpolish-error", (event) => {
   const detail = (event as CustomEvent<PanelErrorEventDetail>).detail;
   setStatus(detail.error.message, true);
 });

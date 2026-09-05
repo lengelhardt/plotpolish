@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 
 import matplotlib as mpl
 
-from stylefence import CURATED_KEYS, list_styles, set_style
+from plotpolish import CURATED_KEYS, list_styles, set_style
 
 
 def test_default_is_first_and_unique():

@@ -6,8 +6,8 @@ const SRC_INDEX = decodeURIComponent(new URL("../src/index.ts", import.meta.url)
 
 // Demo page. It is built against the library's TypeScript *source*, not the
 // published dist/, so `npm run demo` always reflects the current src/. The
-// "stylefence" alias below points at src/index.ts; server.fs.allow lets Vite
-// read ../python/stylefence/core.py?raw, which src/backend.ts inlines via a
+// "plotpolish" alias below points at src/index.ts; server.fs.allow lets Vite
+// read ../python/plotpolish/core.py?raw, which src/backend.ts inlines via a
 // `?raw` import (see docs/design.md, "Python helper transport"). The demo
 // itself never imports from python/ directly.
 export default defineConfig({
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      stylefence: SRC_INDEX,
+      plotpolish: SRC_INDEX,
     },
   },
   build: {

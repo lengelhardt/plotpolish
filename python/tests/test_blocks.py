@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib as mpl
 import pytest
 
-from stylefence import TOOL_NAME, list_styles, rc_to_json
+from plotpolish import TOOL_NAME, list_styles, rc_to_json
 
 FIXTURES = Path(__file__).parent / "fixtures" / "blocks"
 NAMES = sorted(p.stem for p in FIXTURES.glob("*.py"))
@@ -59,7 +59,7 @@ def test_block_executes_and_sets_rcparams(name):
 
 
 def test_everything_fixture_covers_every_curated_key():
-    from stylefence import CURATED_KEYS
+    from plotpolish import CURATED_KEYS
 
     _, expected = load("everything")
     assert set(expected["rc"]) == set(CURATED_KEYS)

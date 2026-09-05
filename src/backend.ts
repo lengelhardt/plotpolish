@@ -7,7 +7,7 @@
  * back as a string of JSON.
  */
 
-import HELPER_SOURCE from "../python/stylefence/core.py?raw";
+import HELPER_SOURCE from "../python/plotpolish/core.py?raw";
 import { RESULT_VARIABLE } from "./constants";
 import type { RcValue } from "./schema";
 
@@ -17,12 +17,12 @@ export interface FigureBackend {
   /**
    * Execute `code` in a throwaway namespace and resolve with the value of the
    * last expression, converted to a string. If your host captures stdout
-   * instead, append `print(__stylefence_result__)` before running.
+   * instead, append `print(__plotpolish_result__)` before running.
    */
   runPython(code: string): Promise<string>;
 }
 
-// --- Helper response shapes (mirror python/stylefence/core.py) -------------
+// --- Helper response shapes (mirror python/plotpolish/core.py) -------------
 
 export interface AxesDescription {
   grid: boolean;

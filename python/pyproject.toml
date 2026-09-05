@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "stylefence"
+name = "plotpolish"
 version = "0.1.0"
-description = "matplotlib-facing helper for the stylefence style panel (shipped inside the JS bundle)"
+description = "matplotlib-facing helper for the plotpolish style panel (shipped inside the JS bundle)"
 readme = "../README.md"
 license = { text = "BSD-3-Clause" }
 requires-python = ">=3.9"
@@ -15,13 +15,13 @@ dependencies = ["matplotlib>=3.8"]
 test = ["pytest>=7"]
 
 [tool.setuptools]
-packages = ["stylefence"]
+packages = ["plotpolish"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 filterwarnings = [
-    "error::DeprecationWarning:stylefence.*",
+    "error::DeprecationWarning:plotpolish.*",
     # pyparsing 3.3 deprecations reached through matplotlib 3.8's mathtext; not ours
     "ignore:.*deprecated - use.*:Warning",
     "ignore:.*argument is deprecated, use.*:Warning",

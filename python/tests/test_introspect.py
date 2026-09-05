@@ -1,7 +1,7 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from stylefence import CURATED_KEYS, current_figure, introspect_figure
+from plotpolish import CURATED_KEYS, current_figure, introspect_figure
 
 
 def test_no_figure_does_not_create_one():

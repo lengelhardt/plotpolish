@@ -1,26 +1,26 @@
 {
-  "name": "stylefence",
+  "name": "plotpolish",
   "version": "0.1.0",
   "description": "Browser panel for matplotlib style defaults that writes one fenced block of ordinary matplotlib code. Framework-free Web Component; Python helper ships inside the bundle.",
   "license": "BSD-3-Clause",
   "type": "module",
   "files": [
     "dist",
-    "python/stylefence/core.py",
+    "python/plotpolish/core.py",
     "README.md",
     "LICENSE"
   ],
-  "main": "./dist/stylefence.js",
-  "module": "./dist/stylefence.js",
+  "main": "./dist/plotpolish.js",
+  "module": "./dist/plotpolish.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/stylefence.js"
+      "import": "./dist/plotpolish.js"
     }
   },
   "sideEffects": [
-    "./dist/stylefence.js"
+    "./dist/plotpolish.js"
   ],
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",

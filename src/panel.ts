@@ -1,5 +1,5 @@
 /**
- * <stylefence-panel>: the Web Component.
+ * <plotpolish-panel>: the Web Component.
  *
  * State is one StyleSettings ({ style, rc }) plus a baseline of effective rc
  * values pulled from the backend. The panel writes the settings into the
@@ -82,7 +82,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return node;
 }
 
-export class StylefencePanel extends HTMLElement {
+export class PlotpolishPanel extends HTMLElement {
   /** rc keys your host sets once at startup; preserved when the panel resets styles. */
   hostRcKeys: string[] = [];
 
@@ -749,16 +749,16 @@ function labelForKey(key: string): string {
   return key;
 }
 
-/** Register the element under `tag` (default "stylefence-panel"). Safe to call twice. */
+/** Register the element under `tag` (default "plotpolish-panel"). Safe to call twice. */
 export function registerPanel(tag: string = ELEMENT_TAG): void {
   if (typeof customElements === "undefined") return;
-  if (!customElements.get(tag)) customElements.define(tag, StylefencePanel);
+  if (!customElements.get(tag)) customElements.define(tag, PlotpolishPanel);
 }
 
 registerPanel();
 
 declare global {
   interface HTMLElementTagNameMap {
-    "stylefence-panel": StylefencePanel;
+    "plotpolish-panel": PlotpolishPanel;
   }
 }

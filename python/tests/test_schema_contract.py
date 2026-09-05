@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib as mpl
 import pytest
 
-from stylefence import CURATED_KEYS, LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, rc_to_json
+from plotpolish import CURATED_KEYS, LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, rc_to_json
 
 SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "src" / "schema" / "controls.json").read_text())
 CONTROLS = [c for c in SCHEMA["controls"] if c["type"] != "style"]

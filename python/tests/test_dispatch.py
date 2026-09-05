@@ -2,7 +2,7 @@ import json
 
 import matplotlib.pyplot as plt
 
-from stylefence import __version__, dispatch
+from plotpolish import __version__, dispatch
 
 
 def call(fn, **args):

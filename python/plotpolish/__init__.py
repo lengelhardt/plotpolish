@@ -1,6 +1,6 @@
-"""stylefence — matplotlib-facing helper for the stylefence panel.
+"""plotpolish — matplotlib-facing helper for the plotpolish panel.
 
-Everything lives in :mod:`stylefence.core`, which is a single file so the JS
+Everything lives in :mod:`plotpolish.core`, which is a single file so the JS
 bundle can inline it verbatim. This package exists so pytest can import it.
 """
 

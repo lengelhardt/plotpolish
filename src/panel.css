@@ -1,4 +1,4 @@
-/* Scoped styles for <stylefence-panel>. Hosts theme it through the --sf-* custom
+/* Scoped styles for <plotpolish-panel>. Hosts theme it through the --sf-* custom
    properties; everything else stays inside the shadow root. */
 
 :host {

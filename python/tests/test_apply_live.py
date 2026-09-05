@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import pytest
 from matplotlib import ticker
 
-from stylefence import LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, apply_live
-from stylefence.core import _grid_on, _tick_direction
+from plotpolish import LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, apply_live
+from plotpolish.core import _grid_on, _tick_direction
 
 
 def make_figure():
@@ -165,7 +165,7 @@ def test_rerun_keys_are_deferred_and_untouched():
 def test_every_live_key_has_a_path():
     fig, ax = make_figure()
     defaults = {k: mpl.rcParamsDefault[k] for k in LIVE_KEYS}
-    from stylefence import rc_to_json
+    from plotpolish import rc_to_json
 
     payload = {k: rc_to_json(k, v) for k, v in defaults.items()}
     result = apply_live(payload)

@@ -1889,8 +1889,9 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "fontsize": {
         const input = view.inputs[0] as HTMLInputElement;
-        // Ranges have no caret to protect mid-edit, but the guard is harmless.
-        if (this.isEditing(input)) break;
+        // A range being dragged is the active element; the readout and title
+        // must still follow the value. Only the slider position is left alone.
+        const editing = this.isEditing(input);
         const base = this.effective("font.size");
         const baseN = typeof base === "number" ? base : 10;
         let resolved: number;
@@ -1904,13 +1905,13 @@ export class PlotpolishPanel extends HTMLElement {
           resolved = baseN;
           input.title = "";
         }
-        input.value = String(resolved);
+        if (!editing) input.value = String(resolved);
         if (view.readout) view.readout.textContent = String(resolved);
         break;
       }
       case "dpi": {
         const input = view.inputs[0] as HTMLInputElement;
-        if (this.isEditing(input)) break;
+        const editing = this.isEditing(input);
         let resolved: number;
         if (typeof value === "number") {
           resolved = value;
@@ -1921,7 +1922,7 @@ export class PlotpolishPanel extends HTMLElement {
           resolved = this.figure?.dpi ?? 100;
           input.title = "Figure's own dpi (matplotlib default)";
         }
-        input.value = String(resolved);
+        if (!editing) input.value = String(resolved);
         if (view.readout) view.readout.textContent = String(resolved);
         break;
       }

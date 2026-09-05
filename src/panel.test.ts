@@ -1752,3 +1752,37 @@ describe("all-lines width and style are masters over the per-line table", () => 
     p.remove();
   });
 });
+
+
+describe("every slider keeps its readout in sync while being dragged", () => {
+  it("readout follows the value for each range input in every category, even when the range has focus", () => {
+    const p = document.createElement("plotpolish-panel") as PlotpolishPanel;
+    document.body.append(p);
+    p.sink = new MemorySink("import matplotlib.pyplot as plt\n");
+    p.open = true;
+    let checked = 0;
+    for (const group of GROUPS) {
+      p.showCategory(group.id);
+      const container = p.shadowRoot!.querySelector(`.group[data-group="${group.id}"]`) as HTMLElement;
+      // Open "More" so the second tier's sliders are exercised too.
+      const more = container.querySelector("button.more") as HTMLButtonElement | null;
+      if (more && more.textContent!.includes("▸")) more.click();
+      for (const range of Array.from(container.querySelectorAll<HTMLInputElement>('input[type="range"]'))) {
+        const readout = (range.nextElementSibling?.classList.contains("readout")
+          ? range.nextElementSibling
+          : range.closest(".row")!.querySelector(".readout")) as HTMLElement | null;
+        if (!readout) continue;
+        const min = Number(range.min || 0);
+        const step = Number(range.step || 1);
+        const target = Number((min + 3 * step).toFixed(4));
+        range.focus();
+        range.value = String(target);
+        range.dispatchEvent(new Event("input", { bubbles: true }));
+        expect(Number(readout.textContent), `${group.id}: ${range.getAttribute("aria-label") ?? range.id}`).toBeCloseTo(target, 6);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(10);
+    p.remove();
+  });
+});

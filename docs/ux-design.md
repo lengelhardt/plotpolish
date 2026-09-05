@@ -209,3 +209,26 @@ the two data sets would be really nice; the dpi field showed the word
   lines are addressed in drawing order, a line whose code passes its own
   `color=`/`lw=` keeps it, and labels are not covered. `axes.prop_cycle`
   therefore becomes a live-category key.
+
+## Round four (2026-09-05, after the floating pill)
+
+Feedback: the top-right location is great; the pill should be draggable too;
+number boxes with spinners are not useful, sliders are; the per-line table
+had misaligned headers, a clipped width box, a stretched style control and
+a stray revert button. Decisions:
+
+* **The pill is draggable** by a grip at its left end, mouse or touch, with
+  the same 4 px threshold as the popover. Position is remembered for the
+  session; double-clicking the grip snaps it back to the figure's top-right
+  corner. The popover keeps anchoring to the tab wherever the pill is.
+* **Sliders instead of number boxes** for every size: title, axis label,
+  tick label and legend text sizes (6–40 pt, step 0.5, with the effective
+  size shown even when the rc value is a relative name like "large"),
+  figure width (2–16 in) and height (1.5–12 in) as two sub-rows, and
+  resolution (72–600 dpi, step 1). Each slider has a 32 px readout. Number
+  boxes remain only where a slider would not fit: the per-line width cells,
+  which lose their spinner buttons and are wide enough for "2.75".
+* **Per-line table**: header and rows share one grid so the column headings
+  sit over their columns; the style control is content-width, not
+  stretched; the control's revert button sits at the right end of the
+  "Per line" label row; no dead space between the label and the table.

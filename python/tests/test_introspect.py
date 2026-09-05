@@ -97,3 +97,9 @@ def test_tight_layout_figure_is_reported_and_flagged():
     result = introspect_figure()
     assert result["figure"]["autolayout"] is True
     assert "figure.autolayout" in result["overridden"]
+
+
+def test_title_family_set_in_code_is_flagged():
+    fig, ax = plt.subplots()
+    ax.set_title("t", family="serif")
+    assert "font.family" in introspect_figure()["overridden"]

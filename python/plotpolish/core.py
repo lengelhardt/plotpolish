@@ -67,8 +67,8 @@ CURATED_KEYS = (
 # but setting the rcParam is an honest "live" apply for them.
 SAVE_KEYS = ("savefig.dpi", "savefig.transparent", "savefig.bbox")
 
-# Keys that only take effect when artists are created: need a host re-run.
-RERUN_KEYS = ("font.family",)
+# Keys that only take effect when artists are created: need a host re-run. (None today; the style sheet is handled by set_style.)
+RERUN_KEYS = ()
 
 _REL_TOL = 1e-6
 
@@ -358,6 +358,8 @@ def _find_overrides(fig, rc):
         differs("xtick.minor.visible", _minor_visible(ax.xaxis))
         differs("ytick.minor.visible", _minor_visible(ax.yaxis))
         size_differs("axes.titlesize", ax.title.get_fontsize())
+        if ax.title.get_text():
+            differs("font.family", _family_name(ax.title.get_fontfamily()))
         size_differs("axes.labelsize", ax.xaxis.label.get_fontsize())
         size_differs("axes.labelsize", ax.yaxis.label.get_fontsize())
         size_differs("xtick.labelsize", _tick_label_size(ax.xaxis))
@@ -468,6 +470,29 @@ def _apply_autolayout(fig, new, old, only):
     if only and (state == "other" or (state == "tight") != bool(old)):
         return
     fig.set_layout_engine("tight" if new else "none")
+
+
+def _family_name(value):
+    """First family name of a font.family value (str or list)."""
+    if isinstance(value, (list, tuple)):
+        return str(value[0]) if value else "sans-serif"
+    return str(value)
+
+
+def _apply_font_family(fig, new, old, only):
+    """font.family: set on every Text artist that still uses the old family, and on future tick labels."""
+    from matplotlib.text import Text
+    old_name = _family_name(old)
+    new_name = _family_name(new)
+    for text in fig.findobj(Text):
+        if only and _family_name(text.get_fontfamily()) != old_name:
+            continue
+        text.set_family(new_name)
+    for ax in fig.axes:
+        try:
+            ax.tick_params(axis="both", which="both", labelfontfamily=new_name)
+        except (AttributeError, TypeError, ValueError):  # pragma: no cover - matplotlib < 3.7
+            pass
 
 
 def _apply_grid(fig, new, old, only):
@@ -697,6 +722,7 @@ _TEXT_SIZE_HANDLERS = {
 
 _LIVE_HANDLERS = {
     "figure.figsize": _apply_figsize,
+    "font.family": _apply_font_family,
     "figure.autolayout": _apply_autolayout,
     "axes.grid": _apply_grid,
     "grid.alpha": _apply_grid_kw("alpha"),

@@ -142,10 +142,10 @@
         4.8
       ],
       "category": "live",
-      "min": 1,
-      "max": 30,
+      "min": 2,
+      "max": 10,
       "step": 0.1,
-      "help": "Width × height of new figures (figure.figsize)."
+      "help": "Width × height of new figures in inches (figure.figsize). Bounded so the plot stays inside the page."
     },
     {
       "id": "font_size",
@@ -239,8 +239,8 @@
         "font.family"
       ],
       "default": "sans-serif",
-      "category": "rerun",
-      "help": "font.family",
+      "category": "live",
+      "help": "font.family. Applied to the text already on the figure and to new text.",
       "options": [
         {
           "value": "sans-serif",

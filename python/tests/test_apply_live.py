@@ -171,14 +171,26 @@ def test_save_keys_set_rcparams_only():
     assert mpl.rcParams["savefig.transparent"] is True
 
 
-def test_rerun_keys_are_deferred_and_untouched():
+def test_unknown_keys_are_reported_and_nothing_is_deferred_today():
     fig, ax = make_figure()
-    before = mpl.rcParams["font.family"]
-    result = apply_live({"font.family": "serif", "nope.key": 1})
-    assert sorted(result["deferred"]) == sorted(RERUN_KEYS)
+    result = apply_live({"nope.key": 1})
+    assert result["deferred"] == list(RERUN_KEYS) == []
     assert result["unknown"] == ["nope.key"]
     assert result["applied"] == []
-    assert mpl.rcParams["font.family"] == before
+
+
+def test_font_family_applies_to_existing_text_and_future_ticks():
+    fig, ax = make_figure()
+    ax.set_ylabel("explicit", family="monospace")
+    apply_live({"font.family": "serif"})
+    assert ax.title.get_fontfamily() == ["serif"]
+    assert ax.xaxis.label.get_fontfamily() == ["serif"]
+    assert ax.yaxis.label.get_fontfamily() == ["monospace"]  # user's explicit family wins
+    assert ax.xaxis.get_ticklabels()[0].get_fontfamily() == ["serif"]
+    assert ax.get_legend().get_texts()[0].get_fontfamily() == ["serif"]
+    assert mpl.rcParams["font.family"] == ["serif"]
+    apply_live({"font.family": "monospace"}, previous={"font.family": "serif"})
+    assert ax.title.get_fontfamily() == ["monospace"]
 
 
 def test_previous_overrides_rcparams_reference():

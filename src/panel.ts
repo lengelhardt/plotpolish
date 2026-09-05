@@ -1386,8 +1386,8 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "pair": {
-        const w = el("input", { type: "range", id, min: "2", max: "16", step: "0.1" });
-        const h = el("input", { type: "range", min: "1.5", max: "12", step: "0.1" });
+        const w = el("input", { type: "range", id, min: "3", max: "10", step: "0.1" });
+        const h = el("input", { type: "range", min: "2", max: "7.5", step: "0.1" });
         h.setAttribute("aria-label", `${spec.label} height`);
         const wOut = el("span", { class: "readout" });
         const hOut = el("span", { class: "readout" });

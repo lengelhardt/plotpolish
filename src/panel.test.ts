@@ -621,19 +621,28 @@ describe("rerun indicators", () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);
 
+    // font_family is live now: no ↻ anywhere, and apply_live carries it.
     expect(ctl(panel, "font_family").querySelector(".badge.rerun")).toBeNull();
     expect(tabRerun(panel, "text").hidden).toBe(true);
 
     const seg = ctl(panel, "font_family").querySelector(".segmented") as HTMLElement;
     const serifBtn = seg.querySelector('button[data-value="serif"]') as HTMLButtonElement;
     serifBtn.click();
+    await panel.settle();
 
-    expect(ctl(panel, "font_family").querySelector(".badge.rerun")).not.toBeNull();
-    expect(tabRerun(panel, "text").hidden).toBe(false);
-
-    await panel.refresh();
     expect(ctl(panel, "font_family").querySelector(".badge.rerun")).toBeNull();
     expect(tabRerun(panel, "text").hidden).toBe(true);
+    const calls = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(calls.length).toBe(1);
+    expect((calls[0]!.args as { rc: Record<string, unknown> }).rc["font.family"]).toBe("serif");
+
+    // The style control remains the one re-run-only knob.
+    const style = ctl(panel, "style").querySelector("select") as HTMLSelectElement;
+    style.value = "ggplot";
+    style.dispatchEvent(new Event("change"));
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+    await panel.refresh();
+    expect(tabRerun(panel, "look").hidden).toBe(true);
   });
 
   it("a style change shows ↻ on the Look tab and on the style control", async () => {
@@ -1065,10 +1074,8 @@ describe("backend", () => {
     });
   });
 
-  it("still live-applies the seeded savefig.dpi even though the triggering control is rerun-category", async () => {
+  it("live-applies the seeded savefig.dpi together with the triggering live control", async () => {
     await attachBackend(panel, backend);
-    const events: RerunNeededEventDetail[] = [];
-    panel.addEventListener("plotpolish-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
 
     const seg = ctl(panel, "font_family").querySelector(".segmented") as HTMLElement;
     const serifBtn = seg.querySelector('button[data-value="serif"]') as HTMLButtonElement;
@@ -1077,8 +1084,9 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
-    expect(calls[0]!.args).toEqual({ rc: { "savefig.dpi": 300 }, only_defaults: true, previous: { "savefig.dpi": "figure" } });
-    expect(events.some((e) => e.keys.includes("font.family"))).toBe(true);
+    const rc = (calls[0]!.args as { rc: Record<string, unknown> }).rc;
+    expect(rc["font.family"]).toBe("serif");
+    expect(rc["savefig.dpi"]).toBe(300);
   });
 
   it("set_style passes hostRcKeys, updates the baseline, dispatches rerun-needed, and stays stale until refresh", async () => {

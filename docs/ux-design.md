@@ -233,3 +233,10 @@ a stray revert button. Decisions:
   redundant); the style control is content-width, not
   stretched; the control's revert button sits at the right end of the
   "Per line" label row; no dead space between the label and the table.
+
+Follow-ups after trying round four: figure size sliders are bounded to
+3–10 in wide and 2–7.5 in tall, because at the browser's 200 dpi a 16 × 12
+figure became a 3200 × 2400 canvas that swallowed the page. Font family is
+now live: `font.family` is set on every Text artist that still uses the old
+family and on future tick labels, so the change shows without a re-run. The
+style sheet is the only re-run-only knob left.

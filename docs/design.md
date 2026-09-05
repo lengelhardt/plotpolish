@@ -22,7 +22,7 @@ equivalents to it.
 | --- | --- | --- |
 | Control metadata (keys, types, defaults, live/re-run category, labels) | `src/schema/controls.json` | Single source of truth. TS imports it directly. pytest reads it **only in tests** for contract checks; the Python runtime never needs it. |
 | Fenced block generate / parse / upsert / remove | **TypeScript** (`src/block.ts`, `src/pylit.ts`) | See "Generator in TS, not Python" below. |
-| `list_styles`, `introspect_figure`, `apply_live` | **Python** (`python/stylefence/core.py`) | These need matplotlib. Pure functions, JSON in/out, no state, imports limited to `matplotlib`, `json`, `math`. |
+| `list_styles`, `set_style`, `introspect_figure`, `apply_live` | **Python** (`python/stylefence/core.py`) | These need matplotlib. Pure functions, JSON in/out, no state, imports limited to `matplotlib`, `json`, `math`. |
 | Executability of generated blocks | pytest, via golden fixtures | Vitest asserts the generator reproduces `python/tests/fixtures/blocks/*.py`; pytest `exec`s the same files on matplotlib 3.8 and 3.10 and checks the resulting `rcParams`. This is the cross-language contract. |
 
 ### Generator in TS, not Python
@@ -63,12 +63,24 @@ mpl.rcParams.update({
 # --- end plot style ---
 ```
 
-* **`mpl.style.use(...)` is always emitted**, even for `"default"`. In a
-  long-lived interpreter (Pyodide, Jupyter) rcParams persist between runs;
-  `style.use("default")` resets them, so the block fully determines the
-  style state regardless of what ran before. Host note: `"default"` resets
-  every non-blacklisted rcParam, including `figure.dpi`; hosts that rely on
-  such values should set them in their display hook, not via rcParams.
+The golden copies of this format live in `python/tests/fixtures/blocks/`.
+
+* **`mpl.style.use(...)` is emitted only for a named style.** The block
+  never calls `style.use("default")`. In a long-lived interpreter that would
+  reset every non-blacklisted rcParam *mid-program*, including values the
+  host sets before each run: Trinket sets `figure.autolayout = True` on both
+  of its Pyodide paths and a pane-fitting `figure.figsize` on the worker
+  path, and the block runs after that setup. Leftover rcParams from a
+  previously applied style are a real problem in a persistent interpreter,
+  but they are a *session* problem, so they are fixed in the session: when
+  the user changes the style dropdown, the panel calls `set_style(name)`,
+  which resets to library defaults and applies the new style between runs.
+  The host's per-run setup then restores its own values on the next run.
+  Hosts that set rcParams once at startup pass those keys as `hostRcKeys`
+  and `set_style` preserves them.
+* **A fully default state produces no block.** Style `"default"` with no
+  keys set means there is nothing to say; `upsertBlock` removes an existing
+  fence rather than writing an empty one.
 * **Only touched keys are emitted.** Panel state is
   `{ style, rc: { key: value } }`; a control the user never changed does not
   appear. Reset clears `rc` and sets `style` to `"default"`.

@@ -39,6 +39,8 @@ monetization, no telemetry, no nag UI.
    The fenced text is the *only* persistence: it parses back into panel
    state on load. Regenerating replaces the existing fence in place. A
    second fence in the file is an error the panel shows, never a silent merge.
+   The `mpl.style.use` line appears only for a named style, and a fully
+   default state removes the block rather than writing an empty one.
 
 3. **Two tiny adapter interfaces.** Hosts supply their own; the package ships
    the interfaces plus reference implementations.
@@ -120,9 +122,12 @@ panel.addEventListener("stylefence-rerun-needed", () => showRerunHint());
 expression as a string. If your host captures stdout instead, append
 `print(__stylefence_result__)` to the code before running it.
 
-One caveat for hosts: the block always calls `mpl.style.use(...)`, and
-`"default"` resets every non-blacklisted rcParam (including `figure.dpi`).
-Set display-related rcParams in your figure-display hook, not globally.
+When the user changes the style dropdown, the panel calls the helper's
+`set_style()`, which resets the interpreter's rcParams to library defaults
+and applies the new style *between* runs, so a previously applied style
+cannot leak into the next run. Hosts that set rcParams once at startup (not
+before every run) should list those keys in `panel.hostRcKeys` so the reset
+preserves them; Trinket re-applies its values on every run and needs nothing.
 
 ## Environment facts for the first host
 

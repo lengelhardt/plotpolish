@@ -1,0 +1,33 @@
+{
+  "style": "ggplot",
+  "rc": {
+    "figure.figsize": [8, 5],
+    "savefig.dpi": 300,
+    "savefig.transparent": true,
+    "savefig.bbox": "tight",
+    "font.size": 14,
+    "font.family": "serif",
+    "axes.titlesize": "x-large",
+    "axes.labelsize": 13,
+    "xtick.labelsize": "small",
+    "ytick.labelsize": "small",
+    "legend.fontsize": 11.5,
+    "lines.linewidth": 2.5,
+    "lines.linestyle": "--",
+    "lines.markersize": 8,
+    "axes.prop_cycle": ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"],
+    "axes.grid": true,
+    "grid.alpha": 0.3,
+    "grid.linestyle": ":",
+    "axes.spines.top": false,
+    "axes.spines.right": false,
+    "axes.linewidth": 1.2,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.minor.visible": true,
+    "ytick.minor.visible": true,
+    "legend.frameon": false,
+    "legend.loc": "upper left",
+    "legend.framealpha": 0.5
+  }
+}

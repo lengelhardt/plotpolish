@@ -1,0 +1,9 @@
+{
+  "style": "seaborn-v0_8-whitegrid",
+  "rc": {
+    "font.size": 12,
+    "axes.grid": true,
+    "axes.spines.top": false,
+    "axes.spines.right": false
+  }
+}

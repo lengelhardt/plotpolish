@@ -1,0 +1,8 @@
+{
+  "style": "default",
+  "rc": {
+    "figure.figsize": [7, 3.5],
+    "lines.linewidth": 2,
+    "legend.loc": "upper right"
+  }
+}

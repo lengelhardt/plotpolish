@@ -1,0 +1,66 @@
+{
+  "$comment": "Single source of truth for the 0.1 controls. TypeScript imports this; pytest reads it only for contract tests. category: live = artist-level equivalent applied instantly; save = read by savefig, applied via rcParams; rerun = rcParams-only, needs a host re-run.",
+  "groups": [
+    { "id": "preset",   "label": "Preset" },
+    { "id": "geometry", "label": "Figure & saving" },
+    { "id": "text",     "label": "Text" },
+    { "id": "lines",    "label": "Lines & colours" },
+    { "id": "axes",     "label": "Axes, grid & ticks" },
+    { "id": "legend",   "label": "Legend" }
+  ],
+  "controls": [
+    { "id": "style", "group": "preset", "label": "Style sheet", "type": "style", "keys": [], "default": "default", "category": "rerun",
+      "help": "One of plt.style.available. Sets many defaults at once; the controls below override it." },
+
+    { "id": "figsize", "group": "geometry", "label": "Figure size (inches)", "type": "pair", "keys": ["figure.figsize"], "default": [6.4, 4.8], "category": "live", "min": 1, "max": 30, "step": 0.1 },
+    { "id": "savefig_dpi", "group": "geometry", "label": "Saved image dpi", "type": "dpi", "keys": ["savefig.dpi"], "default": "figure", "category": "save", "min": 36, "max": 1200, "step": 1,
+      "help": "Leave empty to use the figure's own dpi." },
+    { "id": "savefig_transparent", "group": "geometry", "label": "Transparent background when saving", "type": "bool", "keys": ["savefig.transparent"], "default": false, "category": "save" },
+    { "id": "savefig_bbox", "group": "geometry", "label": "Crop to content when saving", "type": "enum", "keys": ["savefig.bbox"], "default": "standard", "category": "save",
+      "options": [ { "value": "standard", "label": "No (standard)" }, { "value": "tight", "label": "Yes (tight)" } ] },
+
+    { "id": "font_size", "group": "text", "label": "Base font size (pt)", "type": "number", "keys": ["font.size"], "default": 10, "category": "live", "min": 4, "max": 72, "step": 0.5,
+      "help": "Relative sizes such as 'large' scale from this." },
+    { "id": "font_family", "group": "text", "label": "Font family", "type": "enum", "keys": ["font.family"], "default": "sans-serif", "category": "rerun",
+      "options": [ { "value": "sans-serif", "label": "Sans-serif" }, { "value": "serif", "label": "Serif" }, { "value": "monospace", "label": "Monospace" } ] },
+    { "id": "title_size", "group": "text", "label": "Title size", "type": "fontsize", "keys": ["axes.titlesize"], "default": "large", "category": "live" },
+    { "id": "label_size", "group": "text", "label": "Axis label size", "type": "fontsize", "keys": ["axes.labelsize"], "default": "medium", "category": "live" },
+    { "id": "tick_label_size", "group": "text", "label": "Tick label size", "type": "fontsize", "keys": ["xtick.labelsize", "ytick.labelsize"], "default": "medium", "category": "live" },
+    { "id": "legend_fontsize", "group": "text", "label": "Legend text size", "type": "fontsize", "keys": ["legend.fontsize"], "default": "medium", "category": "live" },
+
+    { "id": "linewidth", "group": "lines", "label": "Line width", "type": "number", "keys": ["lines.linewidth"], "default": 1.5, "category": "live", "min": 0, "max": 20, "step": 0.25 },
+    { "id": "linestyle", "group": "lines", "label": "Line style", "type": "enum", "keys": ["lines.linestyle"], "default": "-", "category": "live",
+      "options": [ { "value": "-", "label": "Solid" }, { "value": "--", "label": "Dashed" }, { "value": "-.", "label": "Dash-dot" }, { "value": ":", "label": "Dotted" } ] },
+    { "id": "markersize", "group": "lines", "label": "Marker size", "type": "number", "keys": ["lines.markersize"], "default": 6, "category": "live", "min": 0, "max": 40, "step": 0.5 },
+    { "id": "prop_cycle", "group": "lines", "label": "Colour cycle", "type": "colorcycle", "keys": ["axes.prop_cycle"], "category": "rerun",
+      "default": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"],
+      "presets": [
+        { "id": "tab10", "label": "matplotlib default (tab10)",
+          "colors": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"] },
+        { "id": "okabe-ito", "label": "Colourblind-safe (Okabe–Ito)",
+          "colors": ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"] },
+        { "id": "tol-bright", "label": "Colourblind-safe (Tol bright)",
+          "colors": ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"] }
+      ] },
+
+    { "id": "grid", "group": "axes", "label": "Grid", "type": "bool", "keys": ["axes.grid"], "default": false, "category": "live" },
+    { "id": "grid_alpha", "group": "axes", "label": "Grid opacity", "type": "number", "keys": ["grid.alpha"], "default": 1, "category": "live", "min": 0, "max": 1, "step": 0.05 },
+    { "id": "grid_linestyle", "group": "axes", "label": "Grid line style", "type": "enum", "keys": ["grid.linestyle"], "default": "-", "category": "live",
+      "options": [ { "value": "-", "label": "Solid" }, { "value": "--", "label": "Dashed" }, { "value": "-.", "label": "Dash-dot" }, { "value": ":", "label": "Dotted" } ] },
+    { "id": "spine_top", "group": "axes", "label": "Top spine", "type": "bool", "keys": ["axes.spines.top"], "default": true, "category": "live" },
+    { "id": "spine_right", "group": "axes", "label": "Right spine", "type": "bool", "keys": ["axes.spines.right"], "default": true, "category": "live" },
+    { "id": "axes_linewidth", "group": "axes", "label": "Axes line width", "type": "number", "keys": ["axes.linewidth"], "default": 0.8, "category": "live", "min": 0, "max": 10, "step": 0.1 },
+    { "id": "tick_direction", "group": "axes", "label": "Tick direction", "type": "enum", "keys": ["xtick.direction", "ytick.direction"], "default": "out", "category": "live",
+      "options": [ { "value": "out", "label": "Out" }, { "value": "in", "label": "In" }, { "value": "inout", "label": "In and out" } ] },
+    { "id": "minor_ticks", "group": "axes", "label": "Minor ticks", "type": "bool", "keys": ["xtick.minor.visible", "ytick.minor.visible"], "default": false, "category": "live" },
+
+    { "id": "legend_frameon", "group": "legend", "label": "Legend frame", "type": "bool", "keys": ["legend.frameon"], "default": true, "category": "live" },
+    { "id": "legend_loc", "group": "legend", "label": "Legend location", "type": "enum", "keys": ["legend.loc"], "default": "best", "category": "live",
+      "options": [
+        { "value": "best", "label": "Best" }, { "value": "upper right", "label": "Upper right" }, { "value": "upper left", "label": "Upper left" },
+        { "value": "lower left", "label": "Lower left" }, { "value": "lower right", "label": "Lower right" }, { "value": "right", "label": "Right" },
+        { "value": "center left", "label": "Center left" }, { "value": "center right", "label": "Center right" }, { "value": "lower center", "label": "Lower center" },
+        { "value": "upper center", "label": "Upper center" }, { "value": "center", "label": "Center" } ] },
+    { "id": "legend_framealpha", "group": "legend", "label": "Legend frame opacity", "type": "number", "keys": ["legend.framealpha"], "default": 0.8, "category": "live", "min": 0, "max": 1, "step": 0.05 }
+  ]
+}

@@ -75,6 +75,9 @@ monetization, no telemetry, no nag UI.
 See [docs/design.md](docs/design.md) for the reasoning behind the
 implementation choices (why the generator is in TypeScript, how live preview
 decides what to touch, the helper transport).
+[docs/trinket-integration.md](docs/trinket-integration.md) is the plan for the
+first host: what Trinket's adapter has to do, with the survey findings it
+rests on.
 
 ## Repository layout
 

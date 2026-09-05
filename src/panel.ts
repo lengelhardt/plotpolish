@@ -24,8 +24,9 @@ import {
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
 import {
-  CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, controlsInGroup, rcEqual, resolveFontSize,
-  type ControlSpec, type GroupSpec, type RcValue,
+  CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, controlsInGroup, isPropCycle, rcEqual,
+  resolveFontSize,
+  type ControlSpec, type GroupSpec, type PropCycleValue, type RcValue,
 } from "./schema";
 import type { CodeSink } from "./sink";
 
@@ -57,7 +58,11 @@ export interface PanelErrorEventDetail {
 }
 
 type BackendState = "none" | "connecting" | "ready" | "error";
-type LayoutMode = "pill" | "rail";
+type LayoutMode = "pill" | "rail" | "float";
+
+function parseLayoutAttr(value: string | null): LayoutMode {
+  return value === "rail" ? "rail" : value === "float" ? "float" : "pill";
+}
 
 interface LegendXyView {
   wrap: HTMLElement;
@@ -65,6 +70,13 @@ interface LegendXyView {
   yRange: HTMLInputElement;
   xOut: HTMLElement;
   yOut: HTMLElement;
+}
+
+interface LineRowView {
+  row: HTMLElement;
+  color: HTMLInputElement;
+  width: HTMLInputElement;
+  styleSeg: HTMLElement;
 }
 
 interface ControlView {
@@ -78,6 +90,8 @@ interface ControlView {
   legendXy?: LegendXyView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
+  lineRows?: LineRowView[];
+  addLineBtn?: HTMLButtonElement;
 }
 
 interface GroupView {
@@ -100,13 +114,21 @@ interface DragStart {
   y: number;
   left: number;
   top: number;
+  pointerId: number;
+  /** True once the pointer has moved past the drag threshold and capture began. */
+  captured: boolean;
 }
 
 const APPLY_DEBOUNCE_MS = 60;
 const RAIL_WIDTH = 50;
+const FLOAT_INSET_PX = 8;
+/** Pixels the pointer must move before a header pointerdown becomes a drag. */
+const DRAG_THRESHOLD_PX = 4;
 
 /** matplotlib line-style glyphs, used on the compact segmented control. */
 const LINESTYLE_GLYPHS: Readonly<Record<string, string>> = { "-": "―", "--": "– –", "-.": "–·", ":": "···" };
+const LINESTYLE_LABELS: Readonly<Record<string, string>> = { "-": "Solid", "--": "Dashed", "-.": "Dash-dot", ":": "Dotted" };
+const LINESTYLE_VALUES: readonly string[] = ["-", "--", "-.", ":"];
 
 function schemaDefaults(): Record<string, RcValue> {
   const rc: Record<string, RcValue> = {};
@@ -118,6 +140,14 @@ function cloneSettings(s: StyleSettings): StyleSettings {
   const rc: Record<string, RcValue> = {};
   for (const [k, v] of Object.entries(s.rc)) rc[k] = (Array.isArray(v) ? [...v] : v) as RcValue;
   return { style: s.style, rc };
+}
+
+/** Cycle or truncate `arr` to exactly `len` entries (matplotlib's cycler semantics). */
+function resizeArray<T>(arr: readonly T[], len: number): T[] {
+  if (arr.length === 0 || len === 0) return [];
+  const out: T[] = [];
+  for (let i = 0; i < len; i++) out.push(arr[i % arr.length]!);
+  return out;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> & { class?: string } = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
@@ -219,6 +249,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.update();
     this.measureLayout();
     this.positionRail();
+    this.positionFloatPill();
     this.docClickHandler = (e: Event) => {
       if (!this._menuOpen) return;
       const path = typeof e.composedPath === "function" ? e.composedPath() : [];
@@ -246,10 +277,11 @@ export class PlotpolishPanel extends HTMLElement {
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
     if (name !== "layout" || this._settingLayoutAttr || newValue === oldValue) return;
     this._layoutForced = true;
-    const mode: LayoutMode = newValue === "rail" ? "rail" : "pill";
+    const mode = parseLayoutAttr(newValue);
     if (mode !== this._layoutMode) {
       this._layoutMode = mode;
       this.positionRail();
+      this.positionFloatPill();
       this.update();
     }
   }
@@ -308,16 +340,20 @@ export class PlotpolishPanel extends HTMLElement {
     this.setupResizeObservers();
     this.measureLayout();
     this.positionRail();
+    this.positionFloatPill();
     this.update();
   }
 
-  /** "pill" or "rail". Reflected as the `layout` attribute; set it to force one or the other. */
+  /**
+   * "pill", "rail" or "float" (the pill as a fixed layer over `figureElement`'s
+   * top-right corner). Reflected as the `layout` attribute; set it to force one.
+   */
   get layout(): LayoutMode {
     return this._layoutMode;
   }
   set layout(value: LayoutMode) {
     this._layoutForced = true;
-    this.setLayoutMode(value === "rail" ? "rail" : "pill");
+    this.setLayoutMode(parseLayoutAttr(value));
   }
 
   /** Whether the popover is visible. Reflected as the `open` attribute. */
@@ -509,6 +545,7 @@ export class PlotpolishPanel extends HTMLElement {
   // -------------------------------------------------------------------------
 
   private setKeys(spec: ControlSpec, value: RcValue | undefined): void {
+    const wasDefault = isDefaultSettings(this.settings);
     const apply: Record<string, RcValue> = {};
     for (const key of spec.keys) {
       if (value === undefined) {
@@ -520,21 +557,63 @@ export class PlotpolishPanel extends HTMLElement {
         apply[key] = this.settings.rc[key]!;
       }
     }
+    const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     if (spec.category === "rerun") this.noteRerun(spec.keys);
     else if (this.client && this._features.livePreview) this.scheduleApply(apply);
+    this.applySeeded(seeded);
     this.emitChange();
     this.update();
   }
 
   private setStyle(name: string): void {
     if (name === this.settings.style) return;
+    const wasDefault = isDefaultSettings(this.settings);
     this.settings.style = name;
+    // applyStyle() re-applies every current settings.rc entry (including
+    // whatever seedPanelDefaults just added) once set_style resolves, so no
+    // separate scheduleApply is needed here.
+    this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     this.noteRerun(["style"]);
     if (this.client) this.applyStyle(name, []);
     this.emitChange();
     this.update();
+  }
+
+  /**
+   * When settings go from fully default to non-default (and only then), set
+   * every panelDefault control's keys to their panelDefault, provided none of
+   * that control's keys are already set (e.g. by the very change that just
+   * made settings non-default). Returns the keys that were seeded.
+   */
+  private seedPanelDefaults(wasDefault: boolean): string[] {
+    if (!wasDefault || isDefaultSettings(this.settings)) return [];
+    const seeded: string[] = [];
+    for (const c of CONTROLS) {
+      const def = c.panelDefault;
+      if (def === undefined) continue;
+      if (c.keys.some((k) => k in this.settings.rc)) continue;
+      for (const key of c.keys) {
+        this.settings.rc[key] = (Array.isArray(def) ? [...def] : def) as RcValue;
+        seeded.push(key);
+      }
+    }
+    return seeded;
+  }
+
+  /** Live-apply (or note-rerun) keys seedPanelDefaults just added, alongside whatever triggered the change. */
+  private applySeeded(seeded: string[]): void {
+    if (!seeded.length) return;
+    const rerunKeys: string[] = [];
+    const apply: Record<string, RcValue> = {};
+    for (const key of seeded) {
+      const ctrl = CONTROL_FOR_KEY.get(key);
+      if (ctrl?.category === "rerun") rerunKeys.push(key);
+      else apply[key] = this.settings.rc[key]!;
+    }
+    if (rerunKeys.length) this.noteRerun(rerunKeys);
+    if (Object.keys(apply).length && this.client && this._features.livePreview) this.scheduleApply(apply);
   }
 
   /** Baseline values for `keys` (what the figure should return to when an override is cleared). */
@@ -716,22 +795,35 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onHeaderPointerDown(e: PointerEvent): void {
-    const header = this.ui.header;
-    try {
-      header.setPointerCapture?.(e.pointerId);
-    } catch {
-      /* not every environment supports pointer capture */
-    }
+    // Buttons in the header (✕, ⌖) must receive their own click; do not start
+    // a drag or capture the pointer when the press lands on one of them.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button")) return;
     const rect = this.ui.popover.getBoundingClientRect();
-    this.dragStart = { x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top };
+    this.dragStart = {
+      x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
+      pointerId: e.pointerId, captured: false,
+    };
   }
 
   private onHeaderPointerMove(e: PointerEvent): void {
-    if (!this.dragStart) return;
-    const dx = (e.clientX ?? 0) - this.dragStart.x;
-    const dy = (e.clientY ?? 0) - this.dragStart.y;
-    let left = this.dragStart.left + dx;
-    let top = this.dragStart.top + dy;
+    const start = this.dragStart;
+    if (!start) return;
+    const dx = (e.clientX ?? 0) - start.x;
+    const dy = (e.clientY ?? 0) - start.y;
+    if (!start.captured) {
+      // Only becomes a drag once the pointer clears the threshold, so a plain
+      // click (e.g. on the header background) never captures the pointer.
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      start.captured = true;
+      try {
+        this.ui.header.setPointerCapture?.(start.pointerId);
+      } catch {
+        /* not every environment supports pointer capture */
+      }
+    }
+    let left = start.left + dx;
+    let top = start.top + dy;
     const headerRect = this.ui.header.getBoundingClientRect();
     const hw = headerRect.width || 200;
     const vw = window.innerWidth || 0;
@@ -747,14 +839,17 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onHeaderPointerUp(e: PointerEvent): void {
-    if (!this.dragStart) return;
-    try {
-      this.ui.header.releasePointerCapture?.(e.pointerId);
-    } catch {
-      /* ignore */
+    const start = this.dragStart;
+    if (!start) return;
+    if (start.captured) {
+      try {
+        this.ui.header.releasePointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      this.ui.popover.classList.remove("dragging");
     }
     this.dragStart = null;
-    this.ui.popover.classList.remove("dragging");
   }
 
   private toggleMore(groupId: string): void {
@@ -783,6 +878,7 @@ export class PlotpolishPanel extends HTMLElement {
   private onWindowReflow = (): void => {
     this.measureLayout();
     this.positionRail();
+    this.positionFloatPill();
     if (this._open && !this.dragPos) this.positionPopover();
     if (this._menuOpen) this.positionMenu();
   };
@@ -799,23 +895,22 @@ export class PlotpolishPanel extends HTMLElement {
     this.resizeObserver = null;
   }
 
-  /** Auto-detect pill vs rail (unless the host has forced `layout`). */
+  /**
+   * Auto-detect the layout (unless the host has forced `layout`): "float" is
+   * the default once `figureElement` is set and has a real size; with no
+   * figure element, or one with zero size (not yet laid out), it falls back
+   * to the inline "pill". Auto "rail" is no longer chosen: floating over the
+   * figure replaces the old too-narrow-toolbar fallback, which "rail" now
+   * serves only as a host-forced option.
+   */
   private measureLayout(): void {
     if (this._layoutForced) return;
-    if (!this._figureElement || !this.parentElement) {
+    if (!this._figureElement) {
       this.setLayoutMode("pill");
       return;
     }
-    const parent = this.parentElement;
-    const pillWidth = this.ui.pill.scrollWidth;
-    let siblingWidth = 0;
-    for (const child of Array.from(parent.children)) {
-      if (child === this) continue;
-      siblingWidth += (child as HTMLElement).getBoundingClientRect().width;
-    }
-    const available = parent.clientWidth - siblingWidth;
-    const overflow = pillWidth > 0 && (pillWidth > available || pillWidth > parent.clientWidth);
-    this.setLayoutMode(overflow ? "rail" : "pill");
+    const rect = this._figureElement.getBoundingClientRect();
+    this.setLayoutMode(rect.width > 0 && rect.height > 0 ? "float" : "pill");
   }
 
   private setLayoutMode(mode: LayoutMode): void {
@@ -826,6 +921,7 @@ export class PlotpolishPanel extends HTMLElement {
     this._layoutMode = mode;
     this.reflectLayoutAttr();
     this.positionRail();
+    this.positionFloatPill();
     this.update();
   }
 
@@ -843,6 +939,28 @@ export class PlotpolishPanel extends HTMLElement {
     rail.style.top = `${rect.top}px`;
     rail.style.left = `${Math.max(0, rect.right - RAIL_WIDTH)}px`;
     rail.style.width = `${RAIL_WIDTH}px`;
+  }
+
+  /**
+   * Position the pill as a fixed layer 8px inset from `figureElement`'s
+   * bounding rect (top-right corner). With no figure element the inset is
+   * measured from the viewport, so a host-forced "float" still renders
+   * sensibly.
+   */
+  private positionFloatPill(): void {
+    const pill = this.ui?.pill;
+    if (!pill) return;
+    if (this._layoutMode !== "float") {
+      pill.style.top = "";
+      pill.style.right = "";
+      return;
+    }
+    const rect = this._figureElement?.getBoundingClientRect();
+    const vw = window.innerWidth || 0;
+    const top = (rect?.top ?? 0) + FLOAT_INSET_PX;
+    const right = Math.max(0, vw - (rect?.right ?? vw)) + FLOAT_INSET_PX;
+    pill.style.top = `${top}px`;
+    pill.style.right = `${right}px`;
   }
 
   private isGroupVisible(group: GroupSpec): boolean {
@@ -893,7 +1011,6 @@ export class PlotpolishPanel extends HTMLElement {
     style.textContent = css;
 
     // --- Tab pill + rail ---
-    const pillLabel = el("span", { class: "label" }, "Style");
     const errMark = el("span", { class: "err", hidden: true, title: "There is a problem with the generated block." }, "!");
     const menuToggle = el("button", { type: "button", class: "menu-toggle", title: "Reset menu" }, "↺ ▾");
     menuToggle.setAttribute("aria-haspopup", "menu");
@@ -913,15 +1030,16 @@ export class PlotpolishPanel extends HTMLElement {
       railTabs.push(railTab.btn);
     }
 
-    const pill = el("div", { class: "pill", role: "tablist" }, pillLabel, ...pillTabs, errMark, menuToggle);
+    const pill = el("div", { class: "pill", role: "tablist" }, ...pillTabs, errMark, menuToggle);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---
+    const grip = el("span", { class: "grip" }, "⋮⋮");
     const title = el("span", { class: "title" });
     const reanchorBtn = el("button", { type: "button", class: "reanchor", title: "Move back to the tab" }, "⌖");
     const closeBtn = el("button", { type: "button", class: "close" }, "✕");
     closeBtn.setAttribute("aria-label", "Close");
-    const header = el("div", { class: "pop-head" }, title, reanchorBtn, closeBtn);
+    const header = el("div", { class: "pop-head", title: "Drag to move" }, grip, title, reanchorBtn, closeBtn);
     header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
     header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
     header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
@@ -1031,6 +1149,8 @@ export class PlotpolishPanel extends HTMLElement {
     let legendXy: LegendXyView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
+    let lineRowsView: LineRowView[] | undefined;
+    let addLineBtnView: HTMLButtonElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -1073,11 +1193,14 @@ export class PlotpolishPanel extends HTMLElement {
           control.append(range, out);
         } else {
           const input = number({ id });
-          input.addEventListener("change", () => {
+          const commit = () => {
             const n = Number(input.value);
             if (input.value !== "" && Number.isFinite(n)) this.setKeys(spec, n);
             else this.update();
-          });
+          };
+          input.addEventListener("input", commit);
+          input.addEventListener("change", commit);
+          input.addEventListener("blur", () => this.update());
           inputs.push(input);
           control.append(input);
         }
@@ -1085,25 +1208,31 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "fontsize": {
         const input = number({ id, step: "0.5", min: "1" });
-        input.addEventListener("change", () => {
+        const commit = () => {
           const n = Number(input.value);
           if (input.value !== "" && Number.isFinite(n) && n > 0) this.setKeys(spec, n);
           else this.update();
-        });
+        };
+        input.addEventListener("input", commit);
+        input.addEventListener("change", commit);
+        input.addEventListener("blur", () => this.update());
         inputs.push(input);
         control.append(input);
         break;
       }
       case "dpi": {
-        const input = number({ id, placeholder: "figure" });
-        input.addEventListener("change", () => {
+        const input = number({ id });
+        const commit = () => {
           if (input.value === "") this.setKeys(spec, "figure");
           else {
             const n = Number(input.value);
             if (Number.isFinite(n) && n > 0) this.setKeys(spec, n);
             else this.update();
           }
-        });
+        };
+        input.addEventListener("input", commit);
+        input.addEventListener("change", commit);
+        input.addEventListener("blur", () => this.update());
         inputs.push(input);
         control.append(input);
         break;
@@ -1118,8 +1247,12 @@ export class PlotpolishPanel extends HTMLElement {
           if (w.value !== "" && h.value !== "" && Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) this.setKeys(spec, [a, b]);
           else this.update();
         };
+        w.addEventListener("input", commit);
+        h.addEventListener("input", commit);
         w.addEventListener("change", commit);
         h.addEventListener("change", commit);
+        w.addEventListener("blur", () => this.update());
+        h.addEventListener("blur", () => this.update());
         inputs.push(w, h);
         control.append(el("span", { class: "pair" }, w, el("span", {}, "×"), h));
         break;
@@ -1162,11 +1295,71 @@ export class PlotpolishPanel extends HTMLElement {
             sw.append(i);
           }
           btn.append(sw);
-          btn.addEventListener("click", () => this.setKeys(spec, [...preset.colors]));
+          btn.addEventListener("click", () => {
+            // Preserve any existing per-line width/style arrays, resized
+            // (cycled/truncated) to the preset's color count.
+            const current = this.effective(spec.keys[0]!);
+            if (isPropCycle(current) && (current.linewidth || current.linestyle)) {
+              const len = preset.colors.length;
+              const next: PropCycleValue = { color: [...preset.colors] };
+              if (current.linewidth) next.linewidth = resizeArray(current.linewidth, len);
+              if (current.linestyle) next.linestyle = resizeArray(current.linestyle, len);
+              this.setKeys(spec, next);
+            } else {
+              this.setKeys(spec, [...preset.colors]);
+            }
+          });
           list.append(btn);
         }
         swatchList = list;
         control.append(list);
+        break;
+      }
+      case "linecycle": {
+        const table = el("div", { class: "linecycle", id });
+        const head = el(
+          "div", { class: "line-row line-head" },
+          el("span", {}), el("span", {}, "Color"), el("span", {}, "Width"), el("span", {}, "Style"),
+        );
+        table.append(head);
+        const maxLines = spec.maxLines ?? 8;
+        const lineRows: LineRowView[] = [];
+        for (let i = 0; i < maxLines; i++) {
+          const idx = el("span", { class: "line-index" }, String(i + 1));
+          const color = el("input", { type: "color", class: "line-color" });
+          color.setAttribute("aria-label", `Line ${i + 1} color`);
+          const width = el("input", { type: "number", class: "line-width", min: "0.25", max: "8", step: "0.25" });
+          width.setAttribute("aria-label", `Line ${i + 1} width`);
+          const seg = el("div", { class: "segmented line-style" });
+          seg.setAttribute("role", "radiogroup");
+          seg.setAttribute("aria-label", `Line ${i + 1} style`);
+          for (const styleVal of LINESTYLE_VALUES) {
+            const btn = el("button", { type: "button", title: LINESTYLE_LABELS[styleVal]! }, LINESTYLE_GLYPHS[styleVal]!);
+            btn.dataset.value = styleVal;
+            btn.setAttribute("aria-pressed", "false");
+            btn.addEventListener("click", () => {
+              for (const b of Array.from(seg.children) as HTMLButtonElement[]) {
+                b.setAttribute("aria-pressed", String(b.dataset.value === styleVal));
+              }
+              this.commitLineCycle(spec);
+            });
+            seg.append(btn);
+          }
+          const commit = () => this.commitLineCycle(spec);
+          color.addEventListener("input", commit);
+          width.addEventListener("input", commit);
+          width.addEventListener("change", commit);
+          width.addEventListener("blur", () => this.update());
+          const rowEl = el("div", { class: "line-row" }, idx, color, width, seg);
+          table.append(rowEl);
+          lineRows.push({ row: rowEl, color, width, styleSeg: seg });
+        }
+        const addBtn = el("button", { type: "button", class: "add-line" }, "+ line");
+        addBtn.addEventListener("click", () => this.addLineRow(spec));
+        table.append(addBtn);
+        control.append(table);
+        lineRowsView = lineRows;
+        addLineBtnView = addBtn;
         break;
       }
       case "legendloc": {
@@ -1212,8 +1405,110 @@ export class PlotpolishPanel extends HTMLElement {
     if (legendXy) view.legendXy = legendXy;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;
+    if (lineRowsView) view.lineRows = lineRowsView;
+    if (addLineBtnView) view.addLineBtn = addLineBtnView;
     this.views.set(spec.id, view);
     return row;
+  }
+
+  // -------------------------------------------------------------------------
+  // Per-line ("linecycle") helpers
+  // -------------------------------------------------------------------------
+
+  /** Number of per-line rows to show: schema bounds, the live figure's line count, and the current value's array length. */
+  private lineCycleRowCount(spec: ControlSpec): number {
+    const minLines = spec.minLines ?? 2;
+    const maxLines = spec.maxLines ?? 8;
+    // The user's own override only — not the baseline/default palette, whose
+    // length (matplotlib's 10-color default) is not a row count.
+    const value = this.settings.rc[spec.keys[0]!];
+    const figLines = this.figure && this.figure.axes.length ? Math.max(...this.figure.axes.map((a) => a.n_lines)) : 0;
+    let valueLen = 0;
+    if (isPropCycle(value)) {
+      valueLen = Math.max(value.color.length, value.linewidth?.length ?? 0, value.linestyle?.length ?? 0);
+    } else if (Array.isArray(value)) {
+      valueLen = (value as string[]).length;
+    }
+    return Math.min(maxLines, Math.max(minLines, figLines, valueLen));
+  }
+
+  /** Per-row color/width/style for rows [0, rowCount), from the effective prop_cycle plus the all-lines defaults. */
+  private lineRowValues(spec: ControlSpec, rowCount: number): { color: string[]; width: number[]; style: string[] } {
+    const value = this.effective(spec.keys[0]!);
+    const valueColors = isPropCycle(value) ? value.color : Array.isArray(value) ? (value as string[]) : [];
+    const widths = isPropCycle(value) ? value.linewidth : undefined;
+    const styles = isPropCycle(value) ? value.linestyle : undefined;
+    const fallbackColors = (CONTROL_FOR_KEY.get("axes.prop_cycle")?.default as string[] | undefined) ?? ["#1f77b4"];
+    const palette = valueColors.length ? valueColors : fallbackColors;
+    const allWidth = this.allLinesWidth();
+    const allStyle = this.allLinesStyle();
+    const color: string[] = [];
+    const width: number[] = [];
+    const style: string[] = [];
+    for (let i = 0; i < rowCount; i++) {
+      color.push(palette[i % palette.length]!);
+      width.push(widths?.[i] ?? allWidth);
+      style.push(styles?.[i] ?? allStyle);
+    }
+    return { color, width, style };
+  }
+
+  private allLinesWidth(): number {
+    const v = this.effective("lines.linewidth");
+    return typeof v === "number" ? v : 1.5;
+  }
+
+  private allLinesStyle(): string {
+    const v = this.effective("lines.linestyle");
+    return typeof v === "string" ? v : "-";
+  }
+
+  /** Read the visible rows' current DOM values and write a full PropCycleValue (or plain color[] when width/style match the all-lines default everywhere). */
+  private commitLineCycle(spec: ControlSpec): void {
+    const rowCount = this.lineCycleRowCount(spec);
+    const rows = this.views.get(spec.id)!.lineRows!;
+    const color: string[] = [];
+    const width: number[] = [];
+    const style: string[] = [];
+    const fallbackWidth = this.allLinesWidth();
+    const fallbackStyle = this.allLinesStyle();
+    for (let i = 0; i < rowCount; i++) {
+      const r = rows[i]!;
+      color.push(r.color.value);
+      const w = Number(r.width.value);
+      width.push(Number.isFinite(w) && w > 0 ? w : fallbackWidth);
+      const activeBtn = Array.from(r.styleSeg.children).find(
+        (b) => (b as HTMLButtonElement).getAttribute("aria-pressed") === "true",
+      ) as HTMLButtonElement | undefined;
+      style.push(activeBtn?.dataset.value ?? fallbackStyle);
+    }
+    this.setKeys(spec, this.buildPropCycleValue(color, width, style));
+  }
+
+  private addLineRow(spec: ControlSpec): void {
+    const maxLines = spec.maxLines ?? 8;
+    const current = this.lineCycleRowCount(spec);
+    if (current >= maxLines) return;
+    const { color, width, style } = this.lineRowValues(spec, current + 1);
+    this.setKeys(spec, this.buildPropCycleValue(color, width, style));
+  }
+
+  /** width/linestyle are included only when at least one row differs from the all-lines default, so the block stays short. */
+  private buildPropCycleValue(color: string[], width: number[], style: string[]): RcValue {
+    const fallbackWidth = this.allLinesWidth();
+    const fallbackStyle = this.allLinesStyle();
+    const widthDiffers = width.some((w) => Math.abs(w - fallbackWidth) > 1e-9);
+    const styleDiffers = style.some((s) => s !== fallbackStyle);
+    if (!widthDiffers && !styleDiffers) return color;
+    const value: PropCycleValue = { color };
+    if (widthDiffers) value.linewidth = width;
+    if (styleDiffers) value.linestyle = style;
+    return value;
+  }
+
+  /** Whether `input` is the shadow root's currently-focused element (so update() must not overwrite its value mid-edit). */
+  private isEditing(input: HTMLElement): boolean {
+    return this.root.activeElement === input;
   }
 
   // -------------------------------------------------------------------------
@@ -1237,6 +1532,7 @@ export class PlotpolishPanel extends HTMLElement {
 
     ui.pill.hidden = this._layoutMode === "rail";
     ui.rail.hidden = this._layoutMode !== "rail";
+    ui.pill.classList.toggle("float", this._layoutMode === "float");
 
     for (const g of GROUPS) {
       const tabView = this.tabViews.get(g.id)!;
@@ -1333,13 +1629,14 @@ export class PlotpolishPanel extends HTMLElement {
         if (view.rangeInput) {
           view.rangeInput.value = v;
           if (view.readout) view.readout.textContent = v;
-        } else if (view.inputs[0]) {
+        } else if (view.inputs[0] && !this.isEditing(view.inputs[0])) {
           (view.inputs[0] as HTMLInputElement).value = v;
         }
         break;
       }
       case "fontsize": {
         const input = view.inputs[0] as HTMLInputElement;
+        if (this.isEditing(input)) break;
         const base = this.effective("font.size");
         const baseN = typeof base === "number" ? base : 10;
         if (typeof value === "number") {
@@ -1353,14 +1650,25 @@ export class PlotpolishPanel extends HTMLElement {
         }
         break;
       }
-      case "dpi":
-        (view.inputs[0] as HTMLInputElement).value = typeof value === "number" ? String(value) : "";
+      case "dpi": {
+        const input = view.inputs[0] as HTMLInputElement;
+        if (this.isEditing(input)) break;
+        if (typeof value === "number") {
+          input.value = String(value);
+          input.title = "";
+        } else {
+          // The default ("figure") or an explicit "figure": show the live
+          // figure's own dpi instead of the word "figure".
+          input.value = String(this.figure?.dpi ?? 100);
+          input.title = "Figure's own dpi (matplotlib default)";
+        }
         break;
+      }
       case "pair": {
         const [w, h] = view.inputs as HTMLInputElement[];
         if (Array.isArray(value) && value.length === 2 && w && h) {
-          w.value = String(value[0]);
-          h.value = String(value[1]);
+          if (!this.isEditing(w)) w.value = String(value[0]);
+          if (!this.isEditing(h)) h.value = String(value[1]);
         }
         break;
       }
@@ -1378,13 +1686,32 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "colorcycle": {
-        const colors = Array.isArray(value) ? (value as string[]) : [];
+        const colors = isPropCycle(value) ? value.color : Array.isArray(value) ? (value as string[]) : [];
         const preset = spec.presets?.find((p) => rcEqual(p.colors, colors));
         const list = view.swatchList!;
         for (const btn of Array.from(list.querySelectorAll<HTMLButtonElement>("button.preset[data-preset]"))) {
           btn.setAttribute("aria-pressed", String(btn.dataset.preset === preset?.id));
         }
         list.title = preset ? "" : "Custom colors (from your file)";
+        break;
+      }
+      case "linecycle": {
+        const rowCount = this.lineCycleRowCount(spec);
+        const maxLines = spec.maxLines ?? 8;
+        const { color, width, style } = this.lineRowValues(spec, rowCount);
+        const rows = view.lineRows!;
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i]!;
+          const visible = i < rowCount;
+          r.row.hidden = !visible;
+          if (!visible) continue;
+          if (!this.isEditing(r.color)) r.color.value = color[i]!;
+          if (!this.isEditing(r.width)) r.width.value = String(width[i]);
+          for (const b of Array.from(r.styleSeg.children) as HTMLButtonElement[]) {
+            b.setAttribute("aria-pressed", String(b.dataset.value === style[i]));
+          }
+        }
+        if (view.addLineBtn) view.addLineBtn.hidden = rowCount >= maxLines;
         break;
       }
       case "legendloc": {

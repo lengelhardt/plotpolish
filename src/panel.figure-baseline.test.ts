@@ -51,9 +51,10 @@ describe("figure baseline (`previous`) tracking", () => {
   it("sends the last-introspected value as previous on the first apply", async () => {
     change(panel, "linewidth", "3");
     await panel.settle();
+    // The first change out of fully-default settings coalesces with the seeded savefig.dpi into the same call.
     const [call] = applyCalls(backend);
-    expect(call!.rc).toEqual({ "lines.linewidth": 3 });
-    expect(call!.previous).toEqual({ "lines.linewidth": 1.5 });
+    expect(call!.rc).toEqual({ "lines.linewidth": 3, "savefig.dpi": 300 });
+    expect(call!.previous).toEqual({ "lines.linewidth": 1.5, "savefig.dpi": "figure" });
   });
 
   it("advances previous to what it last applied", async () => {
@@ -86,8 +87,9 @@ describe("figure baseline (`previous`) tracking", () => {
     await panel.settle();
     expect(backend.calls.map((c) => c.fn)).toEqual(["set_style", "apply_live"]);
     const restore = applyCalls(backend)[0]!;
-    expect(restore.rc).toEqual({ "lines.linewidth": 1.5 }); // target: default baseline
-    expect(restore.previous).toEqual({ "lines.linewidth": 3 }); // reference: what the figure has
+    // linewidth was the first change out of default, so it seeded savefig.dpi too; both restore together.
+    expect(restore.rc).toEqual({ "lines.linewidth": 1.5, "savefig.dpi": "figure" }); // target: default baseline
+    expect(restore.previous).toEqual({ "lines.linewidth": 3, "savefig.dpi": 300 }); // reference: what the figure has
     expect(panel.getSettings()).toEqual({ style: "default", rc: {} });
     expect(sink.getSource()).not.toContain("plot style");
     expect(generateBlock(panel.getSettings())).toBeNull();

@@ -73,10 +73,23 @@ button.small { padding: 0 6px; font-size: 11px; line-height: 20px; }
   border: 1px solid var(--_border);
 }
 .pill.error { border-color: var(--_danger); }
-.pill .label { padding: 0 4px 0 6px; font-size: 12px; font-weight: 600; color: var(--_muted); }
 .pill .err {
   color: var(--_danger); font-weight: 700; padding: 0 4px; cursor: default;
   border: 0; background: transparent;
+}
+
+/* Floating pill (layout="float"): a fixed layer over the figure's top-right
+   corner, given a stronger presence so it reads over a plot. */
+.pill.float {
+  position: fixed; z-index: 2147483000;
+  border: 1.5px solid var(--_accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  background: var(--_bg);
+  background-clip: padding-box;
+}
+.pill.float::before {
+  content: ""; position: absolute; inset: 0; border-radius: 999px;
+  background: var(--_bg); opacity: 0.96; z-index: -1;
 }
 
 button.tab {
@@ -124,6 +137,7 @@ button.menu-toggle:hover { color: var(--_accent); }
 
 .pop-head { display: flex; align-items: center; gap: 4px; min-height: 22px; cursor: grab; touch-action: none; margin: 0 0 6px; }
 .popover.dragging .pop-head { cursor: grabbing; }
+.pop-head .grip { color: var(--_muted); font-size: 11px; line-height: 1; letter-spacing: -1px; user-select: none; }
 .pop-head .title { flex: 1; font-size: 12px; font-weight: 700; }
 .pop-head button { border: 0; background: transparent; color: var(--_muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
 .pop-head button:hover { color: var(--_accent); }
@@ -223,6 +237,29 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .swatch-list .preset[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }
 .swatches { display: inline-flex; }
 .swatches i { display: inline-block; width: 8px; height: 8px; }
+
+/* Per-line ("linecycle") table: label stacks above the table so it can use
+   the full popover width. */
+.row[data-control="line_cycle"] { display: block; }
+.row[data-control="line_cycle"] label { display: block; margin-bottom: 4px; }
+.row[data-control="line_cycle"] .badges { display: inline-flex; }
+.row[data-control="line_cycle"] .control { display: block; }
+
+.linecycle { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.linecycle .line-row {
+  display: grid; grid-template-columns: 14px 22px 48px 1fr; align-items: center; gap: 6px;
+}
+.linecycle .line-head { color: var(--_muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.02em; }
+.linecycle .line-index { color: var(--_muted); font-size: 11px; text-align: right; }
+input.line-color { width: 18px; height: 18px; padding: 0; border: 1px solid var(--_border); border-radius: 3px; background: none; }
+input.line-width { width: 44px; }
+.segmented.line-style { height: 20px; }
+.segmented.line-style button { min-width: 22px; padding: 0 4px; font-size: 11px; }
+button.add-line {
+  align-self: flex-start; margin-top: 2px; border: 0; background: transparent;
+  color: var(--_muted); font-size: 11px; padding: 2px 2px;
+}
+button.add-line:hover { color: var(--_accent); }
 
 /* Legend custom-position sliders */
 .legend-xy { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }

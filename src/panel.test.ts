@@ -97,6 +97,10 @@ function figureWithLegend(legend: AxesDescription["legend"]): FigureDescription 
   return { figsize: [6.4, 4.8], dpi: 100, axes: [{ ...AXES_BASE, legend }] };
 }
 
+function figureWithLines(n: number): FigureDescription {
+  return { figsize: [6.4, 4.8], dpi: 100, axes: [{ ...AXES_BASE, n_lines: n, legend: null }] };
+}
+
 let panel: PlotpolishPanel;
 
 beforeEach(() => {
@@ -126,9 +130,9 @@ describe("registration and rendering", () => {
     expect(ids).toEqual(GROUPS.map((g) => g.id));
   });
 
-  it("renders the pill with a leading 'Style' label and one tab per group, in schema order", () => {
-    const label = panel.shadowRoot!.querySelector(".pill .label")!;
-    expect(label.textContent).toBe("Style");
+  it("renders the pill with one tab per group in schema order, and no 'Style' label", () => {
+    expect(panel.shadowRoot!.querySelector(".pill .label")).toBeNull();
+    expect(panel.shadowRoot!.querySelector(".pill")!.textContent).not.toContain("Style");
     const tabs = Array.from(panel.shadowRoot!.querySelectorAll(".pill button.tab")) as HTMLElement[];
     expect(tabs.map((t) => t.dataset.group)).toEqual(GROUPS.map((g) => g.id));
   });
@@ -373,7 +377,8 @@ describe("loading from a sink", () => {
     const finalSrc = sink.writes[0]!;
     expect(finalSrc.split(FENCE_START).length - 1).toBe(1);
     expect(finalSrc).toContain("print('kept')");
-    expect(parseBlock(finalSrc)!.settings.rc).toEqual({ "axes.grid": true });
+    // The first change out of fully-default settings also seeds savefig.dpi (see "panelDefault seeding" below).
+    expect(parseBlock(finalSrc)!.settings.rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
   });
 });
 
@@ -390,7 +395,8 @@ describe("writing", () => {
 
     expect(sink.writes.length).toBe(1);
     const src1 = sink.writes[0]!;
-    expect(parseBlock(src1)!.settings.rc).toEqual({ "font.size": 14 });
+    // The first change out of fully-default settings also seeds savefig.dpi (see "panelDefault seeding" below).
+    expect(parseBlock(src1)!.settings.rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
     expect(src1.endsWith(userSrc)).toBe(true);
     expect(ctl(panel, "font_size").querySelector(".readout")!.textContent).toBe("14");
   });
@@ -407,19 +413,25 @@ describe("writing", () => {
     expect(sink.writes.length).toBe(2);
     const src2 = sink.writes[1]!;
     expect(src2.split(FENCE_START).length - 1).toBe(1);
-    expect(parseBlock(src2)!.settings.rc).toEqual({ "font.size": 16 });
+    expect(parseBlock(src2)!.settings.rc).toEqual({ "font.size": 16, "savefig.dpi": 300 });
   });
 
-  it("reverting the only set key removes it, and the fence disappears once settings are default", () => {
+  it("reverting the only user-set key leaves the seeded savefig.dpi; reverting that too empties the fence", () => {
     const sink = new MemorySink(userSrc);
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
     fireInput(fs);
+    expect(panel.getSettings().rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
 
     const revertBtn = ctl(panel, "font_size").querySelector(".revert") as HTMLButtonElement;
     expect(revertBtn.hidden).toBe(false);
     revertBtn.click();
+    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
+    expect(sink.writes[sink.writes.length - 1]).toContain(FENCE_START);
+
+    const dpiRevertBtn = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
+    dpiRevertBtn.click();
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(last).not.toContain(FENCE_START);
@@ -792,13 +804,90 @@ describe("draggable popover", () => {
     header.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(caret.hidden).toBe(false);
   });
+
+  it("a pointerdown on the ✕ button does not start a drag, and the click still closes", () => {
+    openTab(panel, "text");
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    const closeBtn = panel.shadowRoot!.querySelector(".close") as HTMLButtonElement;
+    const leftBefore = popover.style.left; // already anchored by positionPopover() when the tab opened
+
+    closeBtn.dispatchEvent(Object.assign(new Event("pointerdown", { bubbles: true }), { clientX: 10, clientY: 10, pointerId: 1 }));
+    closeBtn.dispatchEvent(Object.assign(new Event("pointermove", { bubbles: true }), { clientX: 60, clientY: 60, pointerId: 1 }));
+    expect(popover.classList.contains("dragging")).toBe(false);
+    expect(popover.style.left).toBe(leftBefore);
+
+    closeBtn.click();
+    expect(panel.open).toBe(false);
+  });
+
+  it("a move under the 4px threshold does not start a drag; a bigger move does", () => {
+    openTab(panel, "text");
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    const caret = panel.shadowRoot!.querySelector(".caret") as HTMLElement;
+    const header = panel.shadowRoot!.querySelector(".pop-head") as HTMLElement;
+    const leftBefore = popover.style.left; // already anchored by positionPopover() when the tab opened
+
+    header.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
+    header.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 3, clientY: 0, pointerId: 1 }));
+    expect(popover.style.left).toBe(leftBefore);
+    expect(popover.classList.contains("dragging")).toBe(false);
+    expect(caret.hidden).toBe(false);
+
+    header.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 10, clientY: 0, pointerId: 1 }));
+    expect(popover.style.left).not.toBe(leftBefore);
+    expect(popover.classList.contains("dragging")).toBe(true);
+    expect(caret.hidden).toBe(true);
+
+    header.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 0, pointerId: 1 }));
+    expect(popover.classList.contains("dragging")).toBe(false);
+  });
+
+  it("shows a grip glyph and a 'Drag to move' title on the header", () => {
+    openTab(panel, "text");
+    const header = panel.shadowRoot!.querySelector(".pop-head") as HTMLElement;
+    expect(header.title).toBe("Drag to move");
+    expect(header.querySelector(".grip")).not.toBeNull();
+  });
 });
 
-describe("layout: pill vs rail", () => {
+describe("layout: pill / rail / float", () => {
   it("renders the pill by default and keeps the rail hidden", () => {
     expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).hidden).toBe(false);
     expect((panel.shadowRoot!.querySelector(".rail") as HTMLElement).hidden).toBe(true);
     expect(panel.layout).toBe("pill");
+  });
+
+  it("falls back to 'pill' when figureElement is null", () => {
+    panel.figureElement = null;
+    expect(panel.layout).toBe("pill");
+    expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).classList.contains("float")).toBe(false);
+  });
+
+  it("chooses 'float' automatically once figureElement is set and has a real size", () => {
+    // happy-dom's getBoundingClientRect() is always zero-size, so give the
+    // figure element a real rect to exercise the auto-detection itself.
+    const fig = document.createElement("div");
+    document.body.append(fig);
+    fig.getBoundingClientRect = () =>
+      ({ top: 40, left: 10, right: 410, bottom: 340, width: 400, height: 300, x: 10, y: 40, toJSON() {} }) as DOMRect;
+    try {
+      panel.figureElement = fig;
+      expect(panel.layout).toBe("float");
+      expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).classList.contains("float")).toBe(true);
+      expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).hidden).toBe(false);
+    } finally {
+      fig.remove();
+    }
+  });
+
+  it("the explicit layout='float' attribute path renders .pill with the float class and fixed positioning styles", () => {
+    panel.setAttribute("layout", "float");
+    expect(panel.layout).toBe("float");
+    const pill = panel.shadowRoot!.querySelector(".pill") as HTMLElement;
+    expect(pill.hidden).toBe(false);
+    expect(pill.classList.contains("float")).toBe(true);
+    expect(pill.style.top).not.toBe("");
+    expect(pill.style.right).not.toBe("");
   });
 
   it("forcing layout='rail' renders the rail with one tab per visible group, and hides the pill", () => {
@@ -816,6 +905,8 @@ describe("layout: pill vs rail", () => {
   it("setting the layout property forces the mode and reflects the attribute", () => {
     panel.layout = "rail";
     expect(panel.getAttribute("layout")).toBe("rail");
+    panel.layout = "float";
+    expect(panel.getAttribute("layout")).toBe("float");
     panel.layout = "pill";
     expect(panel.getAttribute("layout")).toBe("pill");
   });
@@ -863,9 +954,14 @@ describe("backend", () => {
     fireInput(lw);
     await panel.settle();
 
+    // The first change out of fully-default settings coalesces with the seeded savefig.dpi into the same call.
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
-    expect(calls[0]!.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true, previous: { "lines.linewidth": 1.5 } });
+    expect(calls[0]!.args).toEqual({
+      rc: { "lines.linewidth": 3, "savefig.dpi": 300 },
+      only_defaults: true,
+      previous: { "lines.linewidth": 1.5, "savefig.dpi": "figure" },
+    });
   });
 
   it("coalesces two rapid changes to different controls into one apply_live call", async () => {
@@ -881,13 +977,13 @@ describe("backend", () => {
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
     expect(calls[0]!.args).toEqual({
-      rc: { "lines.linewidth": 4, "lines.markersize": 10 },
+      rc: { "lines.linewidth": 4, "lines.markersize": 10, "savefig.dpi": 300 },
       only_defaults: true,
-      previous: { "lines.linewidth": 1.5, "lines.markersize": 6 },
+      previous: { "lines.linewidth": 1.5, "lines.markersize": 6, "savefig.dpi": "figure" },
     });
   });
 
-  it("does not call apply_live for a rerun-category control, and dispatches rerun-needed", async () => {
+  it("still live-applies the seeded savefig.dpi even though the triggering control is rerun-category", async () => {
     await attachBackend(panel, backend);
     const events: RerunNeededEventDetail[] = [];
     panel.addEventListener("plotpolish-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
@@ -897,7 +993,9 @@ describe("backend", () => {
     serifBtn.click();
     await panel.settle();
 
-    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+    const calls = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.args).toEqual({ rc: { "savefig.dpi": 300 }, only_defaults: true, previous: { "savefig.dpi": "figure" } });
     expect(events.some((e) => e.keys.includes("font.family"))).toBe(true);
   });
 
@@ -919,7 +1017,8 @@ describe("backend", () => {
     const setStyleCall = backend.calls.find((c) => c.fn === "set_style");
     expect(setStyleCall!.args).toEqual({ name: "ggplot", keep: ["figure.autolayout"] });
     expect((input(panel, "grid") as HTMLInputElement).checked).toBe(true);
-    expect(panel.getSettings().rc).toEqual({});
+    // The style change is itself a default -> non-default transition, so it also seeds savefig.dpi.
+    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
     expect(events.some((e) => e.keys.includes("style") && e.style === "ggplot")).toBe(true);
 
     // Still stale after the style call resolves; only refresh() clears it.
@@ -944,7 +1043,12 @@ describe("backend", () => {
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(2);
-    expect(calls[1]!.args).toEqual({ rc: { "lines.linewidth": 5 }, only_defaults: true, previous: { "lines.linewidth": 5 } });
+    // The first apply_live already carried the seeded savefig.dpi; the style change re-applies both.
+    expect(calls[1]!.args).toEqual({
+      rc: { "lines.linewidth": 5, "savefig.dpi": 300 },
+      only_defaults: true,
+      previous: { "lines.linewidth": 5, "savefig.dpi": 300 },
+    });
   });
 
   it("reverting a key applies the baseline value", async () => {
@@ -1050,6 +1154,235 @@ describe("fontsize display", () => {
   });
 });
 
+describe("commit as you type", () => {
+  it("a fontsize field commits on 'input' without waiting for 'change'", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const titleInput = input(panel, "title_size") as HTMLInputElement;
+    titleInput.value = "20";
+    fireInput(titleInput);
+    expect(panel.getSettings().rc["axes.titlesize"]).toBe(20);
+  });
+
+  it("a dpi field commits on 'input'", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
+    dpiInput.value = "150";
+    fireInput(dpiInput);
+    expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
+  });
+
+  it("a pair field commits on 'input'", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const inputs = ctl(panel, "figsize").querySelectorAll("input");
+    (inputs[0] as HTMLInputElement).value = "8";
+    (inputs[1] as HTMLInputElement).value = "5";
+    fireInput(inputs[1]!);
+    expect(panel.getSettings().rc["figure.figsize"]).toEqual([8, 5]);
+  });
+
+  it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const titleInput = input(panel, "title_size") as HTMLInputElement;
+    titleInput.focus();
+    titleInput.value = "6.0";
+    fireInput(titleInput);
+    expect(panel.getSettings().rc["axes.titlesize"]).toBe(6);
+    // update() ran (setKeys always calls it) but must not reformat the field while it is focused.
+    expect(titleInput.value).toBe("6.0");
+    titleInput.blur();
+  });
+});
+
+describe("resolution (dpi) field", () => {
+  it("shows the fallback dpi (100) instead of the word 'figure', with no placeholder", () => {
+    const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
+    expect(dpiInput.value).toBe("100");
+    expect(dpiInput.title).toBe("Figure's own dpi (matplotlib default)");
+    expect(dpiInput.placeholder).toBe("");
+  });
+
+  it("shows the mock figure's own dpi once introspected", async () => {
+    const backend = new MockBackend();
+    backend.figure = { figsize: [6.4, 4.8], dpi: 144, axes: [{ ...AXES_BASE, legend: null }] };
+    await attachBackend(panel, backend);
+    const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
+    expect(dpiInput.value).toBe("144");
+    expect(dpiInput.title).toBe("Figure's own dpi (matplotlib default)");
+  });
+
+  it("shows the plain number with no special title once dpi is explicitly set", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
+    dpiInput.value = "150";
+    change(dpiInput);
+    expect(dpiInput.value).toBe("150");
+    expect(dpiInput.title).toBe("");
+  });
+});
+
+describe("panelDefault seeding", () => {
+  it("the first change out of fully-default settings also sets savefig.dpi to its panelDefault", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    expect(panel.getSettings().rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
+    const last = sink.writes[sink.writes.length - 1]!;
+    expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe(300);
+  });
+
+  it("does not re-seed once non-default, and reverting the seeded key removes only it", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    const dpiRevert = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
+    dpiRevert.click();
+    expect(panel.getSettings().rc).toEqual({ "axes.grid": true });
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "3";
+    fireInput(lw);
+    expect(panel.getSettings().rc["savefig.dpi"]).toBeUndefined();
+  });
+
+  it("does not seed when loading settings from an existing fence", () => {
+    const settings: StyleSettings = { style: "default", rc: { "axes.grid": true } };
+    panel.sink = new MemorySink(generateBlock(settings)!);
+    expect(panel.getSettings().rc).toEqual({ "axes.grid": true });
+  });
+
+  it("emits exactly one plotpolish-change event for the combined write", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const events: ChangeEventDetail[] = [];
+    panel.addEventListener("plotpolish-change", (e) => events.push((e as CustomEvent<ChangeEventDetail>).detail));
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.settings.rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
+  });
+
+  it("a style change also seeds savefig.dpi", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
+  });
+});
+
+describe("linecycle (Per line)", () => {
+  function visibleLineRows(p: PlotpolishPanel): HTMLElement[] {
+    return Array.from(ctl(p, "line_cycle").querySelectorAll<HTMLElement>(".line-row:not(.line-head)")).filter((r) => !r.hidden);
+  }
+
+  it("shows a tooltip on the label from the control's help text", () => {
+    const label = ctl(panel, "line_cycle").querySelector("label")!;
+    expect(label.getAttribute("title")).toBe(CONTROLS.find((c) => c.id === "line_cycle")!.help);
+  });
+
+  it("renders minLines (2) rows with no figure", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    expect(visibleLineRows(panel).length).toBe(2);
+  });
+
+  it("renders N rows when the mock figure reports N lines", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(3);
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+    expect(visibleLineRows(panel).length).toBe(3);
+  });
+
+  it("editing row 2's width writes linewidth for every row, with no linestyle", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(3);
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+
+    const rows = visibleLineRows(panel);
+    const widthInput = rows[1]!.querySelector(".line-width") as HTMLInputElement;
+    widthInput.value = "3";
+    fireInput(widthInput);
+
+    const defaultColors = (CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[]).slice(0, 3);
+    const rc = panel.getSettings().rc["axes.prop_cycle"];
+    expect(rc).toEqual({ color: defaultColors, linewidth: [1.5, 3, 1.5] });
+  });
+
+  it("choosing a line style adds linestyle for every row", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(2);
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+
+    const rows = visibleLineRows(panel);
+    const seg = rows[0]!.querySelector(".segmented.line-style") as HTMLElement;
+    const dashedBtn = seg.querySelector('button[data-value="--"]') as HTMLButtonElement;
+    dashedBtn.click();
+
+    const defaultColors = (CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[]).slice(0, 2);
+    const rc = panel.getSettings().rc["axes.prop_cycle"];
+    expect(rc).toEqual({ color: defaultColors, linestyle: ["--", "-"] });
+  });
+
+  it("choosing a Look preset afterwards keeps the linewidth array, resized to the preset's color count", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(3);
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+
+    const rows = visibleLineRows(panel);
+    const widthInput = rows[1]!.querySelector(".line-width") as HTMLInputElement;
+    widthInput.value = "3";
+    fireInput(widthInput);
+
+    const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;
+    const presetBtn = list.querySelector('button[data-preset="okabe-ito"]') as HTMLButtonElement;
+    presetBtn.click();
+
+    const preset = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!;
+    const rc = panel.getSettings().rc["axes.prop_cycle"];
+    expect(rc).toEqual({ color: preset.colors, linewidth: [1.5, 3, 1.5, 1.5, 3, 1.5, 1.5, 3] });
+    // A PropCycleValue whose `color` matches the preset still shows the preset as pressed (rcEqual on `.color` alone).
+    expect(presetBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("'+ line' adds a row, up to maxLines", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const addBtn = ctl(panel, "line_cycle").querySelector("button.add-line") as HTMLButtonElement;
+    expect(visibleLineRows(panel).length).toBe(2);
+
+    addBtn.click();
+    expect(visibleLineRows(panel).length).toBe(3);
+
+    const maxLines = CONTROLS.find((c) => c.id === "line_cycle")!.maxLines!;
+    while (visibleLineRows(panel).length < maxLines) addBtn.click();
+    expect(visibleLineRows(panel).length).toBe(maxLines);
+    expect(addBtn.hidden).toBe(true);
+  });
+});
+
 describe("events", () => {
   it("dispatches plotpolish-change with settings, block and source", () => {
     const sink = new MemorySink("");
@@ -1061,9 +1394,10 @@ describe("events", () => {
     fs.value = "14";
     fireInput(fs);
 
+    // panelDefault seeding folds into the same write: exactly one event, settings already contain savefig.dpi.
     expect(events.length).toBe(1);
-    expect(events[0]!.settings.rc).toEqual({ "font.size": 14 });
-    expect(events[0]!.block).toBe(generateBlock({ style: "default", rc: { "font.size": 14 } }));
+    expect(events[0]!.settings.rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
+    expect(events[0]!.block).toBe(generateBlock({ style: "default", rc: { "font.size": 14, "savefig.dpi": 300 } }));
     expect(events[0]!.source).toBe(sink.getSource());
   });
 });
@@ -1086,7 +1420,7 @@ describe("write-only sink", () => {
     fireInput(fs);
 
     expect(sink.received.length).toBe(1);
-    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14 } }));
+    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14, "savefig.dpi": 300 } }));
   });
 
   it("sends an empty string once settings return to default", () => {

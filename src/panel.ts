@@ -779,11 +779,16 @@ export class PlotpolishPanel extends HTMLElement {
     const vw = window.innerWidth || 0;
     const vh = window.innerHeight || 0;
     let left = rect.left;
-    let top = rect.top - 6 - height;
+    // Open below the tab when the pill floats over the plot (it sits at the
+    // top of the figure) or when there is no room above; otherwise above.
+    const roomAbove = rect.top - 6 - height >= 4;
+    const below = this._layoutMode === "float" || !roomAbove;
+    let top = below ? rect.bottom + 6 : rect.top - 6 - height;
     if (vw > 0) left = Math.max(4, Math.min(left, vw - width - 4));
     if (vh > 0) top = Math.max(4, Math.min(top, vh - height - 4));
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
+    popover.classList.toggle("below", below);
     caret.hidden = false;
     const center = rect.left + rect.width / 2 - left;
     caret.style.left = `${Math.max(8, Math.min(center, Math.max(8, width - 16)))}px`;

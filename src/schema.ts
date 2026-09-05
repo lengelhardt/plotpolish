@@ -105,8 +105,8 @@ export const CONTROL_FOR_KEY: ReadonlyMap<string, ControlSpec> = new Map(
   CONTROLS.flatMap((c) => c.keys.map((k) => [k, c] as [string, ControlSpec])),
 );
 
-/** All rc keys the panel knows, in schema order. Generated blocks use this order. */
-export const RC_KEYS: readonly string[] = CONTROLS.flatMap((c) => c.keys);
+/** All rc keys the panel knows, in schema order, each once (two controls may share a key). Generated blocks use this order. */
+export const RC_KEYS: readonly string[] = [...new Set(CONTROLS.flatMap((c) => c.keys))];
 
 export function categoryOf(key: string): Category | undefined {
   return CONTROL_FOR_KEY.get(key)?.category;

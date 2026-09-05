@@ -103,24 +103,25 @@ h2 {
 }
 
 /*
- * .columns is a CSS grid with four named areas: editor, runbar, panel,
- * figure. Splitting the left "column" into three separate grid items
- * (rather than one wrapping element) means their DOM order is
- * editor, runbar, panel, figure -- so below the 900px breakpoint, where
- * .columns switches to plain block layout (see media query), they stack
- * in that same order for free, with the panel sitting between the run
- * bar and the figure as required, no reordering CSS needed.
+ * .columns is a CSS grid with three named areas: editor, runbar, figure.
+ * "figure" spans both rows in the right-hand column: .figure-wrap is
+ * itself a column flexbox holding #figure, then <plotpolish-panel>
+ * docked directly below it as a full-width strip, then #output -- so
+ * the panel lives inside the figure column rather than in a column of
+ * its own. The left column is editor over runbar, in DOM order, so
+ * below the 900px breakpoint, where .columns switches to plain block
+ * layout (see media query), everything stacks in DOM order for free:
+ * editor, runbar, figure, panel, output. No reordering CSS needed.
  */
 .columns {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(560px, 1fr) 400px;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(420px, 1fr) minmax(680px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
-    "editor panel"
-    "runbar panel"
-    "figure panel";
+    "editor figure"
+    "runbar figure";
 }
 
 .editor-area {
@@ -142,15 +143,19 @@ h2 {
   background: var(--panel-bg);
 }
 
-.col-panel {
-  grid-area: panel;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-}
-
+/*
+ * .figure-wrap is the whole right column: figure, then the panel strip,
+ * then the traceback output, stacked in that order and scrolling as one
+ * independent unit (see "Both columns scroll independently" in the
+ * layout brief). It is a column flexbox so <plotpolish-panel> stretches
+ * to the column's full width for free (flex default align-items:
+ * stretch), and `gap` spaces the three children evenly.
+ */
 .figure-wrap {
   grid-area: figure;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-height: 0;
   overflow: auto;
   padding: 10px;
@@ -221,7 +226,10 @@ plotpolish-panel {
 }
 
 #output {
-  margin: 10px 0 0;
+  /* Spacing above #output comes from .figure-wrap's flex `gap`, not a
+     margin here, since #output now sits after <plotpolish-panel> rather
+     than always directly after #figure. */
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -233,7 +241,7 @@ plotpolish-panel {
   display: none;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1099px) {
   .columns {
     display: block;
     overflow-y: auto;
@@ -241,7 +249,6 @@ plotpolish-panel {
 
   .editor-area,
   .run-bar,
-  .col-panel,
   .figure-wrap {
     border-right: none;
   }
@@ -254,9 +261,12 @@ plotpolish-panel {
     border-bottom: 1px solid var(--border);
   }
 
-  .col-panel {
-    border-bottom: 1px solid var(--border);
-    overflow-y: visible;
+  .figure-wrap {
+    /* Let the whole page scroll instead of this section scrolling on
+       its own -- single column now holds figure, panel and output
+       together, and an independent inner scrollbar here would fight
+       the page scrollbar in a narrow viewport. */
+    overflow: visible;
   }
 
   #source {

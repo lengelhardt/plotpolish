@@ -1,0 +1,47 @@
+{
+  "name": "stylefence",
+  "version": "0.1.0",
+  "description": "Browser panel for matplotlib style defaults that writes one fenced block of ordinary matplotlib code. Framework-free Web Component; Python helper ships inside the bundle.",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "files": [
+    "dist",
+    "python/stylefence/core.py",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/stylefence.js",
+  "module": "./dist/stylefence.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/stylefence.js"
+    }
+  },
+  "sideEffects": [
+    "./dist/stylefence.js"
+  ],
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:py": "cd python && python -m pytest -q",
+    "demo": "vite --config demo/vite.config.ts",
+    "demo:build": "vite build --config demo/vite.config.ts"
+  },
+  "keywords": [
+    "matplotlib",
+    "pyodide",
+    "web-components",
+    "rcparams",
+    "plotting"
+  ],
+  "devDependencies": {
+    "happy-dom": "^17.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

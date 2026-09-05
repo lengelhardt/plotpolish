@@ -32,7 +32,6 @@ TOOL_NAME = "plotpolish"
 # rc keys the panel knows about. Kept in sync with src/schema/controls.json by
 # python/tests/test_schema_contract.py.
 CURATED_KEYS = (
-    "figure.figsize",
     "figure.autolayout",
     "savefig.dpi",
     "savefig.transparent",
@@ -117,8 +116,6 @@ def rc_to_json(key, value):
         return "standard" if value is None else str(value)
     if key == "savefig.dpi":
         return "figure" if value == "figure" else float(value)
-    if key == "figure.figsize":
-        return [float(value[0]), float(value[1])]
     if key == "legend.loc":
         if isinstance(value, (list, tuple)):
             return [float(value[0]), float(value[1])]
@@ -146,8 +143,6 @@ def json_to_rc(key, value):
                 )
             return mpl.cycler(**kw)
         return mpl.cycler(color=list(value))
-    if key == "figure.figsize":
-        return [float(value[0]), float(value[1])]
     if key == "legend.loc" and isinstance(value, (list, tuple)):
         return tuple(float(v) for v in value)
     return value
@@ -264,7 +259,24 @@ def _legend_loc_name(legend):
     return loc if isinstance(loc, str) else None
 
 
-def _describe_axes(ax):
+def _legend_xy(fig, ax, leg):
+    """Lower-left corner of the drawn legend box, in axes fractions, or ``None``."""
+    try:
+        if hasattr(fig.canvas, "get_renderer"):
+            renderer = fig.canvas.get_renderer()
+        else:
+            fig.canvas.draw()
+            renderer = None
+        if renderer is None:
+            return None
+        bb = leg.get_window_extent(renderer)
+        x, y = ax.transAxes.inverted().transform((bb.x0, bb.y0))
+        return [round(float(x), 3), round(float(y), 3)]
+    except Exception:
+        return None
+
+
+def _describe_axes(ax, fig):
     leg = ax.get_legend()
     gx = _gridline(ax.xaxis)
     return {
@@ -284,6 +296,7 @@ def _describe_axes(ax):
             "framealpha": _plain(leg.get_frame().get_alpha()),
             "loc": _legend_loc_name(leg),
             "fontsize": float(leg.get_texts()[0].get_fontsize()) if leg.get_texts() else None,
+            "xy": _legend_xy(fig, ax, leg),
         },
     }
 
@@ -294,7 +307,7 @@ def _describe_figure(fig):
         "figsize": [float(w), float(h)],
         "dpi": float(fig.dpi),
         "autolayout": _layout_is_tight(fig),
-        "axes": [_describe_axes(ax) for ax in fig.axes],
+        "axes": [_describe_axes(ax, fig) for ax in fig.axes],
     }
 
 
@@ -336,11 +349,6 @@ def _find_overrides(fig, rc):
             differs(key, actual, resolve_size(rc[key], base))
 
     differs("figure.autolayout", _layout_is_tight(fig))
-    if "figure.figsize" in rc:
-        w, h = fig.get_size_inches()
-        fw, fh = rc["figure.figsize"]
-        if not (_close(w, fw) and _close(h, fh)):
-            over.add("figure.figsize")
 
     for ax in fig.axes:
         differs("axes.grid", _grid_on(ax.xaxis) or _grid_on(ax.yaxis))
@@ -434,13 +442,6 @@ def _close_or_equal(a, b):
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
         return _close(a, b)
     return a == b
-
-
-def _apply_figsize(fig, new, old, only):
-    w, h = fig.get_size_inches()
-    if only and not (_close(w, old[0]) and _close(h, old[1])):
-        return
-    fig.set_size_inches(float(new[0]), float(new[1]), forward=True)
 
 
 def _layout_state(fig):
@@ -721,7 +722,6 @@ _TEXT_SIZE_HANDLERS = {
 }
 
 _LIVE_HANDLERS = {
-    "figure.figsize": _apply_figsize,
     "font.family": _apply_font_family,
     "figure.autolayout": _apply_autolayout,
     "axes.grid": _apply_grid,

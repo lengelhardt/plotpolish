@@ -152,17 +152,6 @@ def test_legend_loc_xy_user_placement_not_moved():
     assert leg._loc == (0.5, 0.5)  # left alone: it wasn't at "best"
 
 
-def test_figsize_respects_user_figure_size():
-    fig, ax = make_figure()
-    apply_live({"figure.figsize": [8, 5]})
-    assert list(fig.get_size_inches()) == [8, 5]
-    fig2 = plt.figure(figsize=(3, 3))
-    apply_live({"figure.figsize": [9, 9]})
-    assert list(fig2.get_size_inches()) == [3, 3]
-    apply_live({"figure.figsize": [9, 9]}, only_defaults=False)
-    assert list(fig2.get_size_inches()) == [9, 9]
-
-
 def test_save_keys_set_rcparams_only():
     fig, ax = make_figure()
     result = apply_live({"savefig.bbox": "tight", "savefig.transparent": True, "savefig.dpi": "figure"})

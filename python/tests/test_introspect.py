@@ -1,5 +1,8 @@
+import json
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import pytest
 
 from plotpolish import CURATED_KEYS, current_figure, introspect_figure
 
@@ -57,7 +60,7 @@ def test_user_code_overrides_are_detected():
     ax.legend(frameon=False, loc="upper left")
     over = set(introspect_figure()["overridden"])
     assert {
-        "figure.figsize", "lines.linewidth", "lines.linestyle", "axes.grid",
+        "lines.linewidth", "lines.linestyle", "axes.grid",
         "axes.spines.top", "xtick.direction", "axes.titlesize",
         "xtick.minor.visible", "ytick.minor.visible", "legend.frameon", "legend.loc",
     } <= over
@@ -83,12 +86,34 @@ def test_legend_custom_xy_loc_is_reported_and_overridden():
 
 
 def test_result_is_json_serializable():
-    import json
-
     fig, ax = plt.subplots()
     ax.plot([0, 1], [0, 1], label="a")
     ax.legend()
     json.dumps(introspect_figure())
+
+
+def test_legend_xy_reported_for_named_loc():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.legend(loc="upper right")
+    fig.canvas.draw()
+    result = introspect_figure()
+    xy = result["figure"]["axes"][0]["legend"]["xy"]
+    assert isinstance(xy, list) and len(xy) == 2
+    x, y = xy
+    assert 0 <= x <= 1 and 0 <= y <= 1
+    assert x > 0.5 and y > 0.5
+    json.dumps(result)  # still JSON-serializable with "xy" present
+
+
+def test_legend_xy_reported_for_custom_xy_loc():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.legend(loc=(0.1, 0.2))
+    fig.canvas.draw()
+    result = introspect_figure()
+    xy = result["figure"]["axes"][0]["legend"]["xy"]
+    assert xy == pytest.approx([0.1, 0.2], abs=0.02)
 
 
 def test_tight_layout_figure_is_reported_and_flagged():

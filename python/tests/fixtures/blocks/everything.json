@@ -1,10 +1,6 @@
 {
   "style": "ggplot",
   "rc": {
-    "figure.figsize": [
-      8,
-      5
-    ],
     "savefig.dpi": 300,
     "savefig.transparent": true,
     "savefig.bbox": "tight",

@@ -36,7 +36,15 @@ export interface AxesDescription {
   label_size: { x: number; y: number };
   tick_label_size: { x: number | null; y: number | null };
   n_lines: number;
-  legend: null | { frameon: boolean; framealpha: number | null; loc: string | null; fontsize: number | null };
+  legend: null | {
+    frameon: boolean;
+    framealpha: number | null;
+    /** Named location, or [x, y] axes fractions when placed by coordinates. */
+    loc: string | number[] | null;
+    fontsize: number | null;
+    /** Lower-left corner of the drawn legend box in axes fractions, when known. */
+    xy?: [number, number] | null;
+  };
 }
 
 export interface FigureDescription {

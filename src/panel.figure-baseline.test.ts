@@ -15,7 +15,15 @@ function change(panel: PlotpolishPanel, id: string, value: string | boolean): vo
   const input = panel.shadowRoot!.querySelector<HTMLInputElement | HTMLSelectElement>(`#ctl-${id}`)!;
   if (typeof value === "boolean") (input as HTMLInputElement).checked = value;
   else input.value = value;
+  // Range controls (e.g. linewidth) commit on "input"; selects/checkboxes on
+  // "change". Firing both is harmless since only one listener is attached.
+  input.dispatchEvent(new Event("input"));
   input.dispatchEvent(new Event("change"));
+}
+
+function resetAll(panel: PlotpolishPanel): void {
+  (panel.shadowRoot!.querySelector("button.menu-toggle") as HTMLButtonElement).click();
+  (panel.shadowRoot!.querySelector('.menu-item[data-action="reset-all"]') as HTMLButtonElement).click();
 }
 
 function applyCalls(backend: MockBackend) {
@@ -74,7 +82,7 @@ describe("figure baseline (`previous`) tracking", () => {
     change(panel, "style", "ggplot");
     await panel.settle();
     backend.calls.length = 0;
-    panel.shadowRoot!.querySelector<HTMLButtonElement>(".bar .reset")!.click();
+    resetAll(panel);
     await panel.settle();
     expect(backend.calls.map((c) => c.fn)).toEqual(["set_style", "apply_live"]);
     const restore = applyCalls(backend)[0]!;

@@ -1,7 +1,8 @@
 /**
- * Tests for <plotpolish-panel>. Importing "./panel" registers the custom
- * element (registerPanel() runs at module load); each test creates a fresh
- * instance, appends it to document.body, and removes it afterwards.
+ * Tests for <plotpolish-panel> (v3 shell: tab pill/rail, draggable popover,
+ * reset menu — see docs/ux-design.md). Importing "./panel" registers the
+ * custom element (registerPanel() runs at module load); each test creates a
+ * fresh instance, appends it to document.body, and removes it afterwards.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AxesDescription, FigureDescription } from "./backend";
@@ -16,15 +17,46 @@ import { CONTROLS, GROUPS } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
+// ".row" scopes control lookups to the control's row (badges and other
+// elements never carry a bare data-control that isn't a row).
 function ctl(panel: PlotpolishPanel, id: string): HTMLElement {
-  // ".row" scopes this to the control's row: change-chips in "Your changes"
-  // also carry data-control, and (since .home precedes the categories in the
-  // DOM) would otherwise shadow the row in document order.
   return panel.shadowRoot!.querySelector(`.row[data-control="${id}"]`) as HTMLElement;
 }
 
 function input(panel: PlotpolishPanel, id: string): HTMLElement {
   return panel.shadowRoot!.querySelector(`#ctl-${id}`) as HTMLElement;
+}
+
+function pillTab(panel: PlotpolishPanel, groupId: string): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector(`.pill button.tab[data-group="${groupId}"]`) as HTMLButtonElement;
+}
+
+function railTab(panel: PlotpolishPanel, groupId: string): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector(`.rail button.tab[data-group="${groupId}"]`) as HTMLButtonElement;
+}
+
+function group(panel: PlotpolishPanel, groupId: string): HTMLElement {
+  return panel.shadowRoot!.querySelector(`.group[data-group="${groupId}"]`) as HTMLElement;
+}
+
+function menuItem(panel: PlotpolishPanel, action: string): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector(`.menu-item[data-action="${action}"]`) as HTMLButtonElement;
+}
+
+function openTab(panel: PlotpolishPanel, groupId: string): void {
+  pillTab(panel, groupId).click();
+}
+
+function tabDot(panel: PlotpolishPanel, groupId: string): HTMLElement {
+  return pillTab(panel, groupId).querySelector(".dot") as HTMLElement;
+}
+
+function tabRerun(panel: PlotpolishPanel, groupId: string): HTMLElement {
+  return pillTab(panel, groupId).querySelector(".rerun") as HTMLElement;
+}
+
+function openMenu(panel: PlotpolishPanel): void {
+  (panel.shadowRoot!.querySelector("button.menu-toggle") as HTMLButtonElement).click();
 }
 
 function change(el: Element): void {
@@ -87,68 +119,94 @@ describe("registration and rendering", () => {
     expect(rows.length).toBe(CONTROLS.length);
   });
 
-  it("creates a category per group, tagged with data-group, in schema order", () => {
-    const categories = panel.shadowRoot!.querySelectorAll(".category[data-group]");
-    expect(categories.length).toBe(GROUPS.length);
-    const ids = Array.from(categories).map((s) => (s as HTMLElement).dataset.group);
+  it("creates a group per schema group, tagged with data-group, in schema order", () => {
+    const groups = panel.shadowRoot!.querySelectorAll(".group[data-group]");
+    expect(groups.length).toBe(GROUPS.length);
+    const ids = Array.from(groups).map((g) => (g as HTMLElement).dataset.group);
     expect(ids).toEqual(GROUPS.map((g) => g.id));
   });
 
-  it("tells the user their own code always wins", () => {
-    const note = panel.shadowRoot!.querySelector(".home .note")!;
-    expect(note.textContent).toContain("Your own code always wins");
+  it("renders the pill with a leading 'Style' label and one tab per group, in schema order", () => {
+    const label = panel.shadowRoot!.querySelector(".pill .label")!;
+    expect(label.textContent).toBe("Style");
+    const tabs = Array.from(panel.shadowRoot!.querySelectorAll(".pill button.tab")) as HTMLElement[];
+    expect(tabs.map((t) => t.dataset.group)).toEqual(GROUPS.map((g) => g.id));
+  });
+
+  it("starts closed, with no active category", () => {
+    expect(panel.open).toBe(false);
+    expect(panel.category).toBeNull();
+    expect(panel.hasAttribute("open")).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".popover") as HTMLElement).hidden).toBe(true);
   });
 });
 
-describe("shell: collapsed / expanded", () => {
-  it("is collapsed by default and shows the bar, not the body", () => {
-    expect(panel.open).toBe(false);
-    expect(panel.hasAttribute("open")).toBe(false);
-    expect((panel.shadowRoot!.querySelector(".bar") as HTMLElement).hidden).toBe(false);
-    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(true);
-  });
-
-  it("toggle opens the panel and reflects the open attribute", () => {
-    panel.toggle();
+describe("tab pill: opening and closing the popover", () => {
+  it("clicking a tab opens the popover on that category", () => {
+    openTab(panel, "text");
+    expect(panel.category).toBe("text");
     expect(panel.open).toBe(true);
     expect(panel.hasAttribute("open")).toBe(true);
-    expect((panel.shadowRoot!.querySelector(".bar") as HTMLElement).hidden).toBe(true);
-    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".popover") as HTMLElement).hidden).toBe(false);
+    expect(pillTab(panel, "text").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("shows chips in schema order once open", () => {
-    panel.toggle();
-    const chips = Array.from(panel.shadowRoot!.querySelectorAll(".chips .chip")) as HTMLElement[];
-    expect(chips.map((c) => c.dataset.group)).toEqual(GROUPS.map((g) => g.id));
+  it("clicking the active tab again closes the popover", () => {
+    openTab(panel, "text");
+    openTab(panel, "text");
+    expect(panel.open).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".popover") as HTMLElement).hidden).toBe(true);
   });
 
-  it("showCategory shows that group's rows, hides others, and updates the breadcrumb; Back returns to level one", () => {
-    panel.toggle();
-    panel.showCategory("text");
-    expect(panel.category).toBe("text");
+  it("shows only the active group's rows; switching tabs swaps which group is visible", () => {
+    openTab(panel, "text");
+    expect(group(panel, "text").hidden).toBe(false);
+    expect(group(panel, "look").hidden).toBe(true);
 
-    const crumbLabel = panel.shadowRoot!.querySelector(".crumb-label")!;
-    expect(crumbLabel.textContent).toBe("Style › Text");
+    openTab(panel, "look");
+    expect(panel.category).toBe("look");
+    expect(group(panel, "look").hidden).toBe(false);
+    expect(group(panel, "text").hidden).toBe(true);
+    expect(pillTab(panel, "text").getAttribute("aria-selected")).toBe("false");
+    expect(pillTab(panel, "look").getAttribute("aria-selected")).toBe("true");
+  });
 
-    const textCat = panel.shadowRoot!.querySelector('.category[data-group="text"]') as HTMLElement;
-    const lookCat = panel.shadowRoot!.querySelector('.category[data-group="look"]') as HTMLElement;
-    expect(textCat.hidden).toBe(false);
-    expect(lookCat.hidden).toBe(true);
-    expect((panel.shadowRoot!.querySelector(".home") as HTMLElement).hidden).toBe(true);
-
-    const back = panel.shadowRoot!.querySelector(".back") as HTMLButtonElement;
-    expect(back.hidden).toBe(false);
-    back.click();
-
+  it("the close button closes the popover", () => {
+    openTab(panel, "text");
+    (panel.shadowRoot!.querySelector(".close") as HTMLButtonElement).click();
+    expect(panel.open).toBe(false);
     expect(panel.category).toBeNull();
-    expect(crumbLabel.textContent).toBe("Style");
-    expect((panel.shadowRoot!.querySelector(".home") as HTMLElement).hidden).toBe(false);
   });
 
-  it("keeps primary rows outside details.more and puts tier=more rows inside it", () => {
-    const axesCat = panel.shadowRoot!.querySelector('.category[data-group="axes"]') as HTMLElement;
-    const primary = axesCat.querySelector(".primary")!;
-    const more = axesCat.querySelector("details.more")!;
+  it("Esc closes the popover", () => {
+    openTab(panel, "text");
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    popover.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    expect(panel.open).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".popover") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("showCategory(null) closes; toggle() flips open state", () => {
+    panel.showCategory("axes");
+    expect(panel.open).toBe(true);
+    panel.showCategory(null);
+    expect(panel.open).toBe(false);
+    expect(panel.category).toBeNull();
+
+    panel.showCategory("axes");
+    panel.toggle();
+    expect(panel.open).toBe(false);
+    panel.toggle();
+    expect(panel.open).toBe(true);
+    expect(panel.category).toBe("axes");
+  });
+});
+
+describe("primary vs more tiers", () => {
+  it("keeps primary rows outside .rows.more and puts tier=more rows inside it", () => {
+    const axesGroup = group(panel, "axes");
+    const primary = axesGroup.querySelector(".rows.primary")!;
+    const more = axesGroup.querySelector(".rows.more")!;
     expect(primary.querySelector('[data-control="grid"]')).not.toBeNull();
     expect(primary.querySelector('[data-control="box"]')).not.toBeNull();
     expect(primary.querySelector('[data-control="grid_alpha"]')).toBeNull();
@@ -157,148 +215,59 @@ describe("shell: collapsed / expanded", () => {
     expect(more.querySelector('[data-control="grid"]')).toBeNull();
   });
 
-  it("has no details.more for Save, which has no tier=more controls", () => {
-    const saveCat = panel.shadowRoot!.querySelector('.category[data-group="save"]') as HTMLElement;
-    expect(saveCat.querySelector("details.more")).toBeNull();
+  it("has no .rows.more for Save, which has no tier=more controls", () => {
+    const saveGroup = group(panel, "save");
+    expect(saveGroup.querySelector(".rows.more")).toBeNull();
+    expect(saveGroup.querySelector("button.more")).toBeNull();
   });
 
-  it("shows subgroup headings within Axes, for subgroups that have rows in that section", () => {
-    const axesCat = panel.shadowRoot!.querySelector('.category[data-group="axes"]') as HTMLElement;
-    const headings = Array.from(axesCat.querySelectorAll("h4.subgroup")).map((h) => h.textContent);
-    expect(headings).toContain("Grid");
-    expect(headings).toContain("Box and axes lines");
-    expect(headings).toContain("Tick marks");
-    // "Tick marks" has no primary-tier rows, so it must not head the primary section.
-    const primaryHeadings = Array.from(axesCat.querySelectorAll(".primary h4.subgroup")).map((h) => h.textContent);
-    expect(primaryHeadings).not.toContain("Tick marks");
+  it("shows subgroup headings only within .rows.more, for subgroups that have rows there", () => {
+    const axesGroup = group(panel, "axes");
+    const moreHeadings = Array.from(axesGroup.querySelectorAll(".rows.more .subhead")).map((h) => h.textContent);
+    expect(moreHeadings).toContain("Grid");
+    expect(moreHeadings).toContain("Box and axes lines");
+    expect(moreHeadings).toContain("Tick marks");
+    expect(axesGroup.querySelectorAll(".rows.primary .subhead").length).toBe(0);
   });
 
-  it('shows a muted "nothing changed" line at first, and lists "Your changes" chips once something is set', () => {
-    const empty = panel.shadowRoot!.querySelector(".changes .muted") as HTMLElement;
-    expect(empty.hidden).toBe(false);
-    expect(empty.textContent).toContain("Nothing changed yet");
+  it("the More button toggles text and visibility, and remembers open/closed per group", () => {
+    openTab(panel, "axes");
+    const axesGroup = group(panel, "axes");
+    const moreBtn = axesGroup.querySelector("button.more") as HTMLButtonElement;
+    const moreRows = axesGroup.querySelector(".rows.more") as HTMLElement;
+    expect(moreBtn.textContent).toBe("More ▸");
+    expect(moreRows.hidden).toBe(true);
 
-    const sink = new MemorySink("");
-    panel.sink = sink;
-    const fs = input(panel, "font_size") as HTMLInputElement;
-    fs.value = "14";
-    change(fs);
+    moreBtn.click();
+    expect(moreBtn.textContent).toBe("More ▾");
+    expect(moreRows.hidden).toBe(false);
 
-    expect(empty.hidden).toBe(true);
-    const chip = panel.shadowRoot!.querySelector('.change-chip[data-control="font_size"]') as HTMLButtonElement;
-    expect(chip).not.toBeNull();
-    expect(chip.textContent).toContain("✕");
+    // Switch away and back: Axes remembers it was left open.
+    openTab(panel, "text");
+    openTab(panel, "axes");
+    expect(moreRows.hidden).toBe(false);
+    expect(moreBtn.textContent).toBe("More ▾");
 
-    chip.click();
-    expect(panel.getSettings().rc["font.size"]).toBeUndefined();
-    expect(empty.hidden).toBe(false);
-  });
-
-  it("shows a style chip in Your changes when style is non-default, and the ✕ resets it", async () => {
-    const backend = new MockBackend();
-    await attachBackend(panel, backend);
-    const select = input(panel, "style") as HTMLSelectElement;
-    select.value = "ggplot";
-    change(select);
-
-    const chip = panel.shadowRoot!.querySelector('.change-chip[data-control="style"]') as HTMLButtonElement;
-    expect(chip.textContent).toBe("Style preset: ggplot ✕");
-    chip.click();
-    expect(panel.getSettings().style).toBe("default");
-  });
-
-  it("Reset <Group> clears only that group's keys, and is disabled when nothing is set", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
-
-    const textCat = panel.shadowRoot!.querySelector('.category[data-group="text"]') as HTMLElement;
-    const resetBtn = textCat.querySelector(".reset-category") as HTMLButtonElement;
-    expect(resetBtn.textContent).toBe("Reset Text");
-    expect(resetBtn.disabled).toBe(true);
-
-    const fs = input(panel, "font_size") as HTMLInputElement;
-    fs.value = "14";
-    change(fs);
-    const lw = input(panel, "linewidth") as HTMLInputElement;
-    lw.value = "3";
-    change(lw);
-
-    expect(resetBtn.disabled).toBe(false);
-    resetBtn.click();
-
-    expect(panel.getSettings().rc["font.size"]).toBeUndefined();
-    expect(panel.getSettings().rc["lines.linewidth"]).toBe(3);
-  });
-
-  it("Reset Look also resets the style preset", async () => {
-    const backend = new MockBackend();
-    await attachBackend(panel, backend);
-    const select = input(panel, "style") as HTMLSelectElement;
-    select.value = "ggplot";
-    change(select);
-
-    const lookCat = panel.shadowRoot!.querySelector('.category[data-group="look"]') as HTMLElement;
-    const resetBtn = lookCat.querySelector(".reset-category") as HTMLButtonElement;
-    resetBtn.click();
-
-    expect(panel.getSettings().style).toBe("default");
-  });
-
-  it("Esc goes back to level one, then collapses (when collapsible)", () => {
-    panel.toggle();
-    panel.showCategory("text");
-
-    const body = panel.shadowRoot!.querySelector(".body") as HTMLElement;
-    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
-    expect(panel.category).toBeNull();
-    expect(panel.open).toBe(true);
-
-    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
-    expect(panel.open).toBe(false);
-  });
-
-  it("renders no bar when features.collapsible is false, and stays open", () => {
-    panel.features = { collapsible: false };
-    expect(panel.shadowRoot!.querySelector(".bar")).toBeNull();
-    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(false);
-  });
-
-  it("starts open when features.startOpen is true", () => {
-    const p = document.createElement("plotpolish-panel") as PlotpolishPanel;
-    p.features = { startOpen: true };
-    document.body.append(p);
-    expect(p.open).toBe(true);
-    p.remove();
-  });
-
-  it("only shows chips for groups listed in features.groups", () => {
-    panel.features = { groups: ["text"] };
-    const chips = Array.from(panel.shadowRoot!.querySelectorAll(".chips .chip")) as HTMLElement[];
-    for (const chip of chips) expect(chip.hidden).toBe(chip.dataset.group !== "text");
-  });
-
-  it("hides the code details when features.showCode is false", () => {
-    panel.features = { showCode: false };
-    const details = panel.shadowRoot!.querySelector("details.code") as HTMLDetailsElement;
-    expect(details.hidden).toBe(true);
+    // Text's own More is independently closed.
+    openTab(panel, "text");
+    const textMoreRows = group(panel, "text").querySelector(".rows.more") as HTMLElement;
+    expect(textMoreRows.hidden).toBe(true);
   });
 });
 
 describe("legend group visibility", () => {
-  it("shows the legend chip before any refresh, and with no backend", () => {
-    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
-    expect(chip.hidden).toBe(false);
+  it("shows the legend tab before any refresh, and with no backend", () => {
+    expect(pillTab(panel, "legend").hidden).toBe(false);
   });
 
-  it("hides the legend chip after refresh finds no legend and nothing is set", async () => {
+  it("hides the legend tab after refresh finds no legend and nothing is set", async () => {
     const backend = new MockBackend();
     backend.figure = figureWithLegend(null);
     await attachBackend(panel, backend);
-    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
-    expect(chip.hidden).toBe(true);
+    expect(pillTab(panel, "legend").hidden).toBe(true);
   });
 
-  it("keeps the legend chip shown (with a note) when a legend key is set despite no legend", async () => {
+  it("keeps the legend tab shown (with a note) when a legend key is set despite no legend", async () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const backend = new MockBackend();
@@ -309,31 +278,28 @@ describe("legend group visibility", () => {
     frameon.checked = false;
     change(frameon);
 
-    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
-    expect(chip.hidden).toBe(false);
+    expect(pillTab(panel, "legend").hidden).toBe(false);
 
-    panel.showCategory("legend");
-    const note = panel.shadowRoot!.querySelector('.category[data-group="legend"] > .note') as HTMLElement;
+    openTab(panel, "legend");
+    const note = group(panel, "legend").querySelector(".note") as HTMLElement;
     expect(note.hidden).toBe(false);
     expect(note.textContent).toContain("no legend");
   });
 
-  it("shows the legend chip again once the figure is null", async () => {
+  it("shows the legend tab again once the figure is null", async () => {
     const backend = new MockBackend();
     backend.figure = figureWithLegend(null);
     await attachBackend(panel, backend);
     backend.figure = null;
     await panel.refresh();
-    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
-    expect(chip.hidden).toBe(false);
+    expect(pillTab(panel, "legend").hidden).toBe(false);
   });
 
-  it("shows the legend chip when at least one axes has a legend", async () => {
+  it("shows the legend tab when at least one axes has a legend", async () => {
     const backend = new MockBackend();
     backend.figure = figureWithLegend({ frameon: true, framealpha: 0.8, loc: "best", fontsize: 10 });
     await attachBackend(panel, backend);
-    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
-    expect(chip.hidden).toBe(false);
+    expect(pillTab(panel, "legend").hidden).toBe(false);
   });
 });
 
@@ -357,7 +323,7 @@ describe("loading from a sink", () => {
     expect(panel.getBlock()).toBeNull();
   });
 
-  it("flags a fence with two start markers as an error and blocks writes while it persists", () => {
+  it("flags a fence with two start markers as an error, marks the pill, and blocks writes while it persists", () => {
     const src = [
       FENCE_START, FENCE_START, "import matplotlib as mpl",
       "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
@@ -367,8 +333,8 @@ describe("loading from a sink", () => {
     panel.sink = sink;
 
     expect(panel.currentFenceError).toBeInstanceOf(FenceError);
-    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
-    expect(banner.hidden).toBe(false);
+    expect(panel.shadowRoot!.querySelector(".pill")!.classList.contains("error")).toBe(true);
+    expect((panel.shadowRoot!.querySelector(".pill .err") as HTMLElement).hidden).toBe(false);
 
     const grid = input(panel, "grid") as HTMLInputElement;
     grid.checked = true;
@@ -378,7 +344,7 @@ describe("loading from a sink", () => {
     expect(panel.currentFenceError).toBeInstanceOf(FenceError);
   });
 
-  it("clicking Replace block rewrites the source into exactly one valid fence and clears the error", () => {
+  it("shows the error banner (replacing the group's rows) inside the popover, with a working Replace block button", () => {
     const src = [
       FENCE_START, FENCE_START, "import matplotlib as mpl",
       "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
@@ -386,19 +352,24 @@ describe("loading from a sink", () => {
     ].join("\n");
     const sink = new MemorySink(src);
     panel.sink = sink;
+    openTab(panel, "text");
+
+    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
+    expect(banner.hidden).toBe(false);
+    expect(group(panel, "text").hidden).toBe(true); // replaced by the banner
 
     const grid = input(panel, "grid") as HTMLInputElement;
     grid.checked = true;
     change(grid);
     expect(sink.writes.length).toBe(0); // still blocked
 
-    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
     const replaceButton = banner.querySelector("button") as HTMLButtonElement;
     replaceButton.click();
 
     expect(sink.writes.length).toBe(1);
     expect(panel.currentFenceError).toBeNull();
     expect(banner.hidden).toBe(true);
+    expect(panel.shadowRoot!.querySelector(".pill")!.classList.contains("error")).toBe(false);
     const finalSrc = sink.writes[0]!;
     expect(finalSrc.split(FENCE_START).length - 1).toBe(1);
     expect(finalSrc).toContain("print('kept')");
@@ -409,17 +380,19 @@ describe("loading from a sink", () => {
 describe("writing", () => {
   const userSrc = "import numpy as np\nimport matplotlib.pyplot as plt\n\nplt.plot([1, 2], [3, 4])\nplt.show()\n";
 
-  it("writes the source once when changing font_size, leaving user lines untouched", () => {
+  it("writes the source once when changing font_size (range control), leaving user lines untouched", () => {
     const sink = new MemorySink(userSrc);
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
+    expect(fs.type).toBe("range");
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
 
     expect(sink.writes.length).toBe(1);
     const src1 = sink.writes[0]!;
     expect(parseBlock(src1)!.settings.rc).toEqual({ "font.size": 14 });
     expect(src1.endsWith(userSrc)).toBe(true);
+    expect(ctl(panel, "font_size").querySelector(".readout")!.textContent).toBe("14");
   });
 
   it("replaces the fence on a second change; still exactly one fence", () => {
@@ -427,9 +400,9 @@ describe("writing", () => {
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
     fs.value = "16";
-    change(fs);
+    fireInput(fs);
 
     expect(sink.writes.length).toBe(2);
     const src2 = sink.writes[1]!;
@@ -442,7 +415,7 @@ describe("writing", () => {
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
 
     const revertBtn = ctl(panel, "font_size").querySelector(".revert") as HTMLButtonElement;
     expect(revertBtn.hidden).toBe(false);
@@ -454,18 +427,18 @@ describe("writing", () => {
     expect(panel.getSettings()).toEqual(defaultSettings());
   });
 
-  it("Reset all clears every setting and removes the fence", () => {
+  it("Reset all (from the reset menu) clears every setting and removes the fence", () => {
     const sink = new MemorySink(userSrc);
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
     const grid = input(panel, "grid") as HTMLInputElement;
     grid.checked = true;
     change(grid);
 
-    const resetButton = panel.shadowRoot!.querySelector(".bar .reset") as HTMLButtonElement;
-    resetButton.click();
+    openMenu(panel);
+    menuItem(panel, "reset-all").click();
 
     expect(panel.getSettings()).toEqual(defaultSettings());
     const last = sink.writes[sink.writes.length - 1]!;
@@ -484,11 +457,13 @@ describe("writing", () => {
     expect(parseBlock(last)!.settings.rc["figure.figsize"]).toEqual([8, 5]);
   });
 
-  it("writes a segmented enum control as its string value (linestyle --)", () => {
+  it("writes a segmented enum control as its string value, and shows a glyph label with the name in the title (linestyle --)", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const seg = ctl(panel, "linestyle").querySelector(".segmented") as HTMLElement;
     const btn = seg.querySelector('button[data-value="--"]') as HTMLButtonElement;
+    expect(btn.textContent).toBe("– –");
+    expect(btn.title).toBe("Dashed");
     btn.click();
 
     const last = sink.writes[sink.writes.length - 1]!;
@@ -506,6 +481,7 @@ describe("writing", () => {
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(parseBlock(last)!.settings.rc["savefig.transparent"]).toBe(true);
+    expect(ctl(panel, "savefig_transparent").title).toBe("Applies when the figure is saved, not on screen.");
   });
 
   it("writes 'figure' when the dpi field is cleared", () => {
@@ -521,11 +497,12 @@ describe("writing", () => {
     expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe("figure");
   });
 
-  it("writes the preset colors for a colorcycle preset button and shows swatches", () => {
+  it("writes the preset colors for a colorcycle preset button and renders one small swatch per color", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;
     const btn = list.querySelector('button[data-preset="okabe-ito"]') as HTMLButtonElement;
+    expect(btn.title).toBe("Colorblind-safe (Okabe–Ito)");
     btn.click();
 
     const expected = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!.colors;
@@ -536,6 +513,15 @@ describe("writing", () => {
     const swatches = btn.querySelectorAll(".swatches i");
     expect(swatches.length).toBe(expected.length);
     expect(Array.from(swatches).map((s) => (s as HTMLElement).title)).toEqual(expected);
+    expect(list.title).toBe("");
+  });
+
+  it("marks the swatch list as custom (no preset pressed, title set) for colors matching no preset", () => {
+    const settings: StyleSettings = { style: "default", rc: { "axes.prop_cycle": ["#111111", "#222222"] } };
+    panel.sink = new MemorySink(generateBlock(settings)!);
+    const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;
+    expect(Array.from(list.querySelectorAll("button.preset")).every((b) => b.getAttribute("aria-pressed") === "false")).toBe(true);
+    expect(list.title).toBe("Custom colors (from your file)");
   });
 
   it("writes both tick_direction keys from one segmented control", () => {
@@ -551,17 +537,18 @@ describe("writing", () => {
     expect(rc["ytick.direction"]).toBe("in");
   });
 
-  it("keeps a range slider and its number field linked for linewidth, and commits on input", () => {
+  it("linewidth is a single range input (no separate number box) with a readout, committing on 'input'", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const row = ctl(panel, "linewidth");
-    const range = row.querySelector('input[type="range"]') as HTMLInputElement;
-    const number = input(panel, "linewidth") as HTMLInputElement;
+    const range = input(panel, "linewidth") as HTMLInputElement;
+    expect(range.type).toBe("range");
+    expect(row.querySelectorAll('input[type="number"]').length).toBe(0);
 
     range.value = "3";
     fireInput(range);
 
-    expect(number.value).toBe("3");
+    expect(row.querySelector(".readout")!.textContent).toBe("3");
     expect(panel.getSettings().rc["lines.linewidth"]).toBe(3);
   });
 });
@@ -615,91 +602,222 @@ describe("legend position", () => {
   });
 });
 
-describe("badges", () => {
-  it("shows a plain badge for save-category controls and a rerun badge for rerun-category controls", () => {
-    panel.sink = new MemorySink("");
-    expect(ctl(panel, "savefig_dpi").querySelector(".badge")!.textContent).toBe("applies when saving");
-    expect(ctl(panel, "font_family").querySelector(".badge.rerun")!.textContent).toBe("re-run to see");
+describe("rerun indicators", () => {
+  it("shows a ↻ badge on the control and on its tab only once the change is pending, not always", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    expect(ctl(panel, "font_family").querySelector(".badge.rerun")).toBeNull();
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+
+    const seg = ctl(panel, "font_family").querySelector(".segmented") as HTMLElement;
+    const serifBtn = seg.querySelector('button[data-value="serif"]') as HTMLButtonElement;
+    serifBtn.click();
+
+    expect(ctl(panel, "font_family").querySelector(".badge.rerun")).not.toBeNull();
+    expect(tabRerun(panel, "text").hidden).toBe(false);
+
+    await panel.refresh();
+    expect(ctl(panel, "font_family").querySelector(".badge.rerun")).toBeNull();
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+  });
+
+  it("a style change shows ↻ on the Look tab and on the style control", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    expect(tabRerun(panel, "look").hidden).toBe(true);
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+    expect(ctl(panel, "style").querySelector(".badge.rerun")).not.toBeNull();
   });
 });
 
-describe("sink subscribe", () => {
-  it("updates panel state on an external edit with a different fence", () => {
-    const srcA = generateBlock({ style: "default", rc: { "lines.linewidth": 2 } })!;
-    const sink = new MemorySink(srcA);
+describe("change dot on tabs", () => {
+  it("shows a dot on a tab once a control in its group is set", () => {
+    const sink = new MemorySink("");
     panel.sink = sink;
-    expect(panel.getSettings().rc).toEqual({ "lines.linewidth": 2 });
-
-    const srcB = generateBlock({ style: "default", rc: { "lines.linewidth": 5 } })!;
-    sink.externalEdit(srcB);
-    expect(panel.getSettings().rc).toEqual({ "lines.linewidth": 5 });
-  });
-
-  it("shows the error banner when an external edit makes the fence malformed", () => {
-    const src = generateBlock({ style: "default", rc: { "lines.linewidth": 2 } })!;
-    const sink = new MemorySink(src);
-    panel.sink = sink;
-
-    sink.externalEdit(`${FENCE_START}\n${src}`);
-    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
-    expect(banner.hidden).toBe(false);
-    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
-  });
-
-  it("does not re-trigger a reload loop from the panel's own writes", () => {
-    const userSrc = "x = 1\n";
-    let sink!: MemorySink;
-    sink = new MemorySink(userSrc, (s) => sink.externalEdit(s));
-    panel.sink = sink;
+    expect(tabDot(panel, "text").hidden).toBe(true);
 
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
 
-    expect(sink.writes.length).toBe(1);
+    expect(tabDot(panel, "text").hidden).toBe(false);
+  });
+
+  it("shows a dot on Look for a non-default style", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    expect(tabDot(panel, "look").hidden).toBe(true);
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    expect(tabDot(panel, "look").hidden).toBe(false);
   });
 });
 
-describe("write-only sink", () => {
-  it("receives just the generated block text on setSource", () => {
-    class WriteOnlySink implements CodeSink {
-      received: string[] = [];
-      getSource(): string | null {
-        return null;
-      }
-      setSource(source: string): void {
-        this.received.push(source);
-      }
-    }
-    const sink = new WriteOnlySink();
+describe("reset menu", () => {
+  it("Reset <Category> is hidden until the active category has changes, then clears only that group's keys", () => {
+    const sink = new MemorySink("");
     panel.sink = sink;
+
+    openTab(panel, "text");
+    openMenu(panel);
+    expect(menuItem(panel, "reset-category").hidden).toBe(true);
+
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "3";
+    fireInput(lw);
 
-    expect(sink.received.length).toBe(1);
-    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14 } }));
+    openMenu(panel);
+    const item = menuItem(panel, "reset-category");
+    expect(item.hidden).toBe(false);
+    expect(item.textContent).toBe("Reset Text");
+    item.click();
+
+    expect(panel.getSettings().rc["font.size"]).toBeUndefined();
+    expect(panel.getSettings().rc["lines.linewidth"]).toBe(3);
   });
 
-  it("sends an empty string once settings return to default", () => {
-    class WriteOnlySink implements CodeSink {
-      received: string[] = [];
-      getSource(): string | null {
-        return null;
-      }
-      setSource(source: string): void {
-        this.received.push(source);
-      }
-    }
-    const sink = new WriteOnlySink();
-    panel.sink = sink;
-    const fs = input(panel, "font_size") as HTMLInputElement;
-    fs.value = "14";
-    change(fs);
-    const resetButton = panel.shadowRoot!.querySelector(".bar .reset") as HTMLButtonElement;
-    resetButton.click();
+  it("Reset Look also resets the style preset", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
 
-    expect(sink.received[sink.received.length - 1]).toBe("");
+    openTab(panel, "look");
+    openMenu(panel);
+    menuItem(panel, "reset-category").click();
+
+    expect(panel.getSettings().style).toBe("default");
+  });
+
+  it("Reset all is disabled when settings are default, enabled once something is set", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    openMenu(panel);
+    expect(menuItem(panel, "reset-all").disabled).toBe(true);
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    openMenu(panel);
+    expect(menuItem(panel, "reset-all").disabled).toBe(false);
+  });
+
+  it("Show code toggles the generated block into view inside the menu", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    openMenu(panel);
+    const pre = panel.shadowRoot!.querySelector("pre.code") as HTMLElement;
+    expect(pre.hidden).toBe(true);
+    expect(pre.textContent).toBe("# (no block: every setting is at its default)");
+
+    menuItem(panel, "show-code").click();
+    expect(pre.hidden).toBe(false);
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    expect(pre.textContent).toContain("axes.grid");
+
+    menuItem(panel, "show-code").click();
+    expect(pre.hidden).toBe(true);
+  });
+
+  it("hides the 'Show code' item entirely when features.showCode is false", () => {
+    panel.features = { showCode: false };
+    openMenu(panel);
+    expect(menuItem(panel, "show-code").hidden).toBe(true);
+  });
+
+  it("only shows tabs for groups listed in features.groups", () => {
+    panel.features = { groups: ["text"] };
+    for (const g of GROUPS) expect(pillTab(panel, g.id).hidden).toBe(g.id !== "text");
+  });
+});
+
+describe("draggable popover", () => {
+  it("dragging the header by pointer events moves the popover and hides the caret", () => {
+    openTab(panel, "text");
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    const caret = panel.shadowRoot!.querySelector(".caret") as HTMLElement;
+    const header = panel.shadowRoot!.querySelector(".pop-head") as HTMLElement;
+    expect(caret.hidden).toBe(false);
+
+    header.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 100, clientY: 100, pointerId: 1 }));
+    header.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 140, clientY: 130, pointerId: 1 }));
+    header.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 140, clientY: 130, pointerId: 1 }));
+
+    expect(popover.style.left).not.toBe("");
+    expect(popover.style.top).not.toBe("");
+    expect(caret.hidden).toBe(true);
+
+    const leftAfterDrag = popover.style.left;
+    const topAfterDrag = popover.style.top;
+
+    // Switching tabs swaps content in place: position is unchanged.
+    openTab(panel, "look");
+    expect(popover.style.left).toBe(leftAfterDrag);
+    expect(popover.style.top).toBe(topAfterDrag);
+    expect(caret.hidden).toBe(true);
+    expect(group(panel, "look").hidden).toBe(false);
+    expect(group(panel, "text").hidden).toBe(true);
+
+    // Re-anchor via the ⌖ button restores the caret.
+    (panel.shadowRoot!.querySelector(".reanchor") as HTMLButtonElement).click();
+    expect(caret.hidden).toBe(false);
+    expect(popover.classList.contains("dragging")).toBe(false);
+  });
+
+  it("double-clicking the header also re-anchors", () => {
+    openTab(panel, "text");
+    const header = panel.shadowRoot!.querySelector(".pop-head") as HTMLElement;
+    const caret = panel.shadowRoot!.querySelector(".caret") as HTMLElement;
+
+    header.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
+    header.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 50, clientY: 50, pointerId: 1 }));
+    header.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 50, clientY: 50, pointerId: 1 }));
+    expect(caret.hidden).toBe(true);
+
+    header.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(caret.hidden).toBe(false);
+  });
+});
+
+describe("layout: pill vs rail", () => {
+  it("renders the pill by default and keeps the rail hidden", () => {
+    expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".rail") as HTMLElement).hidden).toBe(true);
+    expect(panel.layout).toBe("pill");
+  });
+
+  it("forcing layout='rail' renders the rail with one tab per visible group, and hides the pill", () => {
+    panel.setAttribute("layout", "rail");
+    expect(panel.layout).toBe("rail");
+    expect((panel.shadowRoot!.querySelector(".rail") as HTMLElement).hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).hidden).toBe(true);
+    const tabs = Array.from(panel.shadowRoot!.querySelectorAll(".rail button.tab")) as HTMLElement[];
+    expect(tabs.map((t) => t.dataset.group)).toEqual(GROUPS.map((g) => g.id));
+
+    railTab(panel, "text").click();
+    expect(panel.category).toBe("text");
+  });
+
+  it("setting the layout property forces the mode and reflects the attribute", () => {
+    panel.layout = "rail";
+    expect(panel.getAttribute("layout")).toBe("rail");
+    panel.layout = "pill";
+    expect(panel.getAttribute("layout")).toBe("pill");
   });
 });
 
@@ -725,23 +843,24 @@ describe("backend", () => {
     expect(panel.getSettings().rc).toEqual({});
   });
 
-  it("mentions Live preview in the status line once ready", async () => {
+  it("mentions Live preview in the pill's tooltip once ready", async () => {
     await attachBackend(panel, backend);
-    const status = panel.shadowRoot!.querySelector(".status")!;
-    expect(status.textContent).toContain("Live preview");
+    expect(panel.shadowRoot!.querySelector(".pill")!.getAttribute("title")).toContain("Live preview");
   });
 
-  it("shows a user badge for keys the mock reports as overridden", async () => {
+  it("shows a user-override badge (a small dot) for keys the mock reports as overridden", async () => {
     backend.overridden = ["axes.grid"];
     await attachBackend(panel, backend);
-    expect(ctl(panel, "grid").querySelector(".badge.user")).not.toBeNull();
+    const badge = ctl(panel, "grid").querySelector(".badge.user");
+    expect(badge).not.toBeNull();
+    expect((badge as HTMLElement).title).toContain("Your code sets this");
   });
 
   it("produces exactly one apply_live call after changing a live control, once settled", async () => {
     await attachBackend(panel, backend);
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "3";
-    change(lw);
+    fireInput(lw);
     await panel.settle();
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
@@ -754,9 +873,9 @@ describe("backend", () => {
     const lw = input(panel, "linewidth") as HTMLInputElement;
     const ms = input(panel, "markersize") as HTMLInputElement;
     lw.value = "4";
-    change(lw);
+    fireInput(lw);
     ms.value = "10";
-    change(ms);
+    fireInput(ms);
     await panel.settle();
 
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
@@ -779,8 +898,6 @@ describe("backend", () => {
     await panel.settle();
 
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
-    const rerunBanner = panel.shadowRoot!.querySelectorAll(".banner.warn")[0] as HTMLElement;
-    expect(rerunBanner.hidden).toBe(false);
     expect(events.some((e) => e.keys.includes("font.family"))).toBe(true);
   });
 
@@ -815,7 +932,7 @@ describe("backend", () => {
     await attachBackend(panel, backend);
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "5";
-    change(lw);
+    fireInput(lw);
     await panel.settle();
     expect(backend.calls.filter((c) => c.fn === "apply_live").length).toBe(1);
 
@@ -835,7 +952,7 @@ describe("backend", () => {
     await attachBackend(panel, backend);
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "7";
-    change(lw);
+    fireInput(lw);
     await panel.settle();
 
     const revertBtn = ctl(panel, "linewidth").querySelector(".revert") as HTMLButtonElement;
@@ -848,7 +965,7 @@ describe("backend", () => {
     expect(panel.getSettings().rc["lines.linewidth"]).toBeUndefined();
   });
 
-  it("surfaces a backend error from apply_live in the status and as an event", async () => {
+  it("surfaces a backend error from apply_live in the pill's tooltip and as an event", async () => {
     await attachBackend(panel, backend);
     const events: PanelErrorEventDetail[] = [];
     panel.addEventListener("plotpolish-error", (e) => events.push((e as CustomEvent<PanelErrorEventDetail>).detail));
@@ -856,10 +973,10 @@ describe("backend", () => {
     backend.failNext = "boom";
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "9";
-    change(lw);
+    fireInput(lw);
     await panel.settle();
 
-    expect(panel.shadowRoot!.querySelector(".status")!.textContent).toContain("Backend error");
+    expect(panel.shadowRoot!.querySelector(".pill")!.getAttribute("title")).toContain("Backend error");
     expect(events.length).toBe(1);
     expect(events[0]!.context).toBe("apply_live");
     expect(events[0]!.error.message).toContain("boom");
@@ -873,7 +990,7 @@ describe("backend", () => {
     backend.failNext = "boom2";
     await panel.refresh();
 
-    expect(panel.shadowRoot!.querySelector(".status")!.textContent).toContain("Backend error");
+    expect(panel.shadowRoot!.querySelector(".pill")!.getAttribute("title")).toContain("Backend error");
     expect(events.length).toBe(1);
     expect(events[0]!.context).toBe("refresh");
   });
@@ -882,13 +999,13 @@ describe("backend", () => {
     backend.rejectWith = new Error("dead");
     panel.backend = backend;
     await panel.refresh();
-    expect(panel.shadowRoot!.querySelector(".status")!.textContent).toContain("Backend error");
+    expect(panel.shadowRoot!.querySelector(".pill")!.getAttribute("title")).toContain("Backend error");
 
     const sink = new MemorySink("");
     panel.sink = sink;
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "9";
-    change(lw);
+    fireInput(lw);
     expect(sink.writes.length).toBe(1);
     await panel.settle();
   });
@@ -898,7 +1015,7 @@ describe("backend", () => {
     await attachBackend(panel, backend);
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "11";
-    change(lw);
+    fireInput(lw);
     await panel.settle();
 
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
@@ -915,7 +1032,7 @@ describe("fontsize display", () => {
   it("recomputes the display when the base font size changes", () => {
     const fontSizeInput = input(panel, "font_size") as HTMLInputElement;
     fontSizeInput.value = "20";
-    change(fontSizeInput);
+    fireInput(fontSizeInput);
 
     const titleInput = input(panel, "title_size") as HTMLInputElement;
     expect(titleInput.value).toBe("24");
@@ -924,9 +1041,11 @@ describe("fontsize display", () => {
   it("never writes axes.titlesize to the generated code for a relative default", () => {
     const fontSizeInput = input(panel, "font_size") as HTMLInputElement;
     fontSizeInput.value = "20";
-    change(fontSizeInput);
+    fireInput(fontSizeInput);
 
-    const code = panel.shadowRoot!.querySelector("details.code pre")!.textContent;
+    openMenu(panel);
+    menuItem(panel, "show-code").click();
+    const code = panel.shadowRoot!.querySelector("pre.code")!.textContent;
     expect(code).not.toContain("axes.titlesize");
   });
 });
@@ -940,11 +1059,90 @@ describe("events", () => {
 
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
-    change(fs);
+    fireInput(fs);
 
     expect(events.length).toBe(1);
     expect(events[0]!.settings.rc).toEqual({ "font.size": 14 });
     expect(events[0]!.block).toBe(generateBlock({ style: "default", rc: { "font.size": 14 } }));
     expect(events[0]!.source).toBe(sink.getSource());
+  });
+});
+
+describe("write-only sink", () => {
+  it("receives just the generated block text on setSource", () => {
+    class WriteOnlySink implements CodeSink {
+      received: string[] = [];
+      getSource(): string | null {
+        return null;
+      }
+      setSource(source: string): void {
+        this.received.push(source);
+      }
+    }
+    const sink = new WriteOnlySink();
+    panel.sink = sink;
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    fireInput(fs);
+
+    expect(sink.received.length).toBe(1);
+    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14 } }));
+  });
+
+  it("sends an empty string once settings return to default", () => {
+    class WriteOnlySink implements CodeSink {
+      received: string[] = [];
+      getSource(): string | null {
+        return null;
+      }
+      setSource(source: string): void {
+        this.received.push(source);
+      }
+    }
+    const sink = new WriteOnlySink();
+    panel.sink = sink;
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    fireInput(fs);
+    openMenu(panel);
+    menuItem(panel, "reset-all").click();
+
+    expect(sink.received[sink.received.length - 1]).toBe("");
+  });
+});
+
+describe("sink subscribe", () => {
+  it("updates panel state on an external edit with a different fence", () => {
+    const srcA = generateBlock({ style: "default", rc: { "lines.linewidth": 2 } })!;
+    const sink = new MemorySink(srcA);
+    panel.sink = sink;
+    expect(panel.getSettings().rc).toEqual({ "lines.linewidth": 2 });
+
+    const srcB = generateBlock({ style: "default", rc: { "lines.linewidth": 5 } })!;
+    sink.externalEdit(srcB);
+    expect(panel.getSettings().rc).toEqual({ "lines.linewidth": 5 });
+  });
+
+  it("shows the error mark when an external edit makes the fence malformed", () => {
+    const src = generateBlock({ style: "default", rc: { "lines.linewidth": 2 } })!;
+    const sink = new MemorySink(src);
+    panel.sink = sink;
+
+    sink.externalEdit(`${FENCE_START}\n${src}`);
+    expect(panel.shadowRoot!.querySelector(".pill")!.classList.contains("error")).toBe(true);
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+  });
+
+  it("does not re-trigger a reload loop from the panel's own writes", () => {
+    const userSrc = "x = 1\n";
+    let sink!: MemorySink;
+    sink = new MemorySink(userSrc, (s) => sink.externalEdit(s));
+    panel.sink = sink;
+
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    fireInput(fs);
+
+    expect(sink.writes.length).toBe(1);
   });
 });

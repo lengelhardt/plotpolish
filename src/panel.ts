@@ -7,11 +7,13 @@
  * the retained figure through a FigureBackend. It never renders or edits
  * anything else in the user's code.
  *
- * The shell is a tiered drill-down (see docs/ux-design.md): collapsed to one
- * bar by default, level one is a row of category chips plus "Your changes",
- * level two is one category's rows (primary, then a "More" details). Every
- * control row exists in the DOM at all times; only its container's `hidden`
- * changes as `open`/`category` change, so `update()` stays a single pass.
+ * The shell (see docs/ux-design.md, "v3") is an inline-flex tab pill (or a
+ * vertical rail fallback) that lives in the host's toolbar row, plus two
+ * fixed-position layers that escape any overflow clipping: a draggable
+ * popover for the active category's controls, and a small reset menu. Every
+ * control row and every category's container exists in the DOM at all times;
+ * only `hidden` and a handful of classes change as state changes, so
+ * `update()` stays a single pass.
  */
 
 import css from "./panel.css?inline";
@@ -30,19 +32,13 @@ import type { CodeSink } from "./sink";
 export interface PanelFeatures {
   /** Apply artist-level equivalents to the retained figure as controls change. */
   livePreview: boolean;
-  /** Show the generated block, read-only, under the controls. */
+  /** Whether the "Show code" item exists in the reset menu. */
   showCode: boolean;
   /** Group ids to render (see controls.json); null renders all. */
   groups: string[] | null;
-  /** When false the panel is always open and the collapsed bar is not rendered. */
-  collapsible: boolean;
-  /** Start expanded instead of collapsed. Only affects the panel's initial state. */
-  startOpen: boolean;
 }
 
-const DEFAULT_FEATURES: PanelFeatures = {
-  livePreview: true, showCode: true, groups: null, collapsible: true, startOpen: false,
-};
+const DEFAULT_FEATURES: PanelFeatures = { livePreview: true, showCode: true, groups: null };
 
 export interface ChangeEventDetail {
   settings: StyleSettings;
@@ -61,6 +57,7 @@ export interface PanelErrorEventDetail {
 }
 
 type BackendState = "none" | "connecting" | "ready" | "error";
+type LayoutMode = "pill" | "rail";
 
 interface LegendXyView {
   wrap: HTMLElement;
@@ -80,15 +77,36 @@ interface ControlView {
   swatchList?: HTMLElement;
   legendXy?: LegendXyView;
   rangeInput?: HTMLInputElement;
+  readout?: HTMLElement;
 }
 
-interface CategoryView {
+interface GroupView {
   container: HTMLElement;
   note: HTMLElement;
-  resetButton: HTMLButtonElement;
+  primaryRows: HTMLElement;
+  moreRows?: HTMLElement;
+  moreButton?: HTMLButtonElement;
+}
+
+interface TabView {
+  /** [pill button, rail button] — both exist at all times; layout decides which is visible. */
+  buttons: HTMLButtonElement[];
+  dots: HTMLElement[];
+  reruns: HTMLElement[];
+}
+
+interface DragStart {
+  x: number;
+  y: number;
+  left: number;
+  top: number;
 }
 
 const APPLY_DEBOUNCE_MS = 60;
+const RAIL_WIDTH = 50;
+
+/** matplotlib line-style glyphs, used on the compact segmented control. */
+const LINESTYLE_GLYPHS: Readonly<Record<string, string>> = { "-": "―", "--": "– –", "-.": "–·", ":": "···" };
 
 function schemaDefaults(): Record<string, RcValue> {
   const rc: Record<string, RcValue> = {};
@@ -114,6 +132,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 export class PlotpolishPanel extends HTMLElement {
   /** rc keys your host sets once at startup; preserved when the panel resets styles. */
   hostRcKeys: string[] = [];
+
+  static get observedAttributes(): string[] {
+    return ["layout"];
+  }
 
   private _backend: FigureBackend | null = null;
   private client: HelperClient | null = null;
@@ -148,33 +170,43 @@ export class PlotpolishPanel extends HTMLElement {
   private applyChain: Promise<void> = Promise.resolve();
 
   private _open = false;
-  private openInitialized = false;
   private _category: string | null = null;
+  private _menuOpen = false;
+  private _codeOpen = false;
+  private _layoutMode: LayoutMode = "pill";
+  private _layoutForced = false;
+  private _settingLayoutAttr = false;
+  private _figureElement: HTMLElement | null = null;
+  private moreOpen = new Map<string, boolean>();
+  private dragPos: { x: number; y: number } | null = null;
+  private dragStart: DragStart | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private docClickHandler: ((e: Event) => void) | null = null;
 
   private readonly root: ShadowRoot;
   private views = new Map<string, ControlView>();
+  private tabViews = new Map<string, TabView>();
   private ui!: {
-    panelEl: HTMLElement;
-    bar: HTMLElement;
-    barSummary: HTMLElement;
-    barReset: HTMLButtonElement;
-    body: HTMLElement;
-    crumbBack: HTMLButtonElement;
-    crumbLabel: HTMLElement;
-    status: HTMLElement;
-    headReset: HTMLButtonElement;
-    fenceBanner: HTMLElement;
+    pill: HTMLElement;
+    errMark: HTMLElement;
+    menuToggle: HTMLButtonElement;
+    rail: HTMLElement;
+    popover: HTMLElement;
+    header: HTMLElement;
+    title: HTMLElement;
+    reanchorBtn: HTMLButtonElement;
+    closeBtn: HTMLButtonElement;
+    caret: HTMLElement;
+    popBody: HTMLElement;
+    banner: HTMLElement;
     fenceMessage: HTMLElement;
-    rerunBanner: HTMLElement;
-    rerunText: HTMLElement;
-    unknownBanner: HTMLElement;
-    home: HTMLElement;
-    chips: Map<string, HTMLButtonElement>;
-    changeList: HTMLElement;
-    changeEmpty: HTMLElement;
-    code: HTMLDetailsElement;
+    unknownNote: HTMLElement;
+    menu: HTMLElement;
+    resetCategoryItem: HTMLButtonElement;
+    resetAllItem: HTMLButtonElement;
+    showCodeItem: HTMLButtonElement;
     codePre: HTMLElement;
-    categories: Map<string, CategoryView>;
+    groups: Map<string, GroupView>;
   };
 
   constructor() {
@@ -185,11 +217,41 @@ export class PlotpolishPanel extends HTMLElement {
 
   connectedCallback(): void {
     this.update();
+    this.measureLayout();
+    this.positionRail();
+    this.docClickHandler = (e: Event) => {
+      if (!this._menuOpen) return;
+      const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+      if (path.includes(this.ui.menu) || path.includes(this.ui.menuToggle)) return;
+      this.closeMenu();
+    };
+    document.addEventListener("click", this.docClickHandler, true);
+    this.setupResizeObservers();
+    window.addEventListener("resize", this.onWindowReflow);
+    window.addEventListener("scroll", this.onWindowReflow, true);
   }
 
   disconnectedCallback(): void {
     this.unsubscribeSink?.();
     this.unsubscribeSink = null;
+    if (this.docClickHandler) {
+      document.removeEventListener("click", this.docClickHandler, true);
+      this.docClickHandler = null;
+    }
+    this.teardownResizeObservers();
+    window.removeEventListener("resize", this.onWindowReflow);
+    window.removeEventListener("scroll", this.onWindowReflow, true);
+  }
+
+  attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
+    if (name !== "layout" || this._settingLayoutAttr || newValue === oldValue) return;
+    this._layoutForced = true;
+    const mode: LayoutMode = newValue === "rail" ? "rail" : "pill";
+    if (mode !== this._layoutMode) {
+      this._layoutMode = mode;
+      this.positionRail();
+      this.update();
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -236,31 +298,65 @@ export class PlotpolishPanel extends HTMLElement {
     this.update();
   }
 
-  /** Whether the panel is expanded. Reflected as the `open` attribute. */
+  /** The host's figure container: bounds the rail's position and its ResizeObserver. */
+  get figureElement(): HTMLElement | null {
+    return this._figureElement;
+  }
+  set figureElement(value: HTMLElement | null) {
+    this._figureElement = value;
+    this.teardownResizeObservers();
+    this.setupResizeObservers();
+    this.measureLayout();
+    this.positionRail();
+    this.update();
+  }
+
+  /** "pill" or "rail". Reflected as the `layout` attribute; set it to force one or the other. */
+  get layout(): LayoutMode {
+    return this._layoutMode;
+  }
+  set layout(value: LayoutMode) {
+    this._layoutForced = true;
+    this.setLayoutMode(value === "rail" ? "rail" : "pill");
+  }
+
+  /** Whether the popover is visible. Reflected as the `open` attribute. */
   get open(): boolean {
     return this._open;
   }
   set open(value: boolean) {
-    this._open = Boolean(value);
-    this.openInitialized = true;
-    this.toggleAttribute("open", this._open);
-    this.update();
+    const next = Boolean(value);
+    if (next === this._open) return;
+    if (next) this.showCategory(this._category ?? this.firstVisibleGroupId());
+    else {
+      this._open = false;
+      this.reflectOpenAttr();
+      this.update();
+    }
   }
 
-  /** The group id shown at level two, or null at level one. Mutate via showCategory(). */
+  /** The group id shown in the popover, or null when closed. Mutate via showCategory(). */
   get category(): string | null {
     return this._category;
   }
 
-  /** Flip between collapsed and expanded. */
+  /** Open the popover if closed (on the last/first category), or close it if open. */
   toggle(): void {
-    this.open = !this.open;
+    this.open = !this._open;
   }
 
-  /** Go to level two for `id`, or back to level one for null. */
+  /** Show `id`'s controls in the popover (opening it), or close the popover for null. */
   showCategory(id: string | null): void {
+    const wasOpen = this._open;
+    const changed = this._category !== id;
     this._category = id;
+    this._open = id !== null;
+    this.reflectOpenAttr();
     this.update();
+    if (this._open && (!wasOpen || changed)) {
+      if (this.dragPos) this.applyDragPosition();
+      else this.positionPopover();
+    }
   }
 
   /** A copy of the current settings. */
@@ -344,6 +440,16 @@ export class PlotpolishPanel extends HTMLElement {
     this.loadFromSink();
     this.emitChange();
     this.update();
+  }
+
+  /** Resolves when pending live-apply / set_style work has finished. For tests and hosts. */
+  async settle(): Promise<void> {
+    for (let i = 0; i < 10; i++) {
+      await this.applyChain;
+      if (!this.applyTimer) break;
+      await new Promise((r) => setTimeout(r, APPLY_DEBOUNCE_MS + 5));
+    }
+    await this.applyChain;
   }
 
   // -------------------------------------------------------------------------
@@ -522,16 +628,6 @@ export class PlotpolishPanel extends HTMLElement {
     }, APPLY_DEBOUNCE_MS);
   }
 
-  /** Resolves when pending live-apply / set_style work has finished. For tests and hosts. */
-  async settle(): Promise<void> {
-    for (let i = 0; i < 10; i++) {
-      await this.applyChain;
-      if (!this.applyTimer) break;
-      await new Promise((r) => setTimeout(r, APPLY_DEBOUNCE_MS + 5));
-    }
-    await this.applyChain;
-  }
-
   private noteRerun(keys: string[]): void {
     for (const k of keys) this.rerunKeys.add(k);
     this.emit<RerunNeededEventDetail>("rerun-needed", { keys: [...this.rerunKeys], style: this.settings.style });
@@ -553,24 +649,200 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   // -------------------------------------------------------------------------
-  // Navigation
+  // Navigation: tabs, popover, menu, layout
   // -------------------------------------------------------------------------
 
-  private handleEscape(): void {
-    if (this._category !== null) {
-      this.showCategory(null);
-      return;
-    }
-    if (this._features.collapsible && this._open) this.open = false;
+  private firstVisibleGroupId(): string | null {
+    for (const g of GROUPS) if (this.isGroupVisible(g)) return g.id;
+    return null;
   }
 
-  private ensureStartOpen(): void {
-    if (this.openInitialized) return;
-    this.openInitialized = true;
-    if (this._features.startOpen) {
-      this._open = true;
-      this.toggleAttribute("open", true);
+  private handleTabClick(id: string): void {
+    if (this._open && this._category === id) this.showCategory(null);
+    else this.showCategory(id);
+  }
+
+  private reflectOpenAttr(): void {
+    this.toggleAttribute("open", this._open);
+  }
+
+  private handleEscape(): void {
+    if (this._menuOpen) {
+      this.closeMenu();
+      return;
     }
+    if (this._open) this.showCategory(null);
+  }
+
+  private activeTabButton(tabView: TabView): HTMLButtonElement | undefined {
+    const idx = this._layoutMode === "rail" ? 1 : 0;
+    return tabView.buttons[idx] ?? tabView.buttons[0];
+  }
+
+  private positionPopover(): void {
+    if (!this._category) return;
+    const tabView = this.tabViews.get(this._category);
+    const tab = tabView && this.activeTabButton(tabView);
+    if (!tab) return;
+    const { popover, caret } = this.ui;
+    const rect = tab.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    const width = popRect.width || 260;
+    const height = popRect.height || 96;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    let left = rect.left;
+    let top = rect.top - 6 - height;
+    if (vw > 0) left = Math.max(4, Math.min(left, vw - width - 4));
+    if (vh > 0) top = Math.max(4, Math.min(top, vh - height - 4));
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+    caret.hidden = false;
+    const center = rect.left + rect.width / 2 - left;
+    caret.style.left = `${Math.max(8, Math.min(center, Math.max(8, width - 16)))}px`;
+  }
+
+  private applyDragPosition(): void {
+    if (!this.dragPos) return;
+    this.ui.popover.style.left = `${this.dragPos.x}px`;
+    this.ui.popover.style.top = `${this.dragPos.y}px`;
+    this.ui.caret.hidden = true;
+  }
+
+  private reanchor(): void {
+    this.dragPos = null;
+    this.ui.popover.classList.remove("dragging");
+    this.positionPopover();
+  }
+
+  private onHeaderPointerDown(e: PointerEvent): void {
+    const header = this.ui.header;
+    try {
+      header.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* not every environment supports pointer capture */
+    }
+    const rect = this.ui.popover.getBoundingClientRect();
+    this.dragStart = { x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top };
+  }
+
+  private onHeaderPointerMove(e: PointerEvent): void {
+    if (!this.dragStart) return;
+    const dx = (e.clientX ?? 0) - this.dragStart.x;
+    const dy = (e.clientY ?? 0) - this.dragStart.y;
+    let left = this.dragStart.left + dx;
+    let top = this.dragStart.top + dy;
+    const headerRect = this.ui.header.getBoundingClientRect();
+    const hw = headerRect.width || 200;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    // Clamp so at least 40px of the header stays within the viewport.
+    if (vw > 0) left = Math.max(40 - hw, Math.min(left, vw - 40));
+    if (vh > 0) top = Math.max(0, Math.min(top, vh - 40));
+    this.dragPos = { x: left, y: top };
+    this.ui.popover.classList.add("dragging");
+    this.ui.popover.style.left = `${left}px`;
+    this.ui.popover.style.top = `${top}px`;
+    this.ui.caret.hidden = true;
+  }
+
+  private onHeaderPointerUp(e: PointerEvent): void {
+    if (!this.dragStart) return;
+    try {
+      this.ui.header.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    this.dragStart = null;
+    this.ui.popover.classList.remove("dragging");
+  }
+
+  private toggleMore(groupId: string): void {
+    this.moreOpen.set(groupId, !(this.moreOpen.get(groupId) ?? false));
+    this.update();
+  }
+
+  private toggleMenu(): void {
+    this._menuOpen = !this._menuOpen;
+    this.update();
+    if (this._menuOpen) this.positionMenu();
+  }
+
+  private closeMenu(): void {
+    if (!this._menuOpen) return;
+    this._menuOpen = false;
+    this.update();
+  }
+
+  private positionMenu(): void {
+    const rect = this.ui.menuToggle.getBoundingClientRect();
+    this.ui.menu.style.left = `${rect.left}px`;
+    this.ui.menu.style.top = `${rect.bottom + 4}px`;
+  }
+
+  private onWindowReflow = (): void => {
+    this.measureLayout();
+    this.positionRail();
+    if (this._open && !this.dragPos) this.positionPopover();
+    if (this._menuOpen) this.positionMenu();
+  };
+
+  private setupResizeObservers(): void {
+    if (typeof ResizeObserver === "undefined") return;
+    this.resizeObserver = new ResizeObserver(() => this.onWindowReflow());
+    if (this.parentElement) this.resizeObserver.observe(this.parentElement);
+    if (this._figureElement) this.resizeObserver.observe(this._figureElement);
+  }
+
+  private teardownResizeObservers(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+  }
+
+  /** Auto-detect pill vs rail (unless the host has forced `layout`). */
+  private measureLayout(): void {
+    if (this._layoutForced) return;
+    if (!this._figureElement || !this.parentElement) {
+      this.setLayoutMode("pill");
+      return;
+    }
+    const parent = this.parentElement;
+    const pillWidth = this.ui.pill.scrollWidth;
+    let siblingWidth = 0;
+    for (const child of Array.from(parent.children)) {
+      if (child === this) continue;
+      siblingWidth += (child as HTMLElement).getBoundingClientRect().width;
+    }
+    const available = parent.clientWidth - siblingWidth;
+    const overflow = pillWidth > 0 && (pillWidth > available || pillWidth > parent.clientWidth);
+    this.setLayoutMode(overflow ? "rail" : "pill");
+  }
+
+  private setLayoutMode(mode: LayoutMode): void {
+    if (this._layoutMode === mode) {
+      this.reflectLayoutAttr();
+      return;
+    }
+    this._layoutMode = mode;
+    this.reflectLayoutAttr();
+    this.positionRail();
+    this.update();
+  }
+
+  private reflectLayoutAttr(): void {
+    this._settingLayoutAttr = true;
+    this.setAttribute("layout", this._layoutMode);
+    this._settingLayoutAttr = false;
+  }
+
+  private positionRail(): void {
+    const rail = this.ui?.rail;
+    if (!rail || this._layoutMode !== "rail" || !this._figureElement) return;
+    const rect = this._figureElement.getBoundingClientRect();
+    rail.style.position = "fixed";
+    rail.style.top = `${rect.top}px`;
+    rail.style.left = `${Math.max(0, rect.right - RAIL_WIDTH)}px`;
+    rail.style.width = `${RAIL_WIDTH}px`;
   }
 
   private isGroupVisible(group: GroupSpec): boolean {
@@ -591,117 +863,151 @@ export class PlotpolishPanel extends HTMLElement {
     return controlsInGroup(group.id).some((c) => c.keys.some((k) => k in this.settings.rc));
   }
 
+  private groupHasChanges(groupId: string): boolean {
+    if (groupId === "look" && this.settings.style !== "" && this.settings.style !== "default") return true;
+    return controlsInGroup(groupId).some((c) => c.keys.some((k) => k in this.settings.rc));
+  }
+
+  private groupHasRerunPending(groupId: string): boolean {
+    if (groupId === "look" && this.rerunKeys.has("style")) return true;
+    return controlsInGroup(groupId).some((c) => c.keys.some((k) => this.rerunKeys.has(k)));
+  }
+
   // -------------------------------------------------------------------------
   // DOM: build once
   // -------------------------------------------------------------------------
+
+  private buildTabButton(group: GroupSpec): { btn: HTMLButtonElement; dot: HTMLElement; rerun: HTMLElement } {
+    const dot = el("span", { class: "dot", hidden: true });
+    const rerun = el("span", { class: "rerun", hidden: true }, "↻");
+    const btn = el("button", { type: "button", class: "tab", title: group.help ?? "" }, group.label, dot, rerun);
+    btn.dataset.group = group.id;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", "false");
+    btn.addEventListener("click", () => this.handleTabClick(group.id));
+    return { btn, dot, rerun };
+  }
 
   private build(): void {
     const style = el("style");
     style.textContent = css;
 
-    // --- Collapsed bar ---
-    const barToggle = el("button", { type: "button", class: "toggle" }, "Style ▸");
-    barToggle.setAttribute("aria-expanded", "false");
-    barToggle.addEventListener("click", () => this.toggle());
-    const barSummary = el("span", { class: "summary" });
-    const barReset = el("button", { type: "button", class: "reset", title: "Clear every setting and remove the block" }, "Reset all");
-    barReset.addEventListener("click", () => this.reset());
-    const bar = el("div", { class: "bar" }, barToggle, barSummary, barReset);
+    // --- Tab pill + rail ---
+    const pillLabel = el("span", { class: "label" }, "Style");
+    const errMark = el("span", { class: "err", hidden: true, title: "There is a problem with the generated block." }, "!");
+    const menuToggle = el("button", { type: "button", class: "menu-toggle", title: "Reset menu" }, "↺ ▾");
+    menuToggle.setAttribute("aria-haspopup", "menu");
+    menuToggle.addEventListener("click", () => this.toggleMenu());
 
-    // --- Expanded head ---
-    const headToggle = el("button", { type: "button", class: "toggle" }, "Style ▾");
-    headToggle.setAttribute("aria-expanded", "true");
-    headToggle.addEventListener("click", () => this.toggle());
-    const crumbBack = el("button", { type: "button", class: "back", hidden: true, title: "Back to categories" }, "‹");
-    crumbBack.addEventListener("click", () => this.showCategory(null));
-    const crumbLabel = el("span", { class: "crumb-label" }, "Style");
-    const crumbs = el("div", { class: "crumbs" }, crumbBack, crumbLabel);
-    const status = el("span", { class: "status" });
-    const headReset = el("button", { type: "button", class: "reset", title: "Clear every setting and remove the block" }, "Reset all");
-    headReset.addEventListener("click", () => this.reset());
-    const head = el("div", { class: "head" }, headToggle, crumbs, status, headReset);
+    const pillTabs: HTMLButtonElement[] = [];
+    const railTabs: HTMLButtonElement[] = [];
+    for (const group of GROUPS) {
+      const pillTab = this.buildTabButton(group);
+      const railTab = this.buildTabButton(group);
+      this.tabViews.set(group.id, {
+        buttons: [pillTab.btn, railTab.btn],
+        dots: [pillTab.dot, railTab.dot],
+        reruns: [pillTab.rerun, railTab.rerun],
+      });
+      pillTabs.push(pillTab.btn);
+      railTabs.push(railTab.btn);
+    }
+
+    const pill = el("div", { class: "pill", role: "tablist" }, pillLabel, ...pillTabs, errMark, menuToggle);
+    const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
+
+    // --- Popover ---
+    const title = el("span", { class: "title" });
+    const reanchorBtn = el("button", { type: "button", class: "reanchor", title: "Move back to the tab" }, "⌖");
+    const closeBtn = el("button", { type: "button", class: "close" }, "✕");
+    closeBtn.setAttribute("aria-label", "Close");
+    const header = el("div", { class: "pop-head" }, title, reanchorBtn, closeBtn);
+    header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
+    header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
+    header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
+    header.addEventListener("pointercancel", (e) => this.onHeaderPointerUp(e as PointerEvent));
+    header.addEventListener("dblclick", () => this.reanchor());
+    reanchorBtn.addEventListener("click", () => this.reanchor());
+    closeBtn.addEventListener("click", () => this.showCategory(null));
+
+    const caret = el("div", { class: "caret" });
 
     const fenceMessage = el("span");
     const replaceButton = el("button", { type: "button", class: "small" }, "Replace block");
     replaceButton.addEventListener("click", () => this.replaceBlock());
-    const fenceBanner = el("div", { class: "banner error", role: "alert", hidden: true }, fenceMessage, replaceButton);
+    const banner = el("div", { class: "banner error", role: "alert", hidden: true }, fenceMessage, replaceButton);
 
-    const rerunText = el("span");
-    const rerunBanner = el("div", { class: "banner warn", hidden: true }, rerunText);
+    const unknownNote = el("p", { class: "unknown-note muted", hidden: true });
 
-    const unknownBanner = el("div", { class: "banner warn", hidden: true });
-
-    // --- Level one: home ---
-    const chips = new Map<string, HTMLButtonElement>();
-    const chipsEl = el("div", { class: "chips" });
+    const groupViews = new Map<string, GroupView>();
+    const groupEls: HTMLElement[] = [];
     for (const group of GROUPS) {
-      const chip = el("button", { type: "button", class: "chip", title: group.help ?? "" }, group.label);
-      chip.dataset.group = group.id;
-      chip.setAttribute("aria-pressed", "false");
-      chip.addEventListener("click", () => this.showCategory(group.id));
-      chips.set(group.id, chip);
-      chipsEl.append(chip);
-    }
+      const note = el("p", { class: "note", hidden: true });
+      const primaryRows = el("div", { class: "rows primary" });
+      this.appendRows(primaryRows, group, controlsInGroup(group.id, "primary"), false);
 
-    const changeList = el("div", { class: "change-list" });
-    const changeEmpty = el("p", { class: "muted" }, "Nothing changed yet. Pick a category above.");
-    const changes = el("div", { class: "changes" }, el("h4", {}, "Your changes"), changeList, changeEmpty);
-
-    const codePre = el("pre");
-    const code = el("details", { class: "code" }, el("summary", {}, "Generated block"), codePre);
-
-    const note = el("p", { class: "note" }, "Sets matplotlib defaults for this program. Your own code always wins over these defaults.");
-
-    const home = el("div", { class: "home" }, note, chipsEl, changes, code);
-
-    // --- Level two: one category per group ---
-    const categories = new Map<string, CategoryView>();
-    const categoryEls: HTMLElement[] = [];
-    for (const group of GROUPS) {
-      const catNote = el("p", { class: "note", hidden: true });
-      const resetButton = el("button", { type: "button", class: "reset-category" }, `Reset ${group.label}`);
-      resetButton.addEventListener("click", () => this.resetCategory(group.id));
-
-      const primary = el("div", { class: "primary" });
-      this.appendRowsWithHeadings(primary, group, controlsInGroup(group.id, "primary"));
-
-      const children: (Node | string)[] = [catNote, resetButton, primary];
+      const children: (Node | string)[] = [note, primaryRows];
       const moreSpecs = controlsInGroup(group.id, "more");
+      let moreButton: HTMLButtonElement | undefined;
+      let moreRows: HTMLElement | undefined;
       if (moreSpecs.length) {
-        const moreRows = el("div", { class: "more-rows" });
-        this.appendRowsWithHeadings(moreRows, group, moreSpecs);
-        children.push(el("details", { class: "more" }, el("summary", {}, "More"), moreRows));
+        moreRows = el("div", { class: "rows more", hidden: true });
+        this.appendRows(moreRows, group, moreSpecs, true);
+        moreButton = el("button", { type: "button", class: "more" }, "More ▸");
+        moreButton.addEventListener("click", () => this.toggleMore(group.id));
+        children.push(moreButton, moreRows);
       }
-
-      const container = el("div", { class: "category", hidden: true }, ...children);
+      const container = el("div", { class: "group", hidden: true }, ...children);
       container.dataset.group = group.id;
-      categories.set(group.id, { container, note: catNote, resetButton });
-      categoryEls.push(container);
+      groupViews.set(group.id, { container, note, primaryRows, moreRows, moreButton });
+      groupEls.push(container);
     }
 
-    const body = el("div", { class: "body" }, head, fenceBanner, rerunBanner, unknownBanner, home, ...categoryEls);
+    const popBody = el("div", { class: "pop-body" }, banner, ...groupEls, unknownNote);
+    const popover = el("div", { class: "popover", role: "dialog", hidden: true }, header, caret, popBody);
 
-    const panelEl = el("div", { class: "panel" }, bar, body);
-    panelEl.addEventListener("keydown", (e) => {
+    // --- Reset menu ---
+    const resetCategoryItem = el("button", { type: "button", class: "menu-item", role: "menuitem" });
+    resetCategoryItem.dataset.action = "reset-category";
+    resetCategoryItem.addEventListener("click", () => {
+      if (this._category) this.resetCategory(this._category);
+      this.closeMenu();
+    });
+    const resetAllItem = el("button", { type: "button", class: "menu-item", role: "menuitem" }, "Reset all");
+    resetAllItem.dataset.action = "reset-all";
+    resetAllItem.addEventListener("click", () => {
+      this.reset();
+      this.closeMenu();
+    });
+    const showCodeItem = el("button", { type: "button", class: "menu-item", role: "menuitem" }, "Show code");
+    showCodeItem.dataset.action = "show-code";
+    const codePre = el("pre", { class: "code", hidden: true });
+    showCodeItem.addEventListener("click", () => {
+      this._codeOpen = !this._codeOpen;
+      this.update();
+    });
+    const menu = el("div", { class: "menu", role: "menu", hidden: true }, resetCategoryItem, resetAllItem, showCodeItem, codePre);
+
+    this.addEventListener("keydown", (e) => {
       if ((e as KeyboardEvent).key === "Escape") this.handleEscape();
     });
 
-    this.root.append(style, panelEl);
+    this.root.append(style, pill, rail, popover, menu);
     this.ui = {
-      panelEl, bar, barSummary, barReset,
-      body, crumbBack, crumbLabel, status, headReset,
-      fenceBanner, fenceMessage, rerunBanner, rerunText, unknownBanner,
-      home, chips, changeList, changeEmpty, code, codePre, categories,
+      pill, errMark, menuToggle, rail,
+      popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
+      menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
+      groups: groupViews,
     };
   }
 
-  /** Append `specs`' rows into `container`, inserting an h4.subgroup heading before the first row of each subgroup. */
-  private appendRowsWithHeadings(container: HTMLElement, group: GroupSpec, specs: ControlSpec[]): void {
+  /** Append `specs`' rows into `container`; with `withHeadings`, insert a `.subhead` before each subgroup's first row. */
+  private appendRows(container: HTMLElement, group: GroupSpec, specs: ControlSpec[], withHeadings: boolean): void {
     let lastSubgroup: string | undefined;
     for (const spec of specs) {
-      if (group.subgroups && spec.subgroup && spec.subgroup !== lastSubgroup) {
+      if (withHeadings && group.subgroups && spec.subgroup && spec.subgroup !== lastSubgroup) {
         const sg = group.subgroups.find((s) => s.id === spec.subgroup);
-        if (sg) container.append(el("h4", { class: "subgroup" }, sg.label));
+        if (sg) container.append(el("p", { class: "subhead" }, sg.label));
         lastSubgroup = spec.subgroup;
       }
       container.append(this.buildControl(spec));
@@ -718,11 +1024,13 @@ export class PlotpolishPanel extends HTMLElement {
     revert.addEventListener("click", () => this.setKeys(spec, undefined));
     const row = el("div", { class: "row" }, label, badges, control);
     row.dataset.control = spec.id;
+    if (spec.category === "save") row.title = "Applies when the figure is saved, not on screen.";
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
     let segmented: HTMLElement | undefined;
     let swatchList: HTMLElement | undefined;
     let legendXy: LegendXyView | undefined;
     let rangeInput: HTMLInputElement | undefined;
+    let readout: HTMLElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -749,28 +1057,22 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "number": {
         if (spec.min !== undefined && spec.max !== undefined) {
-          const range = el("input", { type: "range" });
+          const range = el("input", { type: "range", id });
           range.min = String(spec.min);
           range.max = String(spec.max);
           if (spec.step !== undefined) range.step = String(spec.step);
-          const numberInput = number();
+          const out = el("span", { class: "readout" });
           range.addEventListener("input", () => {
-            numberInput.value = range.value;
+            out.textContent = range.value;
             const n = Number(range.value);
             if (Number.isFinite(n)) this.setKeys(spec, n);
           });
-          numberInput.addEventListener("change", () => {
-            const n = Number(numberInput.value);
-            if (numberInput.value !== "" && Number.isFinite(n)) {
-              range.value = numberInput.value;
-              this.setKeys(spec, n);
-            } else this.update();
-          });
           rangeInput = range;
-          inputs.push(numberInput);
-          control.append(el("span", { class: "range-number" }, range, numberInput));
+          readout = out;
+          inputs.push(range);
+          control.append(range, out);
         } else {
-          const input = number();
+          const input = number({ id });
           input.addEventListener("change", () => {
             const n = Number(input.value);
             if (input.value !== "" && Number.isFinite(n)) this.setKeys(spec, n);
@@ -782,7 +1084,7 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "fontsize": {
-        const input = number({ step: "0.5", min: "1" });
+        const input = number({ id, step: "0.5", min: "1" });
         input.addEventListener("change", () => {
           const n = Number(input.value);
           if (input.value !== "" && Number.isFinite(n) && n > 0) this.setKeys(spec, n);
@@ -793,7 +1095,7 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "dpi": {
-        const input = number({ placeholder: "figure" });
+        const input = number({ id, placeholder: "figure" });
         input.addEventListener("change", () => {
           if (input.value === "") this.setKeys(spec, "figure");
           else {
@@ -823,11 +1125,13 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "enum": {
+        const useGlyphs = spec.keys.includes("lines.linestyle") || spec.keys.includes("grid.linestyle");
         if ((spec.options?.length ?? 0) <= 4) {
           const group = el("div", { class: "segmented", id });
           group.setAttribute("role", "radiogroup");
           for (const opt of spec.options ?? []) {
-            const btn = el("button", { type: "button" }, opt.label);
+            const glyph = useGlyphs ? LINESTYLE_GLYPHS[opt.value] : undefined;
+            const btn = el("button", { type: "button", title: glyph ? opt.label : "" }, glyph ?? opt.label);
             btn.dataset.value = opt.value;
             btn.setAttribute("aria-pressed", "false");
             btn.addEventListener("click", () => this.setKeys(spec, opt.value));
@@ -847,7 +1151,7 @@ export class PlotpolishPanel extends HTMLElement {
       case "colorcycle": {
         const list = el("div", { class: "swatch-list", id });
         for (const preset of spec.presets ?? []) {
-          const btn = el("button", { type: "button", class: "preset" });
+          const btn = el("button", { type: "button", class: "preset", title: preset.label });
           btn.dataset.preset = preset.id;
           btn.setAttribute("aria-pressed", "false");
           const sw = el("span", { class: "swatches" });
@@ -857,13 +1161,10 @@ export class PlotpolishPanel extends HTMLElement {
             i.title = c;
             sw.append(i);
           }
-          btn.append(sw, el("span", { class: "preset-label" }, preset.label));
+          btn.append(sw);
           btn.addEventListener("click", () => this.setKeys(spec, [...preset.colors]));
           list.append(btn);
         }
-        const customBtn = el("button", { type: "button", class: "preset custom", disabled: true, hidden: true }, "Custom (from your file)");
-        customBtn.setAttribute("aria-pressed", "true");
-        list.append(customBtn);
         swatchList = list;
         control.append(list);
         break;
@@ -910,6 +1211,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (swatchList) view.swatchList = swatchList;
     if (legendXy) view.legendXy = legendXy;
     if (rangeInput) view.rangeInput = rangeInput;
+    if (readout) view.readout = readout;
     this.views.set(spec.id, view);
     return row;
   }
@@ -921,149 +1223,94 @@ export class PlotpolishPanel extends HTMLElement {
   private update(): void {
     const { ui } = this;
     if (!ui) return;
-    this.ensureStartOpen();
 
-    // Collapsed bar / expanded body.
-    if (this._features.collapsible) {
-      if (!ui.bar.isConnected) ui.panelEl.insertBefore(ui.bar, ui.body);
-      ui.bar.hidden = this._open;
-      ui.body.hidden = !this._open;
-    } else {
-      if (ui.bar.isConnected) ui.bar.remove();
-      ui.body.hidden = false;
-    }
-
-    const changeCount = Object.keys(this.settings.rc).length + (this.settings.style && this.settings.style !== "default" ? 1 : 0);
-    ui.barSummary.textContent = changeCount === 0 ? "Default look" : `${changeCount} change${changeCount === 1 ? "" : "s"}`;
-
-    const resetDisabled = isDefaultSettings(this.settings) && !this.fenceError;
-    ui.barReset.disabled = resetDisabled;
-    ui.headReset.disabled = resetDisabled;
-
-    // Breadcrumb.
-    const group = this._category ? GROUP_BY_ID.get(this._category) : undefined;
-    ui.crumbLabel.textContent = group ? `Style › ${group.label}` : "Style";
-    ui.crumbBack.hidden = this._category === null;
-
-    // Status line.
-    ui.status.classList.toggle("error", this.backendState === "error");
-    ui.status.textContent =
+    const statusText =
       this.backendState === "none" ? "No live preview (no backend)"
       : this.backendState === "connecting" ? "Connecting to Python…"
       : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
       : `Live preview on · ${this.backendMessage}`;
+    ui.pill.title = statusText;
+    ui.rail.title = statusText;
+    ui.pill.classList.toggle("error", Boolean(this.fenceError));
+    ui.rail.classList.toggle("error", Boolean(this.fenceError));
+    ui.errMark.hidden = !this.fenceError;
 
-    // Banners.
-    ui.fenceBanner.hidden = !this.fenceError;
-    if (this.fenceError) {
-      ui.fenceMessage.textContent = `${this.fenceError.message} The panel will not write until this is fixed. `;
-    }
-    ui.rerunBanner.hidden = this.rerunKeys.size === 0;
-    if (this.rerunKeys.size) {
-      const names = [...this.rerunKeys].map((k) => (k === "style" ? "style sheet" : labelForKey(k))).join(", ");
-      ui.rerunText.textContent = `Re-run your program to see: ${names}.`;
-    }
-    ui.unknownBanner.hidden = this.unknownKeys.length === 0;
-    if (this.unknownKeys.length) {
-      ui.unknownBanner.textContent = `The block also sets ${this.unknownKeys.join(", ")}, which this panel has no control for. They are kept as they are.`;
-    }
+    ui.pill.hidden = this._layoutMode === "rail";
+    ui.rail.hidden = this._layoutMode !== "rail";
 
-    // Level one / two visibility.
-    ui.home.hidden = this._category !== null;
     for (const g of GROUPS) {
-      const chip = ui.chips.get(g.id)!;
-      chip.hidden = !this.isGroupVisible(g);
-      chip.setAttribute("aria-pressed", String(this._category === g.id));
-
-      const cat = ui.categories.get(g.id)!;
-      cat.container.hidden = this._category !== g.id;
-      const noteNeeded = this.legendNoteNeeded(g);
-      cat.note.hidden = !noteNeeded;
-      if (noteNeeded) cat.note.textContent = "The current plot has no legend.";
-      const hasSet =
-        controlsInGroup(g.id).some((c) => c.keys.some((k) => k in this.settings.rc)) ||
-        (g.id === "look" && this.settings.style !== "" && this.settings.style !== "default");
-      cat.resetButton.disabled = !hasSet;
+      const tabView = this.tabViews.get(g.id)!;
+      const visible = this.isGroupVisible(g);
+      const hasChanges = this.groupHasChanges(g.id);
+      const hasRerun = this.groupHasRerunPending(g.id);
+      for (const btn of tabView.buttons) {
+        btn.hidden = !visible;
+        btn.setAttribute("aria-selected", String(this._category === g.id));
+      }
+      for (const dot of tabView.dots) dot.hidden = !hasChanges;
+      for (const r of tabView.reruns) r.hidden = !hasRerun;
     }
 
-    this.renderChanges();
+    // Popover.
+    ui.popover.hidden = !this._open;
+    const activeGroup = this._category ? GROUP_BY_ID.get(this._category) : undefined;
+    ui.title.textContent = activeGroup ? activeGroup.label : "";
+
+    ui.banner.hidden = !this.fenceError;
+    if (this.fenceError) {
+      ui.fenceMessage.textContent = `${this.fenceError.message} The panel will not write until this is fixed.`;
+    }
+
+    for (const g of GROUPS) {
+      const view = ui.groups.get(g.id)!;
+      view.container.hidden = this._category !== g.id || Boolean(this.fenceError);
+      const noteNeeded = this.legendNoteNeeded(g);
+      view.note.hidden = !noteNeeded;
+      if (noteNeeded) view.note.textContent = "The current plot has no legend.";
+      if (view.moreRows && view.moreButton) {
+        const isOpen = this.moreOpen.get(g.id) ?? false;
+        view.moreRows.hidden = !isOpen;
+        view.moreButton.textContent = isOpen ? "More ▾" : "More ▸";
+      }
+    }
+
+    ui.unknownNote.hidden = this.unknownKeys.length === 0;
+    if (this.unknownKeys.length) {
+      ui.unknownNote.textContent = `The block also sets ${this.unknownKeys.join(", ")}, which this panel has no control for. They are kept as they are.`;
+    }
+
+    // Reset menu.
+    ui.menu.hidden = !this._menuOpen;
+    const activeHasChanges = this._category !== null && this.groupHasChanges(this._category);
+    ui.resetCategoryItem.hidden = !activeHasChanges;
+    if (activeHasChanges && activeGroup) ui.resetCategoryItem.textContent = `Reset ${activeGroup.label}`;
+    ui.resetAllItem.disabled = isDefaultSettings(this.settings) && !this.fenceError;
+    ui.showCodeItem.hidden = !this._features.showCode;
+    const block = generateBlock(this.settings);
+    ui.codePre.textContent = block ?? "# (no block: every setting is at its default)";
+    ui.codePre.hidden = !(this._features.showCode && this._codeOpen);
 
     // Controls.
     for (const view of this.views.values()) this.updateControl(view);
-
-    // Code preview (bottom of level one).
-    ui.code.hidden = !this._features.showCode;
-    const block = generateBlock(this.settings);
-    ui.codePre.textContent = block ?? "# (no block: every setting is at its default)";
-  }
-
-  private renderChanges(): void {
-    const { changeList, changeEmpty } = this.ui;
-    const chips: HTMLButtonElement[] = [];
-    if (this.settings.style && this.settings.style !== "default") {
-      const btn = el("button", { type: "button", class: "change-chip" }, `Style preset: ${this.settings.style} ✕`);
-      btn.dataset.control = "style";
-      btn.addEventListener("click", () => this.setStyle("default"));
-      chips.push(btn);
-    }
-    for (const spec of CONTROLS) {
-      if (spec.keys.length && spec.keys.some((k) => k in this.settings.rc)) {
-        const value = this.settings.rc[spec.keys[0]!];
-        const btn = el("button", { type: "button", class: "change-chip" }, `${spec.label}: ${this.formatShortValue(spec, value)} ✕`);
-        btn.dataset.control = spec.id;
-        btn.addEventListener("click", () => this.setKeys(spec, undefined));
-        chips.push(btn);
-      }
-    }
-    changeList.replaceChildren(...chips);
-    changeList.hidden = chips.length === 0;
-    changeEmpty.hidden = chips.length !== 0;
-  }
-
-  private formatShortValue(spec: ControlSpec, value: RcValue | undefined): string {
-    if (value === undefined) return "";
-    switch (spec.type) {
-      case "bool":
-        return value ? "On" : "Off";
-      case "enum": {
-        const opt = spec.options?.find((o) => o.value === value);
-        return opt ? opt.label : String(value);
-      }
-      case "pair": {
-        const arr = value as number[];
-        return `${arr[0] ?? ""} × ${arr[1] ?? ""}`;
-      }
-      case "colorcycle": {
-        const colors = value as string[];
-        const preset = spec.presets?.find((p) => rcEqual(p.colors, colors));
-        return preset ? preset.label : "Custom colors";
-      }
-      case "legendloc": {
-        if (Array.isArray(value)) {
-          const arr = value as number[];
-          return `Custom (${arr[0] ?? ""}, ${arr[1] ?? ""})`;
-        }
-        const opt = spec.options?.find((o) => o.value === value);
-        return opt ? opt.label : String(value);
-      }
-      case "dpi":
-        return value === "figure" ? "figure" : String(value);
-      default:
-        return String(value);
-    }
   }
 
   private updateControl(view: ControlView): void {
     const { spec, row, badges, revert } = view;
     const isSet = spec.keys.some((k) => k in this.settings.rc);
     const userOverrides = !this.stale && spec.keys.some((k) => this.overridden.has(k));
+    const relevantRerunKeys = spec.id === "style" ? ["style"] : spec.keys;
+    const rerunPending = spec.category === "rerun" && relevantRerunKeys.some((k) => this.rerunKeys.has(k));
     row.classList.toggle("is-set", isSet);
     revert.hidden = !isSet;
 
     badges.replaceChildren();
-    if (spec.category === "save") badges.append(el("span", { class: "badge" }, "applies when saving"));
-    if (spec.category === "rerun") badges.append(el("span", { class: "badge rerun" }, "re-run to see"));
-    if (userOverrides) badges.append(el("span", { class: "badge user", title: "Your code sets this on the current figure; the default above still applies to anything created afterwards." }, "set in your code"));
+    if (rerunPending) badges.append(el("span", { class: "badge rerun", title: "Re-run your program to see this change." }, "↻"));
+    if (userOverrides) {
+      badges.append(el("span", {
+        class: "badge user",
+        title: "Your code sets this on the current figure; the default above still applies to anything created afterwards.",
+      }));
+    }
 
     const value = spec.type === "style" ? this.settings.style : this.effective(spec.keys[0] ?? "");
 
@@ -1082,10 +1329,13 @@ export class PlotpolishPanel extends HTMLElement {
         (view.inputs[0] as HTMLInputElement).checked = Boolean(value);
         break;
       case "number": {
-        const input = view.inputs[0] as HTMLInputElement;
         const v = typeof value === "number" ? String(value) : "";
-        input.value = v;
-        if (view.rangeInput && v !== "") view.rangeInput.value = v;
+        if (view.rangeInput) {
+          view.rangeInput.value = v;
+          if (view.readout) view.readout.textContent = v;
+        } else if (view.inputs[0]) {
+          (view.inputs[0] as HTMLInputElement).value = v;
+        }
         break;
       }
       case "fontsize": {
@@ -1134,8 +1384,7 @@ export class PlotpolishPanel extends HTMLElement {
         for (const btn of Array.from(list.querySelectorAll<HTMLButtonElement>("button.preset[data-preset]"))) {
           btn.setAttribute("aria-pressed", String(btn.dataset.preset === preset?.id));
         }
-        const customBtn = list.querySelector<HTMLButtonElement>("button.preset.custom")!;
-        customBtn.hidden = Boolean(preset);
+        list.title = preset ? "" : "Custom colors (from your file)";
         break;
       }
       case "legendloc": {
@@ -1163,11 +1412,6 @@ export class PlotpolishPanel extends HTMLElement {
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function labelForKey(key: string): string {
-  for (const c of CONTROLS) if (c.keys.includes(key)) return c.label.toLowerCase();
-  return key;
 }
 
 /** Register the element under `tag` (default "plotpolish-panel"). Safe to call twice. */

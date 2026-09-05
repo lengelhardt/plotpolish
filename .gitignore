@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+coverage/
+*.tgz
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv*/
+python/build/
+python/*.egg-info/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

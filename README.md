@@ -78,6 +78,9 @@ decides what to touch, the helper transport).
 [docs/trinket-integration.md](docs/trinket-integration.md) is the plan for the
 first host: what Trinket's adapter has to do, with the survey findings it
 rests on.
+[docs/ux-design.md](docs/ux-design.md) explains the panel's layout: a strip
+docked under the figure, collapsed to one button, with six category chips
+and a "More" expander so a student sees a handful of knobs at a time.
 
 ## Repository layout
 

@@ -90,6 +90,8 @@ interface ControlView {
   legendXy?: LegendXyView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
+  /** pair (figsize): the width/height sub-rows' own readouts, in input order. */
+  pairOuts?: HTMLElement[];
   lineRows?: LineRowView[];
   addLineBtn?: HTMLButtonElement;
 }
@@ -210,6 +212,9 @@ export class PlotpolishPanel extends HTMLElement {
   private moreOpen = new Map<string, boolean>();
   private dragPos: { x: number; y: number } | null = null;
   private dragStart: DragStart | null = null;
+  /** The pill's own dragged position, session-only; while set it overrides the top-right float anchor. */
+  private pillPos: { x: number; y: number } | null = null;
+  private pillDragStart: DragStart | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private docClickHandler: ((e: Event) => void) | null = null;
 
@@ -218,6 +223,7 @@ export class PlotpolishPanel extends HTMLElement {
   private tabViews = new Map<string, TabView>();
   private ui!: {
     pill: HTMLElement;
+    pillGrip: HTMLElement;
     errMark: HTMLElement;
     menuToggle: HTMLButtonElement;
     rail: HTMLElement;
@@ -958,11 +964,18 @@ export class PlotpolishPanel extends HTMLElement {
    * Position the pill as a fixed layer 8px inset from `figureElement`'s
    * bounding rect (top-right corner). With no figure element the inset is
    * measured from the viewport, so a host-forced "float" still renders
-   * sensibly.
+   * sensibly. While the pill has been dragged (`pillPos` set), that position
+   * wins instead and reflows (resize/scroll) must not snap it back.
    */
   private positionFloatPill(): void {
     const pill = this.ui?.pill;
     if (!pill) return;
+    if (this.pillPos) {
+      pill.style.left = `${this.pillPos.x}px`;
+      pill.style.top = `${this.pillPos.y}px`;
+      pill.style.right = "";
+      return;
+    }
     if (this._layoutMode !== "float") {
       pill.style.top = "";
       pill.style.right = "";
@@ -974,6 +987,78 @@ export class PlotpolishPanel extends HTMLElement {
     const right = Math.max(0, vw - (rect?.right ?? vw)) + FLOAT_INSET_PX;
     pill.style.top = `${top}px`;
     pill.style.right = `${right}px`;
+  }
+
+  private onPillGripPointerDown(e: PointerEvent): void {
+    // Never starts a drag from a tab or the reset menu's button; those must
+    // still receive their own click.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button")) return;
+    const rect = this.ui.pill.getBoundingClientRect();
+    this.pillDragStart = {
+      x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
+      pointerId: e.pointerId, captured: false,
+    };
+  }
+
+  private onPillGripPointerMove(e: PointerEvent): void {
+    const start = this.pillDragStart;
+    if (!start) return;
+    const dx = (e.clientX ?? 0) - start.x;
+    const dy = (e.clientY ?? 0) - start.y;
+    if (!start.captured) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      start.captured = true;
+      try {
+        this.ui.pillGrip.setPointerCapture?.(start.pointerId);
+      } catch {
+        /* not every environment supports pointer capture */
+      }
+      // Freeze the pill as a fixed-position element at its current rect, even
+      // when it started out inline (layout="pill") in the toolbar row.
+      this.ui.pill.style.position = "fixed";
+      this.ui.pill.style.right = "";
+    }
+    let left = start.left + dx;
+    let top = start.top + dy;
+    const pillRect = this.ui.pill.getBoundingClientRect();
+    const pw = pillRect.width || 100;
+    const ph = pillRect.height || 26;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    // Clamp so at least 40px of the pill stays within the viewport.
+    if (vw > 0) left = Math.max(40 - pw, Math.min(left, vw - 40));
+    if (vh > 0) top = Math.max(40 - ph, Math.min(top, vh - 40));
+    this.pillPos = { x: left, y: top };
+    this.ui.pill.classList.add("dragging");
+    this.ui.pill.style.left = `${left}px`;
+    this.ui.pill.style.top = `${top}px`;
+    // The pill moved: the open popover follows its tab, unless it was itself dragged.
+    if (this._open && !this.dragPos) this.positionPopover();
+  }
+
+  private onPillGripPointerUp(e: PointerEvent): void {
+    const start = this.pillDragStart;
+    if (!start) return;
+    if (start.captured) {
+      try {
+        this.ui.pillGrip.releasePointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      this.ui.pill.classList.remove("dragging");
+    }
+    this.pillDragStart = null;
+  }
+
+  /** Double-clicking the pill's grip: drop `pillPos` and re-anchor to the figure's top-right (or back inline). */
+  private reanchorPill(): void {
+    this.pillPos = null;
+    this.ui.pill.classList.remove("dragging");
+    this.ui.pill.style.position = "";
+    this.ui.pill.style.left = "";
+    this.positionFloatPill();
+    if (this._open && !this.dragPos) this.positionPopover();
   }
 
   private isGroupVisible(group: GroupSpec): boolean {
@@ -1043,7 +1128,13 @@ export class PlotpolishPanel extends HTMLElement {
       railTabs.push(railTab.btn);
     }
 
-    const pill = el("div", { class: "pill", role: "tablist" }, ...pillTabs, errMark, menuToggle);
+    const pillGrip = el("span", { class: "grip", title: "Drag to move" }, "⋮⋮");
+    pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
+    pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
+    pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
+    pillGrip.addEventListener("pointercancel", (e) => this.onPillGripPointerUp(e as PointerEvent));
+    pillGrip.addEventListener("dblclick", () => this.reanchorPill());
+    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, ...pillTabs, errMark, menuToggle);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---
@@ -1125,7 +1216,7 @@ export class PlotpolishPanel extends HTMLElement {
 
     this.root.append(style, pill, rail, popover, menu);
     this.ui = {
-      pill, errMark, menuToggle, rail,
+      pill, pillGrip, errMark, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
       groups: groupViews,
@@ -1153,7 +1244,13 @@ export class PlotpolishPanel extends HTMLElement {
     const revert = el("button", { type: "button", class: "revert", title: "Back to the style's default", hidden: true }, "↺");
     revert.setAttribute("aria-label", `Revert ${spec.label}`);
     revert.addEventListener("click", () => this.setKeys(spec, undefined));
-    const row = el("div", { class: "row" }, label, badges, control);
+    // The per-line table's revert sits at the right end of its label row (not
+    // on its own row below the table), so it moves into a small label-row
+    // wrapper alongside the label and its badges; every other control keeps
+    // the plain label/badges/control layout, with revert inside .control.
+    const row = spec.type === "linecycle"
+      ? el("div", { class: "row" }, el("div", { class: "control-label-row" }, label, badges, revert), control)
+      : el("div", { class: "row" }, label, badges, control);
     row.dataset.control = spec.id;
     if (spec.category === "save") row.title = "Applies when the figure is saved, not on screen.";
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
@@ -1162,6 +1259,7 @@ export class PlotpolishPanel extends HTMLElement {
     let legendXy: LegendXyView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
+    let pairOuts: HTMLElement[] | undefined;
     let lineRowsView: LineRowView[] | undefined;
     let addLineBtnView: HTMLButtonElement | undefined;
 
@@ -1220,54 +1318,61 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "fontsize": {
-        const input = number({ id, step: "0.5", min: "1" });
+        // 6-40pt covers every relative name's resolved size at any base
+        // font.size the "Text size" slider allows (6-24pt).
+        const range = el("input", { type: "range", id, min: "6", max: "40", step: "0.5" });
+        const out = el("span", { class: "readout" });
         const commit = () => {
-          const n = Number(input.value);
-          if (input.value !== "" && Number.isFinite(n) && n > 0) this.setKeys(spec, n);
-          else this.update();
+          const n = Number(range.value);
+          if (Number.isFinite(n)) this.setKeys(spec, n);
         };
-        input.addEventListener("input", commit);
-        input.addEventListener("change", commit);
-        input.addEventListener("blur", () => this.update());
-        inputs.push(input);
-        control.append(input);
+        range.addEventListener("input", commit);
+        range.addEventListener("change", commit);
+        rangeInput = range;
+        readout = out;
+        inputs.push(range);
+        control.append(range, out);
         break;
       }
       case "dpi": {
-        const input = number({ id });
+        const range = el("input", { type: "range", id, min: "72", max: "600", step: "1" });
+        const out = el("span", { class: "readout" });
         const commit = () => {
-          if (input.value === "") this.setKeys(spec, "figure");
-          else {
-            const n = Number(input.value);
-            if (Number.isFinite(n) && n > 0) this.setKeys(spec, n);
-            else this.update();
-          }
+          const n = Number(range.value);
+          if (Number.isFinite(n)) this.setKeys(spec, n);
         };
-        input.addEventListener("input", commit);
-        input.addEventListener("change", commit);
-        input.addEventListener("blur", () => this.update());
-        inputs.push(input);
-        control.append(input);
+        range.addEventListener("input", commit);
+        range.addEventListener("change", commit);
+        rangeInput = range;
+        readout = out;
+        inputs.push(range);
+        control.append(range, out);
         break;
       }
       case "pair": {
-        const w = number({ id, class: "wide" } as Partial<HTMLInputElement>);
-        const h = number({ class: "wide" } as Partial<HTMLInputElement>);
+        const w = el("input", { type: "range", id, min: "2", max: "16", step: "0.1" });
+        const h = el("input", { type: "range", min: "1.5", max: "12", step: "0.1" });
         h.setAttribute("aria-label", `${spec.label} height`);
+        const wOut = el("span", { class: "readout" });
+        const hOut = el("span", { class: "readout" });
         const commit = () => {
           const a = Number(w.value);
           const b = Number(h.value);
-          if (w.value !== "" && h.value !== "" && Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) this.setKeys(spec, [a, b]);
-          else this.update();
+          if (Number.isFinite(a) && Number.isFinite(b)) this.setKeys(spec, [a, b]);
         };
         w.addEventListener("input", commit);
         h.addEventListener("input", commit);
         w.addEventListener("change", commit);
         h.addEventListener("change", commit);
-        w.addEventListener("blur", () => this.update());
-        h.addEventListener("blur", () => this.update());
         inputs.push(w, h);
-        control.append(el("span", { class: "pair" }, w, el("span", {}, "×"), h));
+        control.append(
+          el(
+            "div", { class: "pair-rows" },
+            el("div", { class: "pair-row" }, el("span", { class: "pair-label" }, "Width"), w, wOut),
+            el("div", { class: "pair-row" }, el("span", { class: "pair-label" }, "Height"), h, hOut),
+          ),
+        );
+        pairOuts = [wOut, hOut];
         break;
       }
       case "enum": {
@@ -1330,9 +1435,11 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "linecycle": {
         const table = el("div", { class: "linecycle", id });
+        // Index and swatch columns get no heading text (an empty cell each);
+        // only Width and Style have one, over their own columns.
         const head = el(
           "div", { class: "line-row line-head" },
-          el("span", {}), el("span", {}, "Color"), el("span", {}, "Width"), el("span", {}, "Style"),
+          el("span", {}), el("span", {}), el("span", {}, "Width"), el("span", {}, "Style"),
         );
         table.append(head);
         const maxLines = spec.maxLines ?? 8;
@@ -1411,13 +1518,16 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
     }
-    control.append(revert);
+    // The per-line table's revert already lives in the label row (see `row`
+    // above); every other control keeps it at the end of .control.
+    if (spec.type !== "linecycle") control.append(revert);
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
     if (legendXy) view.legendXy = legendXy;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;
+    if (pairOuts) view.pairOuts = pairOuts;
     if (lineRowsView) view.lineRows = lineRowsView;
     if (addLineBtnView) view.addLineBtn = addLineBtnView;
     this.views.set(spec.id, view);
@@ -1649,32 +1759,40 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "fontsize": {
         const input = view.inputs[0] as HTMLInputElement;
+        // Ranges have no caret to protect mid-edit, but the guard is harmless.
         if (this.isEditing(input)) break;
         const base = this.effective("font.size");
         const baseN = typeof base === "number" ? base : 10;
+        let resolved: number;
         if (typeof value === "number") {
-          input.value = String(value);
+          resolved = value;
           input.title = "";
         } else if (typeof value === "string" && RELATIVE_SIZES.includes(value)) {
-          input.value = String(round(resolveFontSize(value, baseN)));
-          input.title = `"${value}" = ${round(resolveFontSize(value, baseN))} pt at base ${baseN} pt`;
+          resolved = round(resolveFontSize(value, baseN));
+          input.title = `"${value}" = ${resolved} pt at base ${baseN} pt`;
         } else {
-          input.value = value === undefined ? "" : String(value);
+          resolved = baseN;
+          input.title = "";
         }
+        input.value = String(resolved);
+        if (view.readout) view.readout.textContent = String(resolved);
         break;
       }
       case "dpi": {
         const input = view.inputs[0] as HTMLInputElement;
         if (this.isEditing(input)) break;
+        let resolved: number;
         if (typeof value === "number") {
-          input.value = String(value);
+          resolved = value;
           input.title = "";
         } else {
           // The default ("figure") or an explicit "figure": show the live
           // figure's own dpi instead of the word "figure".
-          input.value = String(this.figure?.dpi ?? 100);
+          resolved = this.figure?.dpi ?? 100;
           input.title = "Figure's own dpi (matplotlib default)";
         }
+        input.value = String(resolved);
+        if (view.readout) view.readout.textContent = String(resolved);
         break;
       }
       case "pair": {
@@ -1682,6 +1800,10 @@ export class PlotpolishPanel extends HTMLElement {
         if (Array.isArray(value) && value.length === 2 && w && h) {
           if (!this.isEditing(w)) w.value = String(value[0]);
           if (!this.isEditing(h)) h.value = String(value[1]);
+        }
+        if (view.pairOuts) {
+          view.pairOuts[0]!.textContent = w?.value ?? "";
+          view.pairOuts[1]!.textContent = h?.value ?? "";
         }
         break;
       }

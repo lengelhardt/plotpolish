@@ -496,17 +496,19 @@ describe("writing", () => {
     expect(ctl(panel, "savefig_transparent").title).toBe("Applies when the figure is saved, not on screen.");
   });
 
-  it("writes 'figure' when the dpi field is cleared", () => {
+  it("dpi is a range (no number box, nothing to clear); reverting is the only way back to 'figure'", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const dpi = input(panel, "savefig_dpi") as HTMLInputElement;
+    expect(dpi.type).toBe("range");
     dpi.value = "150";
     change(dpi);
-    dpi.value = "";
-    change(dpi);
+    expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
 
-    const last = sink.writes[sink.writes.length - 1]!;
-    expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe("figure");
+    const revertBtn = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
+    revertBtn.click();
+
+    expect(panel.getSettings().rc["savefig.dpi"]).toBeUndefined();
   });
 
   it("writes the preset colors for a colorcycle preset button and renders one small swatch per color", () => {
@@ -850,6 +852,86 @@ describe("draggable popover", () => {
   });
 });
 
+describe("draggable pill", () => {
+  function pill(p: PlotpolishPanel): HTMLElement {
+    return p.shadowRoot!.querySelector(".pill") as HTMLElement;
+  }
+  function pillGrip(p: PlotpolishPanel): HTMLElement {
+    return p.shadowRoot!.querySelector(".pill .grip") as HTMLElement;
+  }
+
+  it("shows a grip glyph at the left of the pill with a 'Drag to move' title", () => {
+    const grip = pillGrip(panel);
+    expect(grip).not.toBeNull();
+    expect(grip.title).toBe("Drag to move");
+    expect(pill(panel).firstElementChild).toBe(grip);
+  });
+
+  it("a pointerdown on a tab button does not start a drag", () => {
+    const tab = pillTab(panel, "text");
+    const before = pill(panel).style.left;
+
+    tab.dispatchEvent(Object.assign(new Event("pointerdown", { bubbles: true }), { clientX: 10, clientY: 10, pointerId: 1 }));
+    tab.dispatchEvent(Object.assign(new Event("pointermove", { bubbles: true }), { clientX: 60, clientY: 60, pointerId: 1 }));
+
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+    expect(pill(panel).style.left).toBe(before);
+    // The tab itself still works normally.
+    tab.click();
+    expect(panel.category).toBe("text");
+  });
+
+  it("a move under 4px does not start a drag; a grip drag of >= 4px sets inline left/top and '.dragging'", () => {
+    const grip = pillGrip(panel);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 2, clientY: 0, pointerId: 1 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(true);
+    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.top).not.toBe("");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 30, clientY: 20, pointerId: 1 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+    // The dragged position sticks after pointerup.
+    expect(pill(panel).style.left).not.toBe("");
+  });
+
+  it("double-clicking the grip clears the dragged position and re-anchors", () => {
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 50, clientY: 50, pointerId: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 50, clientY: 50, pointerId: 1 }));
+    expect(pill(panel).style.left).not.toBe("");
+
+    grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(pill(panel).style.left).toBe("");
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+  });
+
+  it("re-anchors the open popover to its tab after the pill moves, unless the popover itself was dragged", () => {
+    const tab = pillTab(panel, "text");
+    const rectA = { top: 40, left: 40, right: 100, bottom: 62, width: 60, height: 22, x: 40, y: 40, toJSON: () => ({}) } as DOMRect;
+    tab.getBoundingClientRect = () => rectA;
+    openTab(panel, "text");
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    const leftBefore = popover.style.left;
+
+    // Simulate the tab moving along with the dragged pill.
+    const rectB = { top: 200, left: 300, right: 360, bottom: 222, width: 60, height: 22, x: 300, y: 200, toJSON: () => ({}) } as DOMRect;
+    tab.getBoundingClientRect = () => rectB;
+
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 120, clientY: 40, pointerId: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 120, clientY: 40, pointerId: 1 }));
+
+    expect(popover.style.left).not.toBe(leftBefore);
+  });
+});
+
 describe("layout: pill / rail / float", () => {
   it("renders the pill by default and keeps the rail hidden", () => {
     expect((panel.shadowRoot!.querySelector(".pill") as HTMLElement).hidden).toBe(false);
@@ -1127,19 +1209,25 @@ describe("backend", () => {
 });
 
 describe("fontsize display", () => {
-  it("shows the resolved pt value for a relative default, mentioning the name in the title", () => {
+  it("is a range input (6-40, step 0.5), with a readout showing the resolved pt value for a relative default, mentioning the name in the title", () => {
     const titleInput = input(panel, "title_size") as HTMLInputElement;
+    expect(titleInput.type).toBe("range");
+    expect(titleInput.min).toBe("6");
+    expect(titleInput.max).toBe("40");
+    expect(titleInput.step).toBe("0.5");
     expect(titleInput.value).toBe("12");
     expect(titleInput.title).toContain("large");
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("12");
   });
 
-  it("recomputes the display when the base font size changes", () => {
+  it("recomputes the display and readout when the base font size changes", () => {
     const fontSizeInput = input(panel, "font_size") as HTMLInputElement;
     fontSizeInput.value = "20";
     fireInput(fontSizeInput);
 
     const titleInput = input(panel, "title_size") as HTMLInputElement;
     expect(titleInput.value).toBe("24");
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("24");
   });
 
   it("never writes axes.titlesize to the generated code for a relative default", () => {
@@ -1162,6 +1250,7 @@ describe("commit as you type", () => {
     titleInput.value = "20";
     fireInput(titleInput);
     expect(panel.getSettings().rc["axes.titlesize"]).toBe(20);
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("20");
   });
 
   it("a dpi field commits on 'input'", () => {
@@ -1171,16 +1260,27 @@ describe("commit as you type", () => {
     dpiInput.value = "150";
     fireInput(dpiInput);
     expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
+    expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("150");
   });
 
-  it("a pair field commits on 'input'", () => {
+  it("a pair field commits [w, h] on 'input' from two labeled range sub-rows, each with its own readout", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
-    const inputs = ctl(panel, "figsize").querySelectorAll("input");
+    const row = ctl(panel, "figsize");
+    const inputs = row.querySelectorAll("input");
+    expect(inputs.length).toBe(2);
+    expect((inputs[0] as HTMLInputElement).type).toBe("range");
+    expect((inputs[1] as HTMLInputElement).type).toBe("range");
+    const labels = Array.from(row.querySelectorAll(".pair-label")).map((l) => l.textContent);
+    expect(labels).toEqual(["Width", "Height"]);
+
     (inputs[0] as HTMLInputElement).value = "8";
     (inputs[1] as HTMLInputElement).value = "5";
     fireInput(inputs[1]!);
     expect(panel.getSettings().rc["figure.figsize"]).toEqual([8, 5]);
+    const readouts = row.querySelectorAll(".readout");
+    expect(readouts[0]!.textContent).toBe("8");
+    expect(readouts[1]!.textContent).toBe("5");
   });
 
   it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", () => {
@@ -1198,11 +1298,15 @@ describe("commit as you type", () => {
 });
 
 describe("resolution (dpi) field", () => {
-  it("shows the fallback dpi (100) instead of the word 'figure', with no placeholder", () => {
+  it("is a range input (72-600), with no placeholder, showing the fallback dpi (100) instead of the word 'figure'", () => {
     const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
+    expect(dpiInput.type).toBe("range");
+    expect(dpiInput.min).toBe("72");
+    expect(dpiInput.max).toBe("600");
     expect(dpiInput.value).toBe("100");
     expect(dpiInput.title).toBe("Figure's own dpi (matplotlib default)");
     expect(dpiInput.placeholder).toBe("");
+    expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("100");
   });
 
   it("shows the mock figure's own dpi once introspected", async () => {
@@ -1212,6 +1316,7 @@ describe("resolution (dpi) field", () => {
     const dpiInput = input(panel, "savefig_dpi") as HTMLInputElement;
     expect(dpiInput.value).toBe("144");
     expect(dpiInput.title).toBe("Figure's own dpi (matplotlib default)");
+    expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("144");
   });
 
   it("shows the plain number with no special title once dpi is explicitly set", () => {
@@ -1222,6 +1327,7 @@ describe("resolution (dpi) field", () => {
     change(dpiInput);
     expect(dpiInput.value).toBe("150");
     expect(dpiInput.title).toBe("");
+    expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("150");
   });
 });
 
@@ -1293,6 +1399,33 @@ describe("linecycle (Per line)", () => {
   it("shows a tooltip on the label from the control's help text", () => {
     const label = ctl(panel, "line_cycle").querySelector("label")!;
     expect(label.getAttribute("title")).toBe(CONTROLS.find((c) => c.id === "line_cycle")!.help);
+  });
+
+  it("the label row (label, badges and revert) sits on one line, separate from the table", () => {
+    const row = ctl(panel, "line_cycle");
+    const labelRow = row.querySelector(".control-label-row")!;
+    expect(labelRow.querySelector("label")).not.toBeNull();
+    expect(labelRow.querySelector(".badges")).not.toBeNull();
+    expect(labelRow.querySelector(".revert")).not.toBeNull();
+    // Not stranded below the table/+line button, inside .control.
+    expect(row.querySelector(".control .revert")).toBeNull();
+  });
+
+  it("the header row has no 'COLOR' heading, and has 'Width' and 'Style' over their columns", () => {
+    const head = ctl(panel, "line_cycle").querySelector(".line-head")!;
+    const cells = Array.from(head.children).map((c) => c.textContent);
+    expect(cells).toEqual(["", "", "Width", "Style"]);
+    expect(head.textContent).not.toContain("COLOR");
+    expect(head.textContent).not.toContain("Color");
+  });
+
+  it("width cells are number inputs with the line-width class (spinners hidden via CSS) and the style control is not stretched", () => {
+    const rows = visibleLineRows(panel);
+    const width = rows[0]!.querySelector("input.line-width") as HTMLInputElement;
+    expect(width.type).toBe("number");
+    expect(width.classList.contains("line-width")).toBe(true);
+    const seg = rows[0]!.querySelector(".segmented.line-style") as HTMLElement;
+    expect(seg).not.toBeNull();
   });
 
   it("renders minLines (2) rows with no figure", () => {

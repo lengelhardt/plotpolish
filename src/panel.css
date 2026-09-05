@@ -91,6 +91,14 @@ button.small { padding: 0 6px; font-size: 11px; line-height: 20px; }
   content: ""; position: absolute; inset: 0; border-radius: 999px;
   background: var(--_bg); opacity: 0.96; z-index: -1;
 }
+/* Dragging the pill (from its grip): stronger shadow while it moves, like the popover. */
+.pill.dragging { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); }
+
+.pill .grip {
+  color: var(--_muted); font-size: 11px; line-height: 1; letter-spacing: -1px;
+  user-select: none; cursor: grab; padding: 0 2px; touch-action: none;
+}
+.pill.dragging .grip { cursor: grabbing; }
 
 button.tab {
   position: relative; height: 22px; padding: 0 9px; border: 0; border-radius: 999px;
@@ -198,12 +206,19 @@ input[type="number"], select {
   border: 1px solid var(--_border); border-radius: 5px; padding: 1px 4px; min-width: 0;
 }
 input[type="number"] { width: 52px; }
-input[type="number"].wide { width: 52px; }
+/* Every remaining number input is a per-line width cell; its spinner buttons
+   add nothing at 48px wide, so they are hidden everywhere. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 select { width: 150px; }
 #ctl-legend_loc { width: 120px; }
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--_accent); }
-.pair { display: inline-flex; align-items: center; gap: 3px; }
-.pair span { color: var(--_muted); }
+
+/* Figure size (pair): width/height as two labeled sub-rows, each its own slider + readout. */
+.pair-rows { display: flex; flex-direction: column; gap: 2px; }
+.pair-row { display: flex; align-items: center; gap: 4px; }
+.pair-label { display: inline-block; width: 44px; color: var(--_muted); font-size: 11px; }
 
 .revert { color: var(--_muted); border: 0; background: transparent; font-size: 13px; line-height: 1; padding: 1px 3px; }
 .revert:hover { color: var(--_accent); }
@@ -241,25 +256,32 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .swatches { display: inline-flex; }
 .swatches i { display: inline-block; width: 8px; height: 8px; }
 
-/* Per-line ("linecycle") table: label stacks above the table so it can use
-   the full popover width. */
-.row[data-control="line_cycle"] { display: block; }
-.row[data-control="line_cycle"] label { display: block; margin-bottom: 4px; }
+/* Per-line ("linecycle") table: a simple vertical stack — label row, table,
+   "+ line" — with no dead space between them. The revert button lives in the
+   label row (via .control-label-row), not below the table. */
+.row[data-control="line_cycle"] { display: flex; flex-direction: column; gap: 4px; }
 .row[data-control="line_cycle"] .badges { display: inline-flex; }
 .row[data-control="line_cycle"] .control { display: block; }
 
-.linecycle { display: flex; flex-direction: column; gap: 3px; width: 100%; }
-.linecycle .line-row {
-  display: grid; grid-template-columns: 14px 22px 48px 1fr; align-items: center; gap: 6px;
+.control-label-row { display: flex; align-items: center; gap: 4px; }
+.control-label-row label { flex: 1; margin: 0; }
+.control-label-row .revert { margin-left: auto; }
+
+/* One shared CSS grid for the header and every row (not a grid per row), so
+   the Width/Style headings line up with their columns exactly. */
+.linecycle {
+  display: grid; grid-template-columns: 14px 22px 48px max-content;
+  column-gap: 6px; align-items: center; width: 100%;
 }
-.linecycle .line-head { color: var(--_muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.02em; }
+.linecycle .line-row { display: contents; }
+.linecycle .line-head span { color: var(--_muted); font-size: 11px; }
 .linecycle .line-index { color: var(--_muted); font-size: 11px; text-align: right; }
 input.line-color { width: 18px; height: 18px; padding: 0; border: 1px solid var(--_border); border-radius: 3px; background: none; }
-input.line-width { width: 44px; }
-.segmented.line-style { height: 20px; }
+input.line-width { width: 48px; font-size: 12px; }
+.segmented.line-style { height: 20px; width: max-content; justify-self: start; }
 .segmented.line-style button { min-width: 22px; padding: 0 4px; font-size: 11px; }
 button.add-line {
-  align-self: flex-start; margin-top: 2px; border: 0; background: transparent;
+  grid-column: 1 / -1; justify-self: start; margin-top: 2px; border: 0; background: transparent;
   color: var(--_muted); font-size: 11px; padding: 2px 2px;
 }
 button.add-line:hover { color: var(--_accent); }

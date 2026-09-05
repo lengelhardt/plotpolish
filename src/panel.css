@@ -1,0 +1,136 @@
+/* Scoped styles for <stylefence-panel>. Hosts theme it through the --sf-* custom
+   properties; everything else stays inside the shadow root. */
+
+:host {
+  --_fg: var(--sf-fg, #1f2328);
+  --_bg: var(--sf-bg, #ffffff);
+  --_muted: var(--sf-muted, #59636e);
+  --_border: var(--sf-border, #d0d7de);
+  --_accent: var(--sf-accent, #0969da);
+  --_danger: var(--sf-danger, #cf222e);
+  --_field-bg: var(--sf-field-bg, #ffffff);
+  --_section-bg: var(--sf-section-bg, #f6f8fa);
+  --_warn-bg: var(--sf-warn-bg, #fff8c5);
+  --_warn-fg: var(--sf-warn-fg, #5a4300);
+  --_error-bg: var(--sf-error-bg, #ffebe9);
+  --_font: var(--sf-font, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  --_mono: var(--sf-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+
+  display: block;
+  box-sizing: border-box;
+  color: var(--_fg);
+  background: var(--_bg);
+  font: 13px/1.45 var(--_font);
+  container-type: inline-size;
+}
+
+:host([theme="dark"]) {
+  --_fg: var(--sf-fg, #e6edf3);
+  --_bg: var(--sf-bg, #0d1117);
+  --_muted: var(--sf-muted, #9198a1);
+  --_border: var(--sf-border, #3d444d);
+  --_accent: var(--sf-accent, #4493f8);
+  --_danger: var(--sf-danger, #ff7b72);
+  --_field-bg: var(--sf-field-bg, #151b23);
+  --_section-bg: var(--sf-section-bg, #161b22);
+  --_warn-bg: var(--sf-warn-bg, #3a2f00);
+  --_warn-fg: var(--sf-warn-fg, #f2cc60);
+  --_error-bg: var(--sf-error-bg, #4a1c1c);
+}
+
+@media (prefers-color-scheme: dark) {
+  :host(:not([theme="light"])) {
+    --_fg: var(--sf-fg, #e6edf3);
+    --_bg: var(--sf-bg, #0d1117);
+    --_muted: var(--sf-muted, #9198a1);
+    --_border: var(--sf-border, #3d444d);
+    --_accent: var(--sf-accent, #4493f8);
+    --_danger: var(--sf-danger, #ff7b72);
+    --_field-bg: var(--sf-field-bg, #151b23);
+    --_section-bg: var(--sf-section-bg, #161b22);
+    --_warn-bg: var(--sf-warn-bg, #3a2f00);
+    --_warn-fg: var(--sf-warn-fg, #f2cc60);
+    --_error-bg: var(--sf-error-bg, #4a1c1c);
+  }
+}
+
+*, *::before, *::after { box-sizing: inherit; }
+[hidden] { display: none !important; }
+
+.panel { padding: 10px 12px 12px; }
+
+header { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: baseline; }
+header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+header .version { color: var(--_muted); font-size: 11px; }
+header .note { grid-column: 1 / -1; margin: 0; color: var(--_muted); }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 4px; }
+.toolbar .status { margin-left: auto; color: var(--_muted); font-size: 11.5px; }
+.toolbar .status.error { color: var(--_danger); }
+
+button {
+  font: inherit; color: var(--_fg); background: var(--_field-bg);
+  border: 1px solid var(--_border); border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+button:hover { border-color: var(--_accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.small { padding: 0 6px; font-size: 11.5px; line-height: 20px; }
+
+.banner { margin: 6px 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--_border); font-size: 12.5px; }
+.banner.error { background: var(--_error-bg); border-color: var(--_danger); }
+.banner.warn { background: var(--_warn-bg); color: var(--_warn-fg); }
+.banner button { margin-left: 8px; }
+.banner code { font-family: var(--_mono); font-size: 12px; }
+
+section { margin-top: 8px; border: 1px solid var(--_border); border-radius: 8px; overflow: hidden; }
+section > h3 {
+  margin: 0; padding: 5px 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--_muted); background: var(--_section-bg);
+  border-bottom: 1px solid var(--_border);
+}
+
+.row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center;
+  padding: 5px 10px; border-bottom: 1px solid var(--_border);
+}
+.row:last-child { border-bottom: 0; }
+.row label { display: block; }
+.row .badges { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px; }
+.row .control { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.row.is-set label::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--_accent); vertical-align: middle; }
+
+.badge {
+  display: inline-block; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 16px;
+  border: 1px solid var(--_border); color: var(--_muted);
+}
+.badge.rerun { background: var(--_warn-bg); color: var(--_warn-fg); border-color: transparent; }
+.badge.user { border-style: dashed; }
+
+input[type="number"], select {
+  font: inherit; color: var(--_fg); background: var(--_field-bg);
+  border: 1px solid var(--_border); border-radius: 6px; padding: 2px 6px; min-width: 0;
+}
+input[type="number"] { width: 5.5em; }
+input[type="number"].wide { width: 7em; }
+select { max-width: 14em; }
+input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--_accent); }
+.pair { display: inline-flex; align-items: center; gap: 4px; }
+.pair span { color: var(--_muted); }
+
+.revert { color: var(--_muted); border-color: transparent; background: transparent; font-size: 14px; line-height: 1; padding: 2px 4px; }
+.revert:hover { color: var(--_accent); }
+
+.swatches { display: inline-flex; gap: 2px; margin-right: 6px; }
+.swatches i { display: inline-block; width: 10px; height: 14px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.15); }
+
+details.code { margin-top: 8px; }
+details.code summary { cursor: pointer; color: var(--_muted); font-size: 12px; }
+details.code pre {
+  margin: 4px 0 0; padding: 8px; overflow-x: auto; font: 11.5px/1.4 var(--_mono);
+  background: var(--_section-bg); border: 1px solid var(--_border); border-radius: 6px; white-space: pre;
+}
+
+@container (max-width: 360px) {
+  .row { grid-template-columns: 1fr; }
+  .row .control { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+}

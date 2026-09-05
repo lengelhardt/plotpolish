@@ -3,17 +3,30 @@
  * are exactly what generateBlock emits, and parseBlock reads them back.
  * pytest executes the same files on matplotlib 3.8 and 3.10.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateBlock, parseBlock, upsertBlock, type StyleSettings } from "./block";
 
-const DIR = join(__dirname, "..", "python", "tests", "fixtures", "blocks");
-const NAMES = readdirSync(DIR).filter((f) => f.endsWith(".py")).map((f) => f.slice(0, -3)).sort();
+// Vite inlines the fixture files; no Node APIs needed, so this suite runs in the
+// same browser-like environment as the rest of the tests.
+const FILES = import.meta.glob<string>("../python/tests/fixtures/blocks/*.{py,json}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const NAMES = Object.keys(FILES)
+  .filter((f) => f.endsWith(".py"))
+  .map((f) => f.replace(/^.*\//, "").slice(0, -3))
+  .sort();
+
+function file(name: string, ext: string): string {
+  const key = Object.keys(FILES).find((f) => f.endsWith(`/${name}.${ext}`));
+  if (!key) throw new Error(`missing fixture ${name}.${ext}`);
+  return FILES[key]!;
+}
 
 function load(name: string): { py: string; settings: StyleSettings } {
-  const py = readFileSync(join(DIR, `${name}.py`), "utf8").replace(/\n$/, "");
-  const settings = JSON.parse(readFileSync(join(DIR, `${name}.json`), "utf8")) as StyleSettings;
+  const py = file(name, "py").replace(/\n$/, "");
+  const settings = JSON.parse(file(name, "json")) as StyleSettings;
   return { py, settings };
 }
 

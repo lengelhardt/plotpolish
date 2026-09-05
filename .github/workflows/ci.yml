@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    # Tests Python helper against matplotlib versions
+    name: pytest (mpl ${{ matrix.matplotlib }}, py ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.12"
+            matplotlib: "matplotlib==3.8.4"
+          - python: "3.13"
+            matplotlib: "matplotlib>=3.10,<3.11"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install "${{ matrix.matplotlib }}" pytest
+      - run: python -m pytest -q
+        working-directory: python
+
+  typescript:
+    # Verifies TypeScript compilation, tests, and bundle integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: |
+          if ! grep -q "def introspect_figure" dist/stylefence.js; then
+            echo "Error: Python helper not found in bundle"
+            exit 1
+          fi
+
+  schema:
+    # Validates JSON schema files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -c "import json,sys; json.load(open('src/schema/controls.json'))"

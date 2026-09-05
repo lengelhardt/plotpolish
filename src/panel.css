@@ -307,3 +307,8 @@ button.add-line:hover { color: var(--_accent); }
   background: var(--_section-bg); border: 1px solid var(--_border); border-radius: 6px; white-space: pre;
   max-width: 320px;
 }
+
+/* "All lines" masters while the per-line table holds differing values */
+.row.mixed input[type="range"] { opacity: 0.55; }
+.row.mixed .readout { color: var(--_muted); font-style: italic; }
+.row.mixed .segmented { opacity: 0.7; }

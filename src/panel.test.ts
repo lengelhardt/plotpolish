@@ -13,7 +13,7 @@ import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
   PlotpolishPanel, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
 } from "./panel";
-import { CONTROLS, GROUPS } from "./schema";
+import { CONTROLS, GROUPS, isPropCycle } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
@@ -1633,5 +1633,65 @@ describe("layout attribute removal", () => {
     expect(panel.getAttribute("layout")).toBe("float");
     panel.remove();
     fig.remove();
+  });
+});
+
+
+describe("all-lines width and style are masters over the per-line table", () => {
+  function setup(): PlotpolishPanel {
+    const p = document.createElement("plotpolish-panel") as PlotpolishPanel;
+    document.body.append(p);
+    p.sink = new MemorySink("import matplotlib.pyplot as plt\nplt.plot([1, 2])\n");
+    p.showCategory("lines");
+    p.open = true;
+    return p;
+  }
+  function lineRows(p: PlotpolishPanel): HTMLElement[] {
+    return Array.from(p.shadowRoot!.querySelectorAll<HTMLElement>('[data-control="line_cycle"] .line-row:not(.line-head)')).filter((r) => !r.hidden);
+  }
+
+  it("shows 'mixed' on Line width (all) once per-line widths differ, and unifies them when dragged", () => {
+    const p = setup();
+    const w2 = lineRows(p)[1]!.querySelector("input.line-width") as HTMLInputElement;
+    w2.value = "3";
+    w2.dispatchEvent(new Event("input", { bubbles: true }));
+    const cycle = p.getSettings().rc["axes.prop_cycle"];
+    expect(isPropCycle(cycle) ? cycle.linewidth : null).toEqual([1.5, 3]);
+
+    const row = p.shadowRoot!.querySelector('.row[data-control="linewidth"]') as HTMLElement;
+    expect(row.classList.contains("mixed")).toBe(true);
+    expect(row.querySelector(".readout")!.textContent).toBe("mixed");
+
+    const range = row.querySelector('input[type="range"]') as HTMLInputElement;
+    range.value = "2";
+    range.dispatchEvent(new Event("input", { bubbles: true }));
+    const after = p.getSettings();
+    expect(after.rc["lines.linewidth"]).toBe(2);
+    expect(Array.isArray(after.rc["axes.prop_cycle"])).toBe(true); // collapsed back to colors only
+    expect(row.classList.contains("mixed")).toBe(false);
+    expect(row.querySelector(".readout")!.textContent).toBe("2");
+    const widths = lineRows(p).map((r) => (r.querySelector("input.line-width") as HTMLInputElement).value);
+    expect(widths).toEqual(["2", "2"]);
+    p.remove();
+  });
+
+  it("does the same for Line style (all)", () => {
+    const p = setup();
+    const seg = lineRows(p)[0]!.querySelector(".segmented.line-style") as HTMLElement;
+    (seg.querySelector('button[data-value="--"]') as HTMLButtonElement).click();
+    const cycle = p.getSettings().rc["axes.prop_cycle"];
+    expect(isPropCycle(cycle) ? cycle.linestyle : null).toEqual(["--", "-"]);
+
+    const row = p.shadowRoot!.querySelector('.row[data-control="linestyle"]') as HTMLElement;
+    expect(row.classList.contains("mixed")).toBe(true);
+    const pressed = Array.from(row.querySelectorAll('.segmented button[aria-pressed="true"]'));
+    expect(pressed).toHaveLength(0);
+
+    (row.querySelector('.segmented button[data-value="-."]') as HTMLButtonElement).click();
+    const after = p.getSettings();
+    expect(after.rc["lines.linestyle"]).toBe("-.");
+    expect(Array.isArray(after.rc["axes.prop_cycle"])).toBe(true);
+    expect(row.classList.contains("mixed")).toBe(false);
+    p.remove();
   });
 });

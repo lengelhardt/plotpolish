@@ -571,6 +571,7 @@ export class PlotpolishPanel extends HTMLElement {
         apply[key] = this.settings.rc[key]!;
       }
     }
+    if (value !== undefined) this.unifyPerLine(spec, apply);
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     if (spec.category === "rerun") this.noteRerun(spec.keys);
@@ -578,6 +579,41 @@ export class PlotpolishPanel extends HTMLElement {
     this.applySeeded(seeded);
     this.emitChange();
     this.update();
+  }
+
+  /**
+   * "Line width (all)" and "Line style (all)" are masters over the per-line
+   * table. Setting one drops the matching per-line array from
+   * axes.prop_cycle, so every row follows it and the block stays short, and
+   * previews the new value on every line (the lines currently sit at their
+   * per-line values, so the preview carries an explicit array of the master).
+   */
+  private unifyPerLine(spec: ControlSpec, apply: Record<string, RcValue>): void {
+    const prop = spec.keys.includes("lines.linewidth") ? "linewidth" : spec.keys.includes("lines.linestyle") ? "linestyle" : null;
+    if (!prop) return;
+    const cycle = this.settings.rc["axes.prop_cycle"];
+    if (!isPropCycle(cycle) || !cycle[prop]) return;
+    const n = cycle[prop]!.length;
+    const rest: PropCycleValue = { color: [...cycle.color] };
+    if (prop !== "linewidth" && cycle.linewidth) rest.linewidth = [...cycle.linewidth];
+    if (prop !== "linestyle" && cycle.linestyle) rest.linestyle = [...cycle.linestyle];
+    this.settings.rc["axes.prop_cycle"] = rest.linewidth || rest.linestyle ? rest : [...rest.color];
+    const master = this.settings.rc[spec.keys[0]!];
+    const preview: PropCycleValue = { color: [...rest.color] };
+    if (rest.linewidth) preview.linewidth = [...rest.linewidth];
+    if (rest.linestyle) preview.linestyle = [...rest.linestyle];
+    if (prop === "linewidth" && typeof master === "number") preview.linewidth = Array<number>(n).fill(master);
+    if (prop === "linestyle" && typeof master === "string") preview.linestyle = Array<string>(n).fill(master);
+    apply["axes.prop_cycle"] = preview;
+  }
+
+  /** True when the effective property cycle carries per-line values for `prop` that differ between lines. */
+  private perLineMixed(prop: "linewidth" | "linestyle"): boolean {
+    const cycle = this.effective("axes.prop_cycle");
+    if (!isPropCycle(cycle)) return false;
+    const arr = cycle[prop] as (number | string)[] | undefined;
+    if (!arr || arr.length < 2) return false;
+    return arr.some((v) => v !== arr[0]);
   }
 
   private setStyle(name: string): void {
@@ -1749,9 +1785,12 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       case "number": {
         const v = typeof value === "number" ? String(value) : "";
+        const mixed = spec.keys.includes("lines.linewidth") && this.perLineMixed("linewidth");
+        row.classList.toggle("mixed", mixed);
         if (view.rangeInput) {
           view.rangeInput.value = v;
-          if (view.readout) view.readout.textContent = v;
+          view.rangeInput.title = mixed ? "Set per line below; drag to make every line the same." : "";
+          if (view.readout) view.readout.textContent = mixed ? "mixed" : v;
         } else if (view.inputs[0] && !this.isEditing(view.inputs[0])) {
           (view.inputs[0] as HTMLInputElement).value = v;
         }
@@ -1809,9 +1848,12 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "enum": {
         const v = value === undefined ? "" : String(value);
+        const mixed = spec.keys.includes("lines.linestyle") && this.perLineMixed("linestyle");
+        row.classList.toggle("mixed", mixed);
         if (view.segmented) {
+          view.segmented.title = mixed ? "Set per line below; pick one to make every line the same." : "";
           for (const btn of Array.from(view.segmented.children) as HTMLButtonElement[]) {
-            btn.setAttribute("aria-pressed", String(btn.dataset.value === v));
+            btn.setAttribute("aria-pressed", String(!mixed && btn.dataset.value === v));
           }
         } else {
           const select = view.inputs[0] as HTMLSelectElement;

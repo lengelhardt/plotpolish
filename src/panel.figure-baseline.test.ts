@@ -74,7 +74,7 @@ describe("figure baseline (`previous`) tracking", () => {
     change(panel, "style", "ggplot");
     await panel.settle();
     backend.calls.length = 0;
-    panel.shadowRoot!.querySelector<HTMLButtonElement>(".toolbar button")!.click();
+    panel.shadowRoot!.querySelector<HTMLButtonElement>(".bar .reset")!.click();
     await panel.settle();
     expect(backend.calls.map((c) => c.fn)).toEqual(["set_style", "apply_live"]);
     const restore = applyCalls(backend)[0]!;

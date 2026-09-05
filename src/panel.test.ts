@@ -4,6 +4,7 @@
  * instance, appends it to document.body, and removes it afterwards.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AxesDescription, FigureDescription } from "./backend";
 import {
   defaultSettings, FenceError, generateBlock, parseBlock, type StyleSettings,
 } from "./block";
@@ -16,7 +17,10 @@ import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
 function ctl(panel: PlotpolishPanel, id: string): HTMLElement {
-  return panel.shadowRoot!.querySelector(`[data-control="${id}"]`) as HTMLElement;
+  // ".row" scopes this to the control's row: change-chips in "Your changes"
+  // also carry data-control, and (since .home precedes the categories in the
+  // DOM) would otherwise shadow the row in document order.
+  return panel.shadowRoot!.querySelector(`.row[data-control="${id}"]`) as HTMLElement;
 }
 
 function input(panel: PlotpolishPanel, id: string): HTMLElement {
@@ -25,6 +29,10 @@ function input(panel: PlotpolishPanel, id: string): HTMLElement {
 
 function change(el: Element): void {
   el.dispatchEvent(new Event("change"));
+}
+
+function fireInput(el: Element): void {
+  el.dispatchEvent(new Event("input"));
 }
 
 /** Waits a macrotask, long enough for every pending microtask (mock backend
@@ -37,6 +45,24 @@ function flush(): Promise<void> {
 async function attachBackend(panel: PlotpolishPanel, backend: MockBackend): Promise<void> {
   panel.backend = backend;
   await panel.refresh();
+}
+
+const AXES_BASE: Omit<AxesDescription, "legend"> = {
+  grid: false,
+  grid_alpha: null,
+  grid_linestyle: null,
+  spines: { top: true, right: true, left: true, bottom: true },
+  axes_linewidth: null,
+  tick_direction: { x: null, y: null },
+  minor_ticks: { x: false, y: false },
+  title_size: 12,
+  label_size: { x: 10, y: 10 },
+  tick_label_size: { x: null, y: null },
+  n_lines: 1,
+};
+
+function figureWithLegend(legend: AxesDescription["legend"]): FigureDescription {
+  return { figsize: [6.4, 4.8], dpi: 100, axes: [{ ...AXES_BASE, legend }] };
 }
 
 let panel: PlotpolishPanel;
@@ -61,16 +87,253 @@ describe("registration and rendering", () => {
     expect(rows.length).toBe(CONTROLS.length);
   });
 
-  it("creates a section per group, tagged with data-group", () => {
-    const sections = panel.shadowRoot!.querySelectorAll("section[data-group]");
-    expect(sections.length).toBe(GROUPS.length);
-    const ids = Array.from(sections).map((s) => (s as HTMLElement).dataset.group);
+  it("creates a category per group, tagged with data-group, in schema order", () => {
+    const categories = panel.shadowRoot!.querySelectorAll(".category[data-group]");
+    expect(categories.length).toBe(GROUPS.length);
+    const ids = Array.from(categories).map((s) => (s as HTMLElement).dataset.group);
     expect(ids).toEqual(GROUPS.map((g) => g.id));
   });
 
   it("tells the user their own code always wins", () => {
-    const note = panel.shadowRoot!.querySelector(".note")!;
+    const note = panel.shadowRoot!.querySelector(".home .note")!;
     expect(note.textContent).toContain("Your own code always wins");
+  });
+});
+
+describe("shell: collapsed / expanded", () => {
+  it("is collapsed by default and shows the bar, not the body", () => {
+    expect(panel.open).toBe(false);
+    expect(panel.hasAttribute("open")).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".bar") as HTMLElement).hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("toggle opens the panel and reflects the open attribute", () => {
+    panel.toggle();
+    expect(panel.open).toBe(true);
+    expect(panel.hasAttribute("open")).toBe(true);
+    expect((panel.shadowRoot!.querySelector(".bar") as HTMLElement).hidden).toBe(true);
+    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("shows chips in schema order once open", () => {
+    panel.toggle();
+    const chips = Array.from(panel.shadowRoot!.querySelectorAll(".chips .chip")) as HTMLElement[];
+    expect(chips.map((c) => c.dataset.group)).toEqual(GROUPS.map((g) => g.id));
+  });
+
+  it("showCategory shows that group's rows, hides others, and updates the breadcrumb; Back returns to level one", () => {
+    panel.toggle();
+    panel.showCategory("text");
+    expect(panel.category).toBe("text");
+
+    const crumbLabel = panel.shadowRoot!.querySelector(".crumb-label")!;
+    expect(crumbLabel.textContent).toBe("Style › Text");
+
+    const textCat = panel.shadowRoot!.querySelector('.category[data-group="text"]') as HTMLElement;
+    const lookCat = panel.shadowRoot!.querySelector('.category[data-group="look"]') as HTMLElement;
+    expect(textCat.hidden).toBe(false);
+    expect(lookCat.hidden).toBe(true);
+    expect((panel.shadowRoot!.querySelector(".home") as HTMLElement).hidden).toBe(true);
+
+    const back = panel.shadowRoot!.querySelector(".back") as HTMLButtonElement;
+    expect(back.hidden).toBe(false);
+    back.click();
+
+    expect(panel.category).toBeNull();
+    expect(crumbLabel.textContent).toBe("Style");
+    expect((panel.shadowRoot!.querySelector(".home") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("keeps primary rows outside details.more and puts tier=more rows inside it", () => {
+    const axesCat = panel.shadowRoot!.querySelector('.category[data-group="axes"]') as HTMLElement;
+    const primary = axesCat.querySelector(".primary")!;
+    const more = axesCat.querySelector("details.more")!;
+    expect(primary.querySelector('[data-control="grid"]')).not.toBeNull();
+    expect(primary.querySelector('[data-control="box"]')).not.toBeNull();
+    expect(primary.querySelector('[data-control="grid_alpha"]')).toBeNull();
+    expect(more.querySelector('[data-control="grid_alpha"]')).not.toBeNull();
+    expect(more.querySelector('[data-control="tick_direction"]')).not.toBeNull();
+    expect(more.querySelector('[data-control="grid"]')).toBeNull();
+  });
+
+  it("has no details.more for Save, which has no tier=more controls", () => {
+    const saveCat = panel.shadowRoot!.querySelector('.category[data-group="save"]') as HTMLElement;
+    expect(saveCat.querySelector("details.more")).toBeNull();
+  });
+
+  it("shows subgroup headings within Axes, for subgroups that have rows in that section", () => {
+    const axesCat = panel.shadowRoot!.querySelector('.category[data-group="axes"]') as HTMLElement;
+    const headings = Array.from(axesCat.querySelectorAll("h4.subgroup")).map((h) => h.textContent);
+    expect(headings).toContain("Grid");
+    expect(headings).toContain("Box and axes lines");
+    expect(headings).toContain("Tick marks");
+    // "Tick marks" has no primary-tier rows, so it must not head the primary section.
+    const primaryHeadings = Array.from(axesCat.querySelectorAll(".primary h4.subgroup")).map((h) => h.textContent);
+    expect(primaryHeadings).not.toContain("Tick marks");
+  });
+
+  it('shows a muted "nothing changed" line at first, and lists "Your changes" chips once something is set', () => {
+    const empty = panel.shadowRoot!.querySelector(".changes .muted") as HTMLElement;
+    expect(empty.hidden).toBe(false);
+    expect(empty.textContent).toContain("Nothing changed yet");
+
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    change(fs);
+
+    expect(empty.hidden).toBe(true);
+    const chip = panel.shadowRoot!.querySelector('.change-chip[data-control="font_size"]') as HTMLButtonElement;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toContain("✕");
+
+    chip.click();
+    expect(panel.getSettings().rc["font.size"]).toBeUndefined();
+    expect(empty.hidden).toBe(false);
+  });
+
+  it("shows a style chip in Your changes when style is non-default, and the ✕ resets it", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+
+    const chip = panel.shadowRoot!.querySelector('.change-chip[data-control="style"]') as HTMLButtonElement;
+    expect(chip.textContent).toBe("Style preset: ggplot ✕");
+    chip.click();
+    expect(panel.getSettings().style).toBe("default");
+  });
+
+  it("Reset <Group> clears only that group's keys, and is disabled when nothing is set", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+
+    const textCat = panel.shadowRoot!.querySelector('.category[data-group="text"]') as HTMLElement;
+    const resetBtn = textCat.querySelector(".reset-category") as HTMLButtonElement;
+    expect(resetBtn.textContent).toBe("Reset Text");
+    expect(resetBtn.disabled).toBe(true);
+
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    change(fs);
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "3";
+    change(lw);
+
+    expect(resetBtn.disabled).toBe(false);
+    resetBtn.click();
+
+    expect(panel.getSettings().rc["font.size"]).toBeUndefined();
+    expect(panel.getSettings().rc["lines.linewidth"]).toBe(3);
+  });
+
+  it("Reset Look also resets the style preset", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+
+    const lookCat = panel.shadowRoot!.querySelector('.category[data-group="look"]') as HTMLElement;
+    const resetBtn = lookCat.querySelector(".reset-category") as HTMLButtonElement;
+    resetBtn.click();
+
+    expect(panel.getSettings().style).toBe("default");
+  });
+
+  it("Esc goes back to level one, then collapses (when collapsible)", () => {
+    panel.toggle();
+    panel.showCategory("text");
+
+    const body = panel.shadowRoot!.querySelector(".body") as HTMLElement;
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    expect(panel.category).toBeNull();
+    expect(panel.open).toBe(true);
+
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    expect(panel.open).toBe(false);
+  });
+
+  it("renders no bar when features.collapsible is false, and stays open", () => {
+    panel.features = { collapsible: false };
+    expect(panel.shadowRoot!.querySelector(".bar")).toBeNull();
+    expect((panel.shadowRoot!.querySelector(".body") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("starts open when features.startOpen is true", () => {
+    const p = document.createElement("plotpolish-panel") as PlotpolishPanel;
+    p.features = { startOpen: true };
+    document.body.append(p);
+    expect(p.open).toBe(true);
+    p.remove();
+  });
+
+  it("only shows chips for groups listed in features.groups", () => {
+    panel.features = { groups: ["text"] };
+    const chips = Array.from(panel.shadowRoot!.querySelectorAll(".chips .chip")) as HTMLElement[];
+    for (const chip of chips) expect(chip.hidden).toBe(chip.dataset.group !== "text");
+  });
+
+  it("hides the code details when features.showCode is false", () => {
+    panel.features = { showCode: false };
+    const details = panel.shadowRoot!.querySelector("details.code") as HTMLDetailsElement;
+    expect(details.hidden).toBe(true);
+  });
+});
+
+describe("legend group visibility", () => {
+  it("shows the legend chip before any refresh, and with no backend", () => {
+    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
+    expect(chip.hidden).toBe(false);
+  });
+
+  it("hides the legend chip after refresh finds no legend and nothing is set", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLegend(null);
+    await attachBackend(panel, backend);
+    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
+    expect(chip.hidden).toBe(true);
+  });
+
+  it("keeps the legend chip shown (with a note) when a legend key is set despite no legend", async () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const backend = new MockBackend();
+    backend.figure = figureWithLegend(null);
+    await attachBackend(panel, backend);
+
+    const frameon = input(panel, "legend_frameon") as HTMLInputElement;
+    frameon.checked = false;
+    change(frameon);
+
+    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
+    expect(chip.hidden).toBe(false);
+
+    panel.showCategory("legend");
+    const note = panel.shadowRoot!.querySelector('.category[data-group="legend"] > .note') as HTMLElement;
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toContain("no legend");
+  });
+
+  it("shows the legend chip again once the figure is null", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLegend(null);
+    await attachBackend(panel, backend);
+    backend.figure = null;
+    await panel.refresh();
+    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
+    expect(chip.hidden).toBe(false);
+  });
+
+  it("shows the legend chip when at least one axes has a legend", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLegend({ frameon: true, framealpha: 0.8, loc: "best", fontsize: 10 });
+    await attachBackend(panel, backend);
+    const chip = panel.shadowRoot!.querySelector('.chip[data-group="legend"]') as HTMLElement;
+    expect(chip.hidden).toBe(false);
   });
 });
 
@@ -201,7 +464,7 @@ describe("writing", () => {
     grid.checked = true;
     change(grid);
 
-    const resetButton = panel.shadowRoot!.querySelector(".toolbar button") as HTMLButtonElement;
+    const resetButton = panel.shadowRoot!.querySelector(".bar .reset") as HTMLButtonElement;
     resetButton.click();
 
     expect(panel.getSettings()).toEqual(defaultSettings());
@@ -221,21 +484,23 @@ describe("writing", () => {
     expect(parseBlock(last)!.settings.rc["figure.figsize"]).toEqual([8, 5]);
   });
 
-  it("writes an enum control as its string value", () => {
+  it("writes a segmented enum control as its string value (linestyle --)", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
-    const select = input(panel, "linestyle") as HTMLSelectElement;
-    select.value = "--";
-    change(select);
+    const seg = ctl(panel, "linestyle").querySelector(".segmented") as HTMLElement;
+    const btn = seg.querySelector('button[data-value="--"]') as HTMLButtonElement;
+    btn.click();
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(parseBlock(last)!.settings.rc["lines.linestyle"]).toBe("--");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("writes a bool control as a boolean", () => {
+  it("writes a bool control (switch) as a boolean", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
     const checkbox = input(panel, "savefig_transparent") as HTMLInputElement;
+    expect(checkbox.classList.contains("switch")).toBe(true);
     checkbox.checked = true;
     change(checkbox);
 
@@ -256,33 +521,97 @@ describe("writing", () => {
     expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe("figure");
   });
 
-  it("writes the preset colours for a colorcycle selection and shows swatches", () => {
+  it("writes the preset colours for a colorcycle preset button and shows swatches", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
-    const select = input(panel, "prop_cycle") as HTMLSelectElement;
-    select.value = "okabe-ito";
-    change(select);
+    const list = ctl(panel, "prop_cycle").querySelector(".swatch-list") as HTMLElement;
+    const btn = list.querySelector('button[data-preset="okabe-ito"]') as HTMLButtonElement;
+    btn.click();
 
     const expected = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!.colors;
     const last = sink.writes[sink.writes.length - 1]!;
     expect(parseBlock(last)!.settings.rc["axes.prop_cycle"]).toEqual(expected);
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
 
-    const swatches = ctl(panel, "prop_cycle").querySelectorAll(".swatches i");
+    const swatches = btn.querySelectorAll(".swatches i");
     expect(swatches.length).toBe(expected.length);
     expect(Array.from(swatches).map((s) => (s as HTMLElement).title)).toEqual(expected);
   });
 
-  it("writes both tick_direction keys from one enum control", () => {
+  it("writes both tick_direction keys from one segmented control", () => {
     const sink = new MemorySink("");
     panel.sink = sink;
-    const select = input(panel, "tick_direction") as HTMLSelectElement;
-    select.value = "in";
-    change(select);
+    const seg = ctl(panel, "tick_direction").querySelector(".segmented") as HTMLElement;
+    const btn = seg.querySelector('button[data-value="in"]') as HTMLButtonElement;
+    btn.click();
 
     const last = sink.writes[sink.writes.length - 1]!;
     const rc = parseBlock(last)!.settings.rc;
     expect(rc["xtick.direction"]).toBe("in");
     expect(rc["ytick.direction"]).toBe("in");
+  });
+
+  it("keeps a range slider and its number field linked for linewidth, and commits on input", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const row = ctl(panel, "linewidth");
+    const range = row.querySelector('input[type="range"]') as HTMLInputElement;
+    const number = input(panel, "linewidth") as HTMLInputElement;
+
+    range.value = "3";
+    fireInput(range);
+
+    expect(number.value).toBe("3");
+    expect(panel.getSettings().rc["lines.linewidth"]).toBe(3);
+  });
+});
+
+describe("legend position", () => {
+  it("named option writes the string value", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const select = input(panel, "legend_loc") as HTMLSelectElement;
+    select.value = "upper right";
+    change(select);
+
+    expect(panel.getSettings().rc["legend.loc"]).toBe("upper right");
+    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("'Custom position…' writes [0.6, 0.2] and reveals the sliders", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const select = input(panel, "legend_loc") as HTMLSelectElement;
+    select.value = "__custom__";
+    change(select);
+
+    expect(panel.getSettings().rc["legend.loc"]).toEqual([0.6, 0.2]);
+    expect(select.value).toBe("__custom__");
+    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("dragging a slider writes [x, y]", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+    const select = input(panel, "legend_loc") as HTMLSelectElement;
+    select.value = "__custom__";
+    change(select);
+
+    const xRange = panel.shadowRoot!.querySelector('.legend-xy input[aria-label="Legend x"]') as HTMLInputElement;
+    xRange.value = "0.3";
+    fireInput(xRange);
+
+    const rc = panel.getSettings().rc["legend.loc"];
+    expect(rc).toEqual([0.3, 0.2]);
+  });
+
+  it("shows __custom__ selected for an array legend.loc value", () => {
+    const settings: StyleSettings = { style: "default", rc: { "legend.loc": [0.4, 0.5] } };
+    panel.sink = new MemorySink(generateBlock(settings)!);
+
+    const select = input(panel, "legend_loc") as HTMLSelectElement;
+    expect(select.value).toBe("__custom__");
+    expect((panel.shadowRoot!.querySelector(".legend-xy") as HTMLElement).hidden).toBe(false);
   });
 });
 
@@ -367,7 +696,7 @@ describe("write-only sink", () => {
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
     change(fs);
-    const resetButton = panel.shadowRoot!.querySelector(".toolbar button") as HTMLButtonElement;
+    const resetButton = panel.shadowRoot!.querySelector(".bar .reset") as HTMLButtonElement;
     resetButton.click();
 
     expect(sink.received[sink.received.length - 1]).toBe("");
@@ -444,9 +773,9 @@ describe("backend", () => {
     const events: RerunNeededEventDetail[] = [];
     panel.addEventListener("plotpolish-rerun-needed", (e) => events.push((e as CustomEvent<RerunNeededEventDetail>).detail));
 
-    const family = input(panel, "font_family") as HTMLSelectElement;
-    family.value = "serif";
-    change(family);
+    const seg = ctl(panel, "font_family").querySelector(".segmented") as HTMLElement;
+    const serifBtn = seg.querySelector('button[data-value="serif"]') as HTMLButtonElement;
+    serifBtn.click();
     await panel.settle();
 
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
@@ -573,21 +902,6 @@ describe("backend", () => {
     await panel.settle();
 
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
-  });
-
-  it("hides sections not listed in features.groups", () => {
-    panel.features = { groups: ["text"] };
-    const sections = panel.shadowRoot!.querySelectorAll("section[data-group]");
-    sections.forEach((s) => {
-      const el = s as HTMLElement;
-      expect(el.hidden).toBe(el.dataset.group !== "text");
-    });
-  });
-
-  it("hides the code details when features.showCode is false", () => {
-    panel.features = { showCode: false };
-    const details = panel.shadowRoot!.querySelector("details.code") as HTMLDetailsElement;
-    expect(details.hidden).toBe(true);
   });
 });
 

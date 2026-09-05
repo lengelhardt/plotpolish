@@ -6,18 +6,24 @@
  * user's source through a CodeSink (as one fenced block) and previews them on
  * the retained figure through a FigureBackend. It never renders or edits
  * anything else in the user's code.
+ *
+ * The shell is a tiered drill-down (see docs/ux-design.md): collapsed to one
+ * bar by default, level one is a row of category chips plus "Your changes",
+ * level two is one category's rows (primary, then a "More" details). Every
+ * control row exists in the DOM at all times; only its container's `hidden`
+ * changes as `open`/`category` change, so `update()` stays a single pass.
  */
 
 import css from "./panel.css?inline";
-import { BackendError, HelperClient, type FigureBackend } from "./backend";
+import { BackendError, HelperClient, type FigureBackend, type FigureDescription } from "./backend";
 import {
   FenceError, defaultSettings, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
   type StyleSettings,
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
 import {
-  CONTROLS, GROUPS, RELATIVE_SIZES, controlsInGroup, rcEqual, resolveFontSize,
-  type ControlSpec, type RcValue,
+  CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, controlsInGroup, rcEqual, resolveFontSize,
+  type ControlSpec, type GroupSpec, type RcValue,
 } from "./schema";
 import type { CodeSink } from "./sink";
 
@@ -28,9 +34,15 @@ export interface PanelFeatures {
   showCode: boolean;
   /** Group ids to render (see controls.json); null renders all. */
   groups: string[] | null;
+  /** When false the panel is always open and the collapsed bar is not rendered. */
+  collapsible: boolean;
+  /** Start expanded instead of collapsed. Only affects the panel's initial state. */
+  startOpen: boolean;
 }
 
-const DEFAULT_FEATURES: PanelFeatures = { livePreview: true, showCode: true, groups: null };
+const DEFAULT_FEATURES: PanelFeatures = {
+  livePreview: true, showCode: true, groups: null, collapsible: true, startOpen: false,
+};
 
 export interface ChangeEventDetail {
   settings: StyleSettings;
@@ -50,13 +62,30 @@ export interface PanelErrorEventDetail {
 
 type BackendState = "none" | "connecting" | "ready" | "error";
 
+interface LegendXyView {
+  wrap: HTMLElement;
+  xRange: HTMLInputElement;
+  yRange: HTMLInputElement;
+  xOut: HTMLElement;
+  yOut: HTMLElement;
+}
+
 interface ControlView {
   spec: ControlSpec;
   row: HTMLElement;
   inputs: (HTMLInputElement | HTMLSelectElement)[];
   badges: HTMLElement;
   revert: HTMLButtonElement;
-  swatches?: HTMLElement;
+  segmented?: HTMLElement;
+  swatchList?: HTMLElement;
+  legendXy?: LegendXyView;
+  rangeInput?: HTMLInputElement;
+}
+
+interface CategoryView {
+  container: HTMLElement;
+  note: HTMLElement;
+  resetButton: HTMLButtonElement;
 }
 
 const APPLY_DEBOUNCE_MS = 60;
@@ -101,6 +130,8 @@ export class PlotpolishPanel extends HTMLElement {
    * figure stays as it was drawn.
    */
   private figureRc: Record<string, RcValue> = {};
+  /** Last-introspected figure description, or null before any refresh / with no figure. */
+  private figure: FigureDescription | null = null;
   private styles: string[] = ["default"];
   private overridden = new Set<string>();
   private unknownKeys: string[] = [];
@@ -116,19 +147,34 @@ export class PlotpolishPanel extends HTMLElement {
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
   private applyChain: Promise<void> = Promise.resolve();
 
+  private _open = false;
+  private openInitialized = false;
+  private _category: string | null = null;
+
   private readonly root: ShadowRoot;
   private views = new Map<string, ControlView>();
   private ui!: {
+    panelEl: HTMLElement;
+    bar: HTMLElement;
+    barSummary: HTMLElement;
+    barReset: HTMLButtonElement;
+    body: HTMLElement;
+    crumbBack: HTMLButtonElement;
+    crumbLabel: HTMLElement;
     status: HTMLElement;
+    headReset: HTMLButtonElement;
     fenceBanner: HTMLElement;
     fenceMessage: HTMLElement;
     rerunBanner: HTMLElement;
     rerunText: HTMLElement;
     unknownBanner: HTMLElement;
+    home: HTMLElement;
+    chips: Map<string, HTMLButtonElement>;
+    changeList: HTMLElement;
+    changeEmpty: HTMLElement;
     code: HTMLDetailsElement;
     codePre: HTMLElement;
-    resetButton: HTMLButtonElement;
-    sections: Map<string, HTMLElement>;
+    categories: Map<string, CategoryView>;
   };
 
   constructor() {
@@ -158,6 +204,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.client = backend ? new HelperClient(backend) : null;
     this.backendState = backend ? "connecting" : "none";
     this.backendMessage = "";
+    if (!backend) this.figure = null;
     this.update();
     if (backend) void this.refresh();
   }
@@ -186,6 +233,33 @@ export class PlotpolishPanel extends HTMLElement {
   }
   set features(partial: Partial<PanelFeatures>) {
     this._features = { ...this._features, ...partial };
+    this.update();
+  }
+
+  /** Whether the panel is expanded. Reflected as the `open` attribute. */
+  get open(): boolean {
+    return this._open;
+  }
+  set open(value: boolean) {
+    this._open = Boolean(value);
+    this.openInitialized = true;
+    this.toggleAttribute("open", this._open);
+    this.update();
+  }
+
+  /** The group id shown at level two, or null at level one. Mutate via showCategory(). */
+  get category(): string | null {
+    return this._category;
+  }
+
+  /** Flip between collapsed and expanded. */
+  toggle(): void {
+    this.open = !this.open;
+  }
+
+  /** Go to level two for `id`, or back to level one for null. */
+  showCategory(id: string | null): void {
+    this._category = id;
     this.update();
   }
 
@@ -225,6 +299,7 @@ export class PlotpolishPanel extends HTMLElement {
         this.baseline = { ...schemaDefaults(), ...intro.rc };
         this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
+        this.figure = intro.figure;
         this.stale = false;
         this.rerunKeys.clear();
         this.backendState = "ready";
@@ -366,6 +441,23 @@ export class PlotpolishPanel extends HTMLElement {
     return out;
   }
 
+  /** Revert every control in `groupId` (and, for "look", the style preset). */
+  private resetCategory(groupId: string): void {
+    const specs = controlsInGroup(groupId);
+    const keys = specs.flatMap((s) => s.keys).filter((k) => k in this.settings.rc);
+    const willResetStyle = groupId === "look" && this.settings.style !== "default" && this.settings.style !== "";
+    for (const key of keys) delete this.settings.rc[key];
+    if (willResetStyle) this.settings.style = "default";
+    this.writeToSink();
+    if (this.client && this._features.livePreview) {
+      if (willResetStyle) this.applyStyle("default", keys);
+      else if (keys.length) this.scheduleApply(this.baselineFor(keys));
+    }
+    if (willResetStyle) this.noteRerun(["style"]);
+    this.emitChange();
+    this.update();
+  }
+
   /**
    * set_style in the session (queued behind pending live applies so
    * `settle()` covers it), refresh the baseline, then re-apply the current
@@ -461,6 +553,45 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   // -------------------------------------------------------------------------
+  // Navigation
+  // -------------------------------------------------------------------------
+
+  private handleEscape(): void {
+    if (this._category !== null) {
+      this.showCategory(null);
+      return;
+    }
+    if (this._features.collapsible && this._open) this.open = false;
+  }
+
+  private ensureStartOpen(): void {
+    if (this.openInitialized) return;
+    this.openInitialized = true;
+    if (this._features.startOpen) {
+      this._open = true;
+      this.toggleAttribute("open", true);
+    }
+  }
+
+  private isGroupVisible(group: GroupSpec): boolean {
+    if (this._features.groups !== null && !this._features.groups.includes(group.id)) return false;
+    if (group.hideWhen === "no-legend" && this.noLegendOnFigure()) {
+      return controlsInGroup(group.id).some((c) => c.keys.some((k) => k in this.settings.rc));
+    }
+    return true;
+  }
+
+  private noLegendOnFigure(): boolean {
+    return this.backendState === "ready" && this.figure !== null && !this.figure.axes.some((a) => a.legend !== null);
+  }
+
+  private legendNoteNeeded(group: GroupSpec): boolean {
+    if (group.hideWhen !== "no-legend") return false;
+    if (!this.noLegendOnFigure()) return false;
+    return controlsInGroup(group.id).some((c) => c.keys.some((k) => k in this.settings.rc));
+  }
+
+  // -------------------------------------------------------------------------
   // DOM: build once
   // -------------------------------------------------------------------------
 
@@ -468,9 +599,27 @@ export class PlotpolishPanel extends HTMLElement {
     const style = el("style");
     style.textContent = css;
 
-    const resetButton = el("button", { type: "button", title: "Clear every setting and remove the block" }, "Reset all");
-    resetButton.addEventListener("click", () => this.reset());
+    // --- Collapsed bar ---
+    const barToggle = el("button", { type: "button", class: "toggle" }, "Style ▸");
+    barToggle.setAttribute("aria-expanded", "false");
+    barToggle.addEventListener("click", () => this.toggle());
+    const barSummary = el("span", { class: "summary" });
+    const barReset = el("button", { type: "button", class: "reset", title: "Clear every setting and remove the block" }, "Reset all");
+    barReset.addEventListener("click", () => this.reset());
+    const bar = el("div", { class: "bar" }, barToggle, barSummary, barReset);
+
+    // --- Expanded head ---
+    const headToggle = el("button", { type: "button", class: "toggle" }, "Style ▾");
+    headToggle.setAttribute("aria-expanded", "true");
+    headToggle.addEventListener("click", () => this.toggle());
+    const crumbBack = el("button", { type: "button", class: "back", hidden: true, title: "Back to categories" }, "‹");
+    crumbBack.addEventListener("click", () => this.showCategory(null));
+    const crumbLabel = el("span", { class: "crumb-label" }, "Style");
+    const crumbs = el("div", { class: "crumbs" }, crumbBack, crumbLabel);
     const status = el("span", { class: "status" });
+    const headReset = el("button", { type: "button", class: "reset", title: "Clear every setting and remove the block" }, "Reset all");
+    headReset.addEventListener("click", () => this.reset());
+    const head = el("div", { class: "head" }, headToggle, crumbs, status, headReset);
 
     const fenceMessage = el("span");
     const replaceButton = el("button", { type: "button", class: "small" }, "Replace block");
@@ -482,31 +631,81 @@ export class PlotpolishPanel extends HTMLElement {
 
     const unknownBanner = el("div", { class: "banner warn", hidden: true });
 
-    const header = el(
-      "header",
-      {},
-      el("h2", {}, "Plot style"),
-      el("span", { class: "version" }, `${ELEMENT_TAG} ${VERSION}`),
-      el("p", { class: "note" }, "Sets matplotlib defaults for this program. Your own code always wins over these defaults."),
-    );
-
-    const panel = el("div", { class: "panel" }, header, el("div", { class: "toolbar" }, resetButton, status), fenceBanner, rerunBanner, unknownBanner);
-
-    const sections = new Map<string, HTMLElement>();
+    // --- Level one: home ---
+    const chips = new Map<string, HTMLButtonElement>();
+    const chipsEl = el("div", { class: "chips" });
     for (const group of GROUPS) {
-      const section = el("section", {}, el("h3", {}, group.label));
-      section.dataset.group = group.id;
-      for (const spec of controlsInGroup(group.id)) section.append(this.buildControl(spec));
-      sections.set(group.id, section);
-      panel.append(section);
+      const chip = el("button", { type: "button", class: "chip", title: group.help ?? "" }, group.label);
+      chip.dataset.group = group.id;
+      chip.setAttribute("aria-pressed", "false");
+      chip.addEventListener("click", () => this.showCategory(group.id));
+      chips.set(group.id, chip);
+      chipsEl.append(chip);
     }
+
+    const changeList = el("div", { class: "change-list" });
+    const changeEmpty = el("p", { class: "muted" }, "Nothing changed yet. Pick a category above.");
+    const changes = el("div", { class: "changes" }, el("h4", {}, "Your changes"), changeList, changeEmpty);
 
     const codePre = el("pre");
     const code = el("details", { class: "code" }, el("summary", {}, "Generated block"), codePre);
-    panel.append(code);
 
-    this.root.append(style, panel);
-    this.ui = { status, fenceBanner, fenceMessage, rerunBanner, rerunText, unknownBanner, code, codePre, resetButton, sections };
+    const note = el("p", { class: "note" }, "Sets matplotlib defaults for this program. Your own code always wins over these defaults.");
+
+    const home = el("div", { class: "home" }, note, chipsEl, changes, code);
+
+    // --- Level two: one category per group ---
+    const categories = new Map<string, CategoryView>();
+    const categoryEls: HTMLElement[] = [];
+    for (const group of GROUPS) {
+      const catNote = el("p", { class: "note", hidden: true });
+      const resetButton = el("button", { type: "button", class: "reset-category" }, `Reset ${group.label}`);
+      resetButton.addEventListener("click", () => this.resetCategory(group.id));
+
+      const primary = el("div", { class: "primary" });
+      this.appendRowsWithHeadings(primary, group, controlsInGroup(group.id, "primary"));
+
+      const children: (Node | string)[] = [catNote, resetButton, primary];
+      const moreSpecs = controlsInGroup(group.id, "more");
+      if (moreSpecs.length) {
+        const moreRows = el("div", { class: "more-rows" });
+        this.appendRowsWithHeadings(moreRows, group, moreSpecs);
+        children.push(el("details", { class: "more" }, el("summary", {}, "More"), moreRows));
+      }
+
+      const container = el("div", { class: "category", hidden: true }, ...children);
+      container.dataset.group = group.id;
+      categories.set(group.id, { container, note: catNote, resetButton });
+      categoryEls.push(container);
+    }
+
+    const body = el("div", { class: "body" }, head, fenceBanner, rerunBanner, unknownBanner, home, ...categoryEls);
+
+    const panelEl = el("div", { class: "panel" }, bar, body);
+    panelEl.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Escape") this.handleEscape();
+    });
+
+    this.root.append(style, panelEl);
+    this.ui = {
+      panelEl, bar, barSummary, barReset,
+      body, crumbBack, crumbLabel, status, headReset,
+      fenceBanner, fenceMessage, rerunBanner, rerunText, unknownBanner,
+      home, chips, changeList, changeEmpty, code, codePre, categories,
+    };
+  }
+
+  /** Append `specs`' rows into `container`, inserting an h4.subgroup heading before the first row of each subgroup. */
+  private appendRowsWithHeadings(container: HTMLElement, group: GroupSpec, specs: ControlSpec[]): void {
+    let lastSubgroup: string | undefined;
+    for (const spec of specs) {
+      if (group.subgroups && spec.subgroup && spec.subgroup !== lastSubgroup) {
+        const sg = group.subgroups.find((s) => s.id === spec.subgroup);
+        if (sg) container.append(el("h4", { class: "subgroup" }, sg.label));
+        lastSubgroup = spec.subgroup;
+      }
+      container.append(this.buildControl(spec));
+    }
   }
 
   private buildControl(spec: ControlSpec): HTMLElement {
@@ -520,7 +719,10 @@ export class PlotpolishPanel extends HTMLElement {
     const row = el("div", { class: "row" }, label, badges, control);
     row.dataset.control = spec.id;
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
-    let swatches: HTMLElement | undefined;
+    let segmented: HTMLElement | undefined;
+    let swatchList: HTMLElement | undefined;
+    let legendXy: LegendXyView | undefined;
+    let rangeInput: HTMLInputElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -539,21 +741,44 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "bool": {
-        const input = el("input", { type: "checkbox", id });
+        const input = el("input", { type: "checkbox", id, class: "switch" });
         input.addEventListener("change", () => this.setKeys(spec, input.checked));
         inputs.push(input);
         control.append(input);
         break;
       }
       case "number": {
-        const input = number();
-        input.addEventListener("change", () => {
-          const n = Number(input.value);
-          if (input.value !== "" && Number.isFinite(n)) this.setKeys(spec, n);
-          else this.update();
-        });
-        inputs.push(input);
-        control.append(input);
+        if (spec.min !== undefined && spec.max !== undefined) {
+          const range = el("input", { type: "range" });
+          range.min = String(spec.min);
+          range.max = String(spec.max);
+          if (spec.step !== undefined) range.step = String(spec.step);
+          const numberInput = number();
+          range.addEventListener("input", () => {
+            numberInput.value = range.value;
+            const n = Number(range.value);
+            if (Number.isFinite(n)) this.setKeys(spec, n);
+          });
+          numberInput.addEventListener("change", () => {
+            const n = Number(numberInput.value);
+            if (numberInput.value !== "" && Number.isFinite(n)) {
+              range.value = numberInput.value;
+              this.setKeys(spec, n);
+            } else this.update();
+          });
+          rangeInput = range;
+          inputs.push(numberInput);
+          control.append(el("span", { class: "range-number" }, range, numberInput));
+        } else {
+          const input = number();
+          input.addEventListener("change", () => {
+            const n = Number(input.value);
+            if (input.value !== "" && Number.isFinite(n)) this.setKeys(spec, n);
+            else this.update();
+          });
+          inputs.push(input);
+          control.append(input);
+        }
         break;
       }
       case "fontsize": {
@@ -598,30 +823,93 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "enum": {
-        const select = el("select", { id });
-        for (const opt of spec.options ?? []) select.append(el("option", { value: opt.value }, opt.label));
-        select.addEventListener("change", () => this.setKeys(spec, select.value));
-        inputs.push(select);
-        control.append(select);
+        if ((spec.options?.length ?? 0) <= 4) {
+          const group = el("div", { class: "segmented", id });
+          group.setAttribute("role", "radiogroup");
+          for (const opt of spec.options ?? []) {
+            const btn = el("button", { type: "button" }, opt.label);
+            btn.dataset.value = opt.value;
+            btn.setAttribute("aria-pressed", "false");
+            btn.addEventListener("click", () => this.setKeys(spec, opt.value));
+            group.append(btn);
+          }
+          segmented = group;
+          control.append(group);
+        } else {
+          const select = el("select", { id });
+          for (const opt of spec.options ?? []) select.append(el("option", { value: opt.value }, opt.label));
+          select.addEventListener("change", () => this.setKeys(spec, select.value));
+          inputs.push(select);
+          control.append(select);
+        }
         break;
       }
       case "colorcycle": {
-        swatches = el("span", { class: "swatches" });
+        const list = el("div", { class: "swatch-list", id });
+        for (const preset of spec.presets ?? []) {
+          const btn = el("button", { type: "button", class: "preset" });
+          btn.dataset.preset = preset.id;
+          btn.setAttribute("aria-pressed", "false");
+          const sw = el("span", { class: "swatches" });
+          for (const c of preset.colors) {
+            const i = el("i");
+            i.style.background = c;
+            i.title = c;
+            sw.append(i);
+          }
+          btn.append(sw, el("span", { class: "preset-label" }, preset.label));
+          btn.addEventListener("click", () => this.setKeys(spec, [...preset.colors]));
+          list.append(btn);
+        }
+        const customBtn = el("button", { type: "button", class: "preset custom", disabled: true, hidden: true }, "Custom (from your file)");
+        customBtn.setAttribute("aria-pressed", "true");
+        list.append(customBtn);
+        swatchList = list;
+        control.append(list);
+        break;
+      }
+      case "legendloc": {
         const select = el("select", { id });
-        for (const preset of spec.presets ?? []) select.append(el("option", { value: preset.id }, preset.label));
-        select.append(el("option", { value: "__custom__", disabled: true }, "Custom (from your file)"));
+        for (const opt of spec.options ?? []) select.append(el("option", { value: opt.value }, opt.label));
+        select.append(el("option", { value: "__custom__" }, "Custom position…"));
         select.addEventListener("change", () => {
-          const preset = spec.presets?.find((p) => p.id === select.value);
-          if (preset) this.setKeys(spec, [...preset.colors]);
+          if (select.value === "__custom__") this.setKeys(spec, [0.6, 0.2]);
+          else this.setKeys(spec, select.value);
         });
         inputs.push(select);
-        control.append(swatches, select);
+
+        const xRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
+        xRange.setAttribute("aria-label", "Legend x");
+        const yRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
+        yRange.setAttribute("aria-label", "Legend y");
+        const xOut = el("span", { class: "readout" });
+        const yOut = el("span", { class: "readout" });
+        const commitXy = () => {
+          xOut.textContent = xRange.value;
+          yOut.textContent = yRange.value;
+          const x = Number(xRange.value);
+          const y = Number(yRange.value);
+          if (Number.isFinite(x) && Number.isFinite(y)) this.setKeys(spec, [x, y]);
+        };
+        xRange.addEventListener("input", commitXy);
+        yRange.addEventListener("input", commitXy);
+        const xyWrap = el(
+          "div",
+          { class: "legend-xy", hidden: true },
+          el("label", {}, "x", xRange, xOut),
+          el("label", {}, "y", yRange, yOut),
+        );
+        legendXy = { wrap: xyWrap, xRange, yRange, xOut, yOut };
+        control.append(select, xyWrap);
         break;
       }
     }
     control.append(revert);
     const view: ControlView = { spec, row, inputs, badges, revert };
-    if (swatches) view.swatches = swatches;
+    if (segmented) view.segmented = segmented;
+    if (swatchList) view.swatchList = swatchList;
+    if (legendXy) view.legendXy = legendXy;
+    if (rangeInput) view.rangeInput = rangeInput;
     this.views.set(spec.id, view);
     return row;
   }
@@ -633,6 +921,29 @@ export class PlotpolishPanel extends HTMLElement {
   private update(): void {
     const { ui } = this;
     if (!ui) return;
+    this.ensureStartOpen();
+
+    // Collapsed bar / expanded body.
+    if (this._features.collapsible) {
+      if (!ui.bar.isConnected) ui.panelEl.insertBefore(ui.bar, ui.body);
+      ui.bar.hidden = this._open;
+      ui.body.hidden = !this._open;
+    } else {
+      if (ui.bar.isConnected) ui.bar.remove();
+      ui.body.hidden = false;
+    }
+
+    const changeCount = Object.keys(this.settings.rc).length + (this.settings.style && this.settings.style !== "default" ? 1 : 0);
+    ui.barSummary.textContent = changeCount === 0 ? "Default look" : `${changeCount} change${changeCount === 1 ? "" : "s"}`;
+
+    const resetDisabled = isDefaultSettings(this.settings) && !this.fenceError;
+    ui.barReset.disabled = resetDisabled;
+    ui.headReset.disabled = resetDisabled;
+
+    // Breadcrumb.
+    const group = this._category ? GROUP_BY_ID.get(this._category) : undefined;
+    ui.crumbLabel.textContent = group ? `Style › ${group.label}` : "Style";
+    ui.crumbBack.hidden = this._category === null;
 
     // Status line.
     ui.status.classList.toggle("error", this.backendState === "error");
@@ -641,7 +952,6 @@ export class PlotpolishPanel extends HTMLElement {
       : this.backendState === "connecting" ? "Connecting to Python…"
       : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
       : `Live preview on · ${this.backendMessage}`;
-    ui.resetButton.disabled = isDefaultSettings(this.settings) && !this.fenceError;
 
     // Banners.
     ui.fenceBanner.hidden = !this.fenceError;
@@ -658,22 +968,93 @@ export class PlotpolishPanel extends HTMLElement {
       ui.unknownBanner.textContent = `The block also sets ${this.unknownKeys.join(", ")}, which this panel has no control for. They are kept as they are.`;
     }
 
-    // Groups visibility.
-    for (const [groupId, section] of ui.sections) {
-      section.hidden = this._features.groups !== null && !this._features.groups.includes(groupId);
+    // Level one / two visibility.
+    ui.home.hidden = this._category !== null;
+    for (const g of GROUPS) {
+      const chip = ui.chips.get(g.id)!;
+      chip.hidden = !this.isGroupVisible(g);
+      chip.setAttribute("aria-pressed", String(this._category === g.id));
+
+      const cat = ui.categories.get(g.id)!;
+      cat.container.hidden = this._category !== g.id;
+      const noteNeeded = this.legendNoteNeeded(g);
+      cat.note.hidden = !noteNeeded;
+      if (noteNeeded) cat.note.textContent = "The current plot has no legend.";
+      const hasSet =
+        controlsInGroup(g.id).some((c) => c.keys.some((k) => k in this.settings.rc)) ||
+        (g.id === "look" && this.settings.style !== "" && this.settings.style !== "default");
+      cat.resetButton.disabled = !hasSet;
     }
+
+    this.renderChanges();
 
     // Controls.
     for (const view of this.views.values()) this.updateControl(view);
 
-    // Code preview.
+    // Code preview (bottom of level one).
     ui.code.hidden = !this._features.showCode;
     const block = generateBlock(this.settings);
     ui.codePre.textContent = block ?? "# (no block: every setting is at its default)";
   }
 
+  private renderChanges(): void {
+    const { changeList, changeEmpty } = this.ui;
+    const chips: HTMLButtonElement[] = [];
+    if (this.settings.style && this.settings.style !== "default") {
+      const btn = el("button", { type: "button", class: "change-chip" }, `Style preset: ${this.settings.style} ✕`);
+      btn.dataset.control = "style";
+      btn.addEventListener("click", () => this.setStyle("default"));
+      chips.push(btn);
+    }
+    for (const spec of CONTROLS) {
+      if (spec.keys.length && spec.keys.some((k) => k in this.settings.rc)) {
+        const value = this.settings.rc[spec.keys[0]!];
+        const btn = el("button", { type: "button", class: "change-chip" }, `${spec.label}: ${this.formatShortValue(spec, value)} ✕`);
+        btn.dataset.control = spec.id;
+        btn.addEventListener("click", () => this.setKeys(spec, undefined));
+        chips.push(btn);
+      }
+    }
+    changeList.replaceChildren(...chips);
+    changeList.hidden = chips.length === 0;
+    changeEmpty.hidden = chips.length !== 0;
+  }
+
+  private formatShortValue(spec: ControlSpec, value: RcValue | undefined): string {
+    if (value === undefined) return "";
+    switch (spec.type) {
+      case "bool":
+        return value ? "On" : "Off";
+      case "enum": {
+        const opt = spec.options?.find((o) => o.value === value);
+        return opt ? opt.label : String(value);
+      }
+      case "pair": {
+        const arr = value as number[];
+        return `${arr[0] ?? ""} × ${arr[1] ?? ""}`;
+      }
+      case "colorcycle": {
+        const colors = value as string[];
+        const preset = spec.presets?.find((p) => rcEqual(p.colors, colors));
+        return preset ? preset.label : "Custom colours";
+      }
+      case "legendloc": {
+        if (Array.isArray(value)) {
+          const arr = value as number[];
+          return `Custom (${arr[0] ?? ""}, ${arr[1] ?? ""})`;
+        }
+        const opt = spec.options?.find((o) => o.value === value);
+        return opt ? opt.label : String(value);
+      }
+      case "dpi":
+        return value === "figure" ? "figure" : String(value);
+      default:
+        return String(value);
+    }
+  }
+
   private updateControl(view: ControlView): void {
-    const { spec, inputs, row, badges, revert } = view;
+    const { spec, row, badges, revert } = view;
     const isSet = spec.keys.some((k) => k in this.settings.rc);
     const userOverrides = !this.stale && spec.keys.some((k) => this.overridden.has(k));
     row.classList.toggle("is-set", isSet);
@@ -684,13 +1065,11 @@ export class PlotpolishPanel extends HTMLElement {
     if (spec.category === "rerun") badges.append(el("span", { class: "badge rerun" }, "re-run to see"));
     if (userOverrides) badges.append(el("span", { class: "badge user", title: "Your code sets this on the current figure; the default above still applies to anything created afterwards." }, "set in your code"));
 
-    const first = inputs[0];
-    if (!first) return;
     const value = spec.type === "style" ? this.settings.style : this.effective(spec.keys[0] ?? "");
 
     switch (spec.type) {
       case "style": {
-        const select = first as HTMLSelectElement;
+        const select = view.inputs[0] as HTMLSelectElement;
         const names = this.styles.includes(this.settings.style) ? this.styles : [...this.styles, this.settings.style];
         const current = Array.from(select.options).map((o) => o.value);
         if (current.join("\n") !== names.join("\n")) {
@@ -700,13 +1079,17 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "bool":
-        (first as HTMLInputElement).checked = Boolean(value);
+        (view.inputs[0] as HTMLInputElement).checked = Boolean(value);
         break;
-      case "number":
-        (first as HTMLInputElement).value = typeof value === "number" ? String(value) : "";
+      case "number": {
+        const input = view.inputs[0] as HTMLInputElement;
+        const v = typeof value === "number" ? String(value) : "";
+        input.value = v;
+        if (view.rangeInput && v !== "") view.rangeInput.value = v;
         break;
+      }
       case "fontsize": {
-        const input = first as HTMLInputElement;
+        const input = view.inputs[0] as HTMLInputElement;
         const base = this.effective("font.size");
         const baseN = typeof base === "number" ? base : 10;
         if (typeof value === "number") {
@@ -721,10 +1104,10 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "dpi":
-        (first as HTMLInputElement).value = typeof value === "number" ? String(value) : "";
+        (view.inputs[0] as HTMLInputElement).value = typeof value === "number" ? String(value) : "";
         break;
       case "pair": {
-        const [w, h] = inputs as HTMLInputElement[];
+        const [w, h] = view.inputs as HTMLInputElement[];
         if (Array.isArray(value) && value.length === 2 && w && h) {
           w.value = String(value[0]);
           h.value = String(value[1]);
@@ -732,25 +1115,46 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "enum": {
-        const select = first as HTMLSelectElement;
         const v = value === undefined ? "" : String(value);
-        if (v && !Array.from(select.options).some((o) => o.value === v)) select.append(el("option", { value: v }, `${v} (from style)`));
-        select.value = v;
+        if (view.segmented) {
+          for (const btn of Array.from(view.segmented.children) as HTMLButtonElement[]) {
+            btn.setAttribute("aria-pressed", String(btn.dataset.value === v));
+          }
+        } else {
+          const select = view.inputs[0] as HTMLSelectElement;
+          if (v && !Array.from(select.options).some((o) => o.value === v)) select.append(el("option", { value: v }, `${v} (from style)`));
+          select.value = v;
+        }
         break;
       }
       case "colorcycle": {
-        const select = first as HTMLSelectElement;
         const colors = Array.isArray(value) ? (value as string[]) : [];
         const preset = spec.presets?.find((p) => rcEqual(p.colors, colors));
-        select.value = preset ? preset.id : "__custom__";
-        view.swatches?.replaceChildren(
-          ...colors.slice(0, 10).map((c) => {
-            const i = el("i");
-            i.style.background = c;
-            i.title = c;
-            return i;
-          }),
-        );
+        const list = view.swatchList!;
+        for (const btn of Array.from(list.querySelectorAll<HTMLButtonElement>("button.preset[data-preset]"))) {
+          btn.setAttribute("aria-pressed", String(btn.dataset.preset === preset?.id));
+        }
+        const customBtn = list.querySelector<HTMLButtonElement>("button.preset.custom")!;
+        customBtn.hidden = Boolean(preset);
+        break;
+      }
+      case "legendloc": {
+        const select = view.inputs[0] as HTMLSelectElement;
+        const xy = view.legendXy!;
+        if (Array.isArray(value)) {
+          select.value = "__custom__";
+          xy.wrap.hidden = false;
+          const arr = value as number[];
+          const x = String(arr[0] ?? 0);
+          const y = String(arr[1] ?? 0);
+          xy.xRange.value = x;
+          xy.yRange.value = y;
+          xy.xOut.textContent = x;
+          xy.yOut.textContent = y;
+        } else {
+          xy.wrap.hidden = true;
+          select.value = value === undefined ? "best" : String(value);
+        }
         break;
       }
     }

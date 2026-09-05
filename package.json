@@ -13,11 +13,14 @@
   "main": "./dist/plotpolish.js",
   "module": "./dist/plotpolish.js",
   "types": "./dist/index.d.ts",
+  "unpkg": "./dist/plotpolish.iife.js",
+  "jsdelivr": "./dist/plotpolish.iife.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/plotpolish.js"
-    }
+    },
+    "./iife": "./dist/plotpolish.iife.js"
   },
   "sideEffects": [
     "./dist/plotpolish.js"
@@ -27,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:dist": "npm run build && vitest run src/iife.test.ts",
     "test:py": "cd python && python -m pytest -q",
     "demo": "vite --config demo/vite.config.ts",
     "demo:build": "vite build --config demo/vite.config.ts"

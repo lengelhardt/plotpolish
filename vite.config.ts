@@ -8,12 +8,18 @@ export default defineConfig({
   build: {
     lib: {
       entry: "src/index.ts",
-      formats: ["es"],
-      fileName: "plotpolish",
+      formats: ["es", "iife"],
+      name: "plotpolish",
+      fileName: (format) => (format === "iife" ? "plotpolish.iife.js" : "plotpolish.js"),
     },
     sourcemap: true,
     target: "es2020",
     minify: false,
+    rollupOptions: {
+      output: {
+        extend: true,
+      },
+    },
   },
   test: {
     environment: "happy-dom",

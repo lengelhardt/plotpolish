@@ -56,6 +56,11 @@ jobs:
             echo "Error: Python helper not found in bundle"
             exit 1
           fi
+      - run: |
+          if ! grep -q "def introspect_figure" dist/plotpolish.iife.js; then
+            echo "Error: Python helper not found in IIFE bundle"
+            exit 1
+          fi
 
   schema:
     # Validates JSON schema files

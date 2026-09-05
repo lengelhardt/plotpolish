@@ -148,6 +148,23 @@ cannot leak into the next run. Hosts that set rcParams once at startup (not
 before every run) should list those keys in `panel.hostRcKeys` so the reset
 preserves them; Trinket re-applies its values on every run and needs nothing.
 
+### Plain-script hosts
+
+Hosts with no bundler — Trinket, say, whose strict Content-Security-Policy
+only allows scripts from its own origin — can load a single self-contained
+IIFE build instead of the ES module above:
+
+```html
+<script src="/vendor/plotpolish.iife.js"></script>
+<script>
+  const { MemorySink, PyodideBackend } = window.plotpolish;
+</script>
+```
+
+Serve `plotpolish.iife.js` from the host's own origin. Nothing in it fetches
+anything at runtime — the Python helper is inlined the same as in the ES
+build — so it works unmodified under a CSP that allows only `'self'`.
+
 ## Demo
 
 ```bash

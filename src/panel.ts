@@ -276,6 +276,14 @@ export class PlotpolishPanel extends HTMLElement {
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
     if (name !== "layout" || this._settingLayoutAttr || newValue === oldValue) return;
+    if (newValue === null) {
+      // Attribute removed: back to automatic detection (float when a figure is known).
+      this._layoutForced = false;
+      this.measureLayout();
+      this.positionRail();
+      this.positionFloatPill();
+      return;
+    }
     this._layoutForced = true;
     const mode = parseLayoutAttr(newValue);
     if (mode !== this._layoutMode) {

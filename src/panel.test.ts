@@ -1480,3 +1480,25 @@ describe("sink subscribe", () => {
     expect(sink.writes.length).toBe(1);
   });
 });
+
+
+describe("layout attribute removal", () => {
+  it("returns to automatic detection when the host removes the layout attribute", async () => {
+    const panel = document.createElement("plotpolish-panel") as PlotpolishPanel;
+    document.body.append(panel);
+    const fig = document.createElement("div");
+    fig.getBoundingClientRect = () => ({ x: 10, y: 10, width: 640, height: 480, top: 10, left: 10, right: 650, bottom: 490, toJSON: () => ({}) }) as DOMRect;
+    document.body.append(fig);
+    panel.figureElement = fig;
+    expect(panel.layout).toBe("float");
+    panel.setAttribute("layout", "pill");
+    await Promise.resolve();
+    expect(panel.layout).toBe("pill"); // forced by the host
+    panel.removeAttribute("layout");
+    await Promise.resolve();
+    expect(panel.layout).toBe("float"); // back to automatic
+    expect(panel.getAttribute("layout")).toBe("float");
+    panel.remove();
+    fig.remove();
+  });
+});

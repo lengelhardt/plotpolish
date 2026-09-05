@@ -20,25 +20,25 @@
     </p>
 
     <main class="columns">
-      <section class="col col-editor">
+      <section class="editor-area">
         <div class="col-header">
           <h2>Source</h2>
-          <div class="row">
-            <button id="run" type="button">Run</button>
-            <span id="status" class="status" role="status" aria-live="polite"></span>
-          </div>
         </div>
         <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
       </section>
 
-      <section class="col col-panel">
-        <div class="panel-wrap">
-          <plotpolish-panel id="panel"></plotpolish-panel>
-        </div>
-        <div class="figure-wrap">
-          <div id="figure"></div>
-          <pre id="output"></pre>
-        </div>
+      <div class="run-bar">
+        <button id="run" type="button">Run</button>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+
+      <section class="col-panel">
+        <plotpolish-panel id="panel"></plotpolish-panel>
+      </section>
+
+      <section class="figure-wrap">
+        <div id="figure"></div>
+        <pre id="output"></pre>
       </section>
     </main>
 

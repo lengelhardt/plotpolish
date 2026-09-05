@@ -158,6 +158,9 @@ Open the printed URL with `?backend=mock` for an offline mode that exercises
 the panel and the fence without Python. Without the query string, the page
 offers to load Pyodide 0.28.1 plus matplotlib from the jsDelivr CDN after you
 click Run — that is a download of tens of MB, so it never starts by itself.
+The real mode has been exercised end to end against Pyodide 0.28.1 with
+matplotlib 3.8.4: introspection, live apply on the WebAgg canvas, style
+changes via `set_style`, override detection, and reset.
 
 ## Environment facts for the first host
 

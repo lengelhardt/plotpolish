@@ -1,7 +1,23 @@
 import raw from "./schema/controls.json";
 
+/**
+ * axes.prop_cycle with per-line properties. `color` is always present; the
+ * optional arrays are zipped with it by matplotlib's cycler, so they must be
+ * the same length. A plain `string[]` (colors only) is also accepted for
+ * this key.
+ */
+export interface PropCycleValue {
+  color: string[];
+  linewidth?: number[];
+  linestyle?: string[];
+}
+
 /** Value of one rcParam as the panel represents it (JSON-compatible). */
-export type RcValue = number | boolean | string | number[] | string[];
+export type RcValue = number | boolean | string | number[] | string[] | PropCycleValue;
+
+export function isPropCycle(v: RcValue | undefined): v is PropCycleValue {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && Array.isArray((v as PropCycleValue).color);
+}
 
 export type Category = "live" | "save" | "rerun";
 
@@ -14,7 +30,8 @@ export type ControlType =
   | "number"
   | "fontsize"
   | "colorcycle"
-  | "legendloc";
+  | "legendloc"
+  | "linecycle";
 
 /** primary = visible as soon as the category opens; more = under the "More" expander. */
 export type Tier = "primary" | "more";
@@ -41,8 +58,13 @@ export interface ControlSpec {
   /** rc keys this control writes. Empty for the style control. */
   keys: string[];
   default: RcValue;
+  /** Applied when the block is first created (settings go from empty to non-empty) if the key is unset. */
+  panelDefault?: RcValue;
   category: Category;
   help?: string;
+  /** linecycle: bounds on the number of per-line rows. */
+  minLines?: number;
+  maxLines?: number;
   min?: number;
   max?: number;
   step?: number;
@@ -128,6 +150,16 @@ export function resolveFontSize(value: RcValue, base: number): number {
 /** Structural equality for RcValues (arrays compared element-wise, numbers with tolerance). */
 export function rcEqual(a: RcValue | undefined, b: RcValue | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
+  if (isPropCycle(a) || isPropCycle(b)) {
+    const pa = isPropCycle(a) ? a : Array.isArray(a) ? { color: a as string[] } : null;
+    const pb = isPropCycle(b) ? b : Array.isArray(b) ? { color: b as string[] } : null;
+    if (!pa || !pb) return false;
+    return (
+      rcEqual(pa.color, pb.color) &&
+      rcEqual(pa.linewidth, pb.linewidth) &&
+      rcEqual(pa.linestyle, pb.linestyle)
+    );
+  }
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
     return a.every((v, i) => rcEqual(v as RcValue, b[i] as RcValue));

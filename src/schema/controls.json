@@ -1,71 +1,616 @@
 {
-  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md.",
+  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md. Two controls may share a key (prop_cycle presets and line_cycle both write axes.prop_cycle). panelDefault: a value plotpolish applies when the block is first created if the key is not set.",
   "groups": [
-    { "id": "look",   "label": "Look",   "help": "The overall style: preset, colors, figure size." },
-    { "id": "text",   "label": "Text",   "help": "Sizes and font for every piece of text." },
-    { "id": "lines",  "label": "Lines",  "help": "Plotted lines and markers." },
-    { "id": "axes",   "label": "Axes",   "help": "Grid, the box around the plot, tick marks.",
-      "subgroups": [ { "id": "grid", "label": "Grid" }, { "id": "box", "label": "Box and axes lines" }, { "id": "ticks", "label": "Tick marks" } ] },
-    { "id": "legend", "label": "Legend", "help": "Where the legend sits and how it is framed.", "hideWhen": "no-legend" },
-    { "id": "save",   "label": "Save",   "help": "Applies when the figure is saved, not on screen." }
+    {
+      "id": "look",
+      "label": "Look",
+      "help": "The overall style: preset, colors, figure size."
+    },
+    {
+      "id": "text",
+      "label": "Text",
+      "help": "Sizes and font for every piece of text."
+    },
+    {
+      "id": "lines",
+      "label": "Lines",
+      "help": "Plotted lines and markers."
+    },
+    {
+      "id": "axes",
+      "label": "Axes",
+      "help": "Grid, the box around the plot, tick marks.",
+      "subgroups": [
+        {
+          "id": "grid",
+          "label": "Grid"
+        },
+        {
+          "id": "box",
+          "label": "Box and axes lines"
+        },
+        {
+          "id": "ticks",
+          "label": "Tick marks"
+        }
+      ]
+    },
+    {
+      "id": "legend",
+      "label": "Legend",
+      "help": "Where the legend sits and how it is framed.",
+      "hideWhen": "no-legend"
+    },
+    {
+      "id": "save",
+      "label": "Save",
+      "help": "Applies when the figure is saved, not on screen."
+    }
   ],
   "controls": [
-    { "id": "style", "group": "look", "tier": "primary", "label": "Style preset", "type": "style", "keys": [], "default": "default", "category": "rerun",
-      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; everything else here overrides it." },
-    { "id": "prop_cycle", "group": "look", "tier": "primary", "label": "Colors", "type": "colorcycle", "keys": ["axes.prop_cycle"], "category": "rerun",
-      "help": "The order of colors given to successive lines (axes.prop_cycle).",
-      "default": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"],
+    {
+      "id": "style",
+      "group": "look",
+      "tier": "primary",
+      "label": "Style preset",
+      "type": "style",
+      "keys": [],
+      "default": "default",
+      "category": "rerun",
+      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; everything else here overrides it."
+    },
+    {
+      "id": "prop_cycle",
+      "group": "look",
+      "tier": "primary",
+      "label": "Colors",
+      "type": "colorcycle",
+      "keys": [
+        "axes.prop_cycle"
+      ],
+      "category": "live",
+      "help": "The color given to the 1st, 2nd, … line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
+      "default": [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf"
+      ],
       "presets": [
-        { "id": "tab10", "label": "matplotlib default",
-          "colors": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"] },
-        { "id": "okabe-ito", "label": "Colorblind-safe (Okabe–Ito)",
-          "colors": ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"] },
-        { "id": "tol-bright", "label": "Colorblind-safe (Tol bright)",
-          "colors": ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"] }
-      ] },
-    { "id": "figsize", "group": "look", "tier": "more", "label": "Figure size (inches)", "type": "pair", "keys": ["figure.figsize"], "default": [6.4, 4.8], "category": "live", "min": 1, "max": 30, "step": 0.1,
-      "help": "Width × height of new figures (figure.figsize)." },
-
-    { "id": "font_size", "group": "text", "tier": "primary", "label": "Text size", "type": "number", "keys": ["font.size"], "default": 10, "category": "live", "min": 6, "max": 24, "step": 0.5,
-      "help": "Base size in points (font.size). Title, labels and legend scale from it unless set below." },
-    { "id": "title_size", "group": "text", "tier": "more", "label": "Title size", "type": "fontsize", "keys": ["axes.titlesize"], "default": "large", "category": "live", "help": "axes.titlesize" },
-    { "id": "label_size", "group": "text", "tier": "more", "label": "Axis label size", "type": "fontsize", "keys": ["axes.labelsize"], "default": "medium", "category": "live", "help": "axes.labelsize" },
-    { "id": "tick_label_size", "group": "text", "tier": "more", "label": "Tick label size", "type": "fontsize", "keys": ["xtick.labelsize", "ytick.labelsize"], "default": "medium", "category": "live", "help": "xtick.labelsize and ytick.labelsize" },
-    { "id": "legend_fontsize", "group": "text", "tier": "more", "label": "Legend text size", "type": "fontsize", "keys": ["legend.fontsize"], "default": "medium", "category": "live", "help": "legend.fontsize" },
-    { "id": "font_family", "group": "text", "tier": "more", "label": "Font", "type": "enum", "keys": ["font.family"], "default": "sans-serif", "category": "rerun", "help": "font.family",
-      "options": [ { "value": "sans-serif", "label": "Sans" }, { "value": "serif", "label": "Serif" }, { "value": "monospace", "label": "Mono" } ] },
-
-    { "id": "linewidth", "group": "lines", "tier": "primary", "label": "Line width", "type": "number", "keys": ["lines.linewidth"], "default": 1.5, "category": "live", "min": 0.5, "max": 8, "step": 0.25, "help": "lines.linewidth, in points" },
-    { "id": "linestyle", "group": "lines", "tier": "more", "label": "Line style", "type": "enum", "keys": ["lines.linestyle"], "default": "-", "category": "live", "help": "lines.linestyle",
-      "options": [ { "value": "-", "label": "Solid" }, { "value": "--", "label": "Dashed" }, { "value": "-.", "label": "Dash-dot" }, { "value": ":", "label": "Dotted" } ] },
-    { "id": "markersize", "group": "lines", "tier": "more", "label": "Marker size", "type": "number", "keys": ["lines.markersize"], "default": 6, "category": "live", "min": 1, "max": 20, "step": 0.5, "help": "lines.markersize, in points" },
-
-    { "id": "grid", "group": "axes", "subgroup": "grid", "tier": "primary", "label": "Grid", "type": "bool", "keys": ["axes.grid"], "default": false, "category": "live", "help": "axes.grid" },
-    { "id": "grid_alpha", "group": "axes", "subgroup": "grid", "tier": "more", "label": "Grid opacity", "type": "number", "keys": ["grid.alpha"], "default": 1, "category": "live", "min": 0, "max": 1, "step": 0.05, "help": "grid.alpha" },
-    { "id": "grid_linestyle", "group": "axes", "subgroup": "grid", "tier": "more", "label": "Grid line style", "type": "enum", "keys": ["grid.linestyle"], "default": "-", "category": "live", "help": "grid.linestyle",
-      "options": [ { "value": "-", "label": "Solid" }, { "value": "--", "label": "Dashed" }, { "value": "-.", "label": "Dash-dot" }, { "value": ":", "label": "Dotted" } ] },
-    { "id": "box", "group": "axes", "subgroup": "box", "tier": "primary", "label": "Box around the plot", "type": "bool", "keys": ["axes.spines.top", "axes.spines.right"], "default": true, "category": "live",
-      "help": "Off hides the top and right edges (axes.spines.top and axes.spines.right)." },
-    { "id": "axes_linewidth", "group": "axes", "subgroup": "box", "tier": "more", "label": "Axes line width", "type": "number", "keys": ["axes.linewidth"], "default": 0.8, "category": "live", "min": 0.25, "max": 4, "step": 0.05, "help": "axes.linewidth" },
-    { "id": "tick_direction", "group": "axes", "subgroup": "ticks", "tier": "more", "label": "Tick marks point", "type": "enum", "keys": ["xtick.direction", "ytick.direction"], "default": "out", "category": "live",
+        {
+          "id": "tab10",
+          "label": "matplotlib default",
+          "colors": [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf"
+          ]
+        },
+        {
+          "id": "okabe-ito",
+          "label": "Colorblind-safe (Okabe–Ito)",
+          "colors": [
+            "#E69F00",
+            "#56B4E9",
+            "#009E73",
+            "#F0E442",
+            "#0072B2",
+            "#D55E00",
+            "#CC79A7",
+            "#000000"
+          ]
+        },
+        {
+          "id": "tol-bright",
+          "label": "Colorblind-safe (Tol bright)",
+          "colors": [
+            "#4477AA",
+            "#EE6677",
+            "#228833",
+            "#CCBB44",
+            "#66CCEE",
+            "#AA3377",
+            "#BBBBBB"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "figsize",
+      "group": "look",
+      "tier": "more",
+      "label": "Figure size (inches)",
+      "type": "pair",
+      "keys": [
+        "figure.figsize"
+      ],
+      "default": [
+        6.4,
+        4.8
+      ],
+      "category": "live",
+      "min": 1,
+      "max": 30,
+      "step": 0.1,
+      "help": "Width × height of new figures (figure.figsize)."
+    },
+    {
+      "id": "font_size",
+      "group": "text",
+      "tier": "primary",
+      "label": "Text size",
+      "type": "number",
+      "keys": [
+        "font.size"
+      ],
+      "default": 10,
+      "category": "live",
+      "min": 6,
+      "max": 24,
+      "step": 0.5,
+      "help": "Base size in points (font.size). Title, labels and legend scale from it unless set below."
+    },
+    {
+      "id": "title_size",
+      "group": "text",
+      "tier": "more",
+      "label": "Title size",
+      "type": "fontsize",
+      "keys": [
+        "axes.titlesize"
+      ],
+      "default": "large",
+      "category": "live",
+      "help": "axes.titlesize"
+    },
+    {
+      "id": "label_size",
+      "group": "text",
+      "tier": "more",
+      "label": "Axis label size",
+      "type": "fontsize",
+      "keys": [
+        "axes.labelsize"
+      ],
+      "default": "medium",
+      "category": "live",
+      "help": "axes.labelsize"
+    },
+    {
+      "id": "tick_label_size",
+      "group": "text",
+      "tier": "more",
+      "label": "Tick label size",
+      "type": "fontsize",
+      "keys": [
+        "xtick.labelsize",
+        "ytick.labelsize"
+      ],
+      "default": "medium",
+      "category": "live",
+      "help": "xtick.labelsize and ytick.labelsize"
+    },
+    {
+      "id": "legend_fontsize",
+      "group": "text",
+      "tier": "more",
+      "label": "Legend text size",
+      "type": "fontsize",
+      "keys": [
+        "legend.fontsize"
+      ],
+      "default": "medium",
+      "category": "live",
+      "help": "legend.fontsize"
+    },
+    {
+      "id": "font_family",
+      "group": "text",
+      "tier": "more",
+      "label": "Font",
+      "type": "enum",
+      "keys": [
+        "font.family"
+      ],
+      "default": "sans-serif",
+      "category": "rerun",
+      "help": "font.family",
+      "options": [
+        {
+          "value": "sans-serif",
+          "label": "Sans"
+        },
+        {
+          "value": "serif",
+          "label": "Serif"
+        },
+        {
+          "value": "monospace",
+          "label": "Mono"
+        }
+      ]
+    },
+    {
+      "id": "line_cycle",
+      "group": "lines",
+      "tier": "primary",
+      "label": "Per line",
+      "type": "linecycle",
+      "keys": [
+        "axes.prop_cycle"
+      ],
+      "category": "live",
+      "default": [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf"
+      ],
+      "help": "Color, width and style for the 1st, 2nd, … line in the order they are drawn (axes.prop_cycle). A line whose code sets its own color or width keeps it.",
+      "minLines": 2,
+      "maxLines": 8
+    },
+    {
+      "id": "linewidth",
+      "group": "lines",
+      "tier": "primary",
+      "label": "Line width (all)",
+      "type": "number",
+      "keys": [
+        "lines.linewidth"
+      ],
+      "default": 1.5,
+      "category": "live",
+      "min": 0.5,
+      "max": 8,
+      "step": 0.25,
+      "help": "lines.linewidth, in points"
+    },
+    {
+      "id": "linestyle",
+      "group": "lines",
+      "tier": "more",
+      "label": "Line style (all)",
+      "type": "enum",
+      "keys": [
+        "lines.linestyle"
+      ],
+      "default": "-",
+      "category": "live",
+      "help": "lines.linestyle",
+      "options": [
+        {
+          "value": "-",
+          "label": "Solid"
+        },
+        {
+          "value": "--",
+          "label": "Dashed"
+        },
+        {
+          "value": "-.",
+          "label": "Dash-dot"
+        },
+        {
+          "value": ":",
+          "label": "Dotted"
+        }
+      ]
+    },
+    {
+      "id": "markersize",
+      "group": "lines",
+      "tier": "more",
+      "label": "Marker size",
+      "type": "number",
+      "keys": [
+        "lines.markersize"
+      ],
+      "default": 6,
+      "category": "live",
+      "min": 1,
+      "max": 20,
+      "step": 0.5,
+      "help": "lines.markersize, in points"
+    },
+    {
+      "id": "grid",
+      "group": "axes",
+      "subgroup": "grid",
+      "tier": "primary",
+      "label": "Grid",
+      "type": "bool",
+      "keys": [
+        "axes.grid"
+      ],
+      "default": false,
+      "category": "live",
+      "help": "axes.grid"
+    },
+    {
+      "id": "grid_alpha",
+      "group": "axes",
+      "subgroup": "grid",
+      "tier": "more",
+      "label": "Grid opacity",
+      "type": "number",
+      "keys": [
+        "grid.alpha"
+      ],
+      "default": 1,
+      "category": "live",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "grid.alpha"
+    },
+    {
+      "id": "grid_linestyle",
+      "group": "axes",
+      "subgroup": "grid",
+      "tier": "more",
+      "label": "Grid line style",
+      "type": "enum",
+      "keys": [
+        "grid.linestyle"
+      ],
+      "default": "-",
+      "category": "live",
+      "help": "grid.linestyle",
+      "options": [
+        {
+          "value": "-",
+          "label": "Solid"
+        },
+        {
+          "value": "--",
+          "label": "Dashed"
+        },
+        {
+          "value": "-.",
+          "label": "Dash-dot"
+        },
+        {
+          "value": ":",
+          "label": "Dotted"
+        }
+      ]
+    },
+    {
+      "id": "box",
+      "group": "axes",
+      "subgroup": "box",
+      "tier": "primary",
+      "label": "Box around the plot",
+      "type": "bool",
+      "keys": [
+        "axes.spines.top",
+        "axes.spines.right"
+      ],
+      "default": true,
+      "category": "live",
+      "help": "Off hides the top and right edges (axes.spines.top and axes.spines.right)."
+    },
+    {
+      "id": "axes_linewidth",
+      "group": "axes",
+      "subgroup": "box",
+      "tier": "more",
+      "label": "Axes line width",
+      "type": "number",
+      "keys": [
+        "axes.linewidth"
+      ],
+      "default": 0.8,
+      "category": "live",
+      "min": 0.25,
+      "max": 4,
+      "step": 0.05,
+      "help": "axes.linewidth"
+    },
+    {
+      "id": "tick_direction",
+      "group": "axes",
+      "subgroup": "ticks",
+      "tier": "more",
+      "label": "Tick marks point",
+      "type": "enum",
+      "keys": [
+        "xtick.direction",
+        "ytick.direction"
+      ],
+      "default": "out",
+      "category": "live",
       "help": "xtick.direction and ytick.direction",
-      "options": [ { "value": "out", "label": "Out" }, { "value": "in", "label": "In" }, { "value": "inout", "label": "Both" } ] },
-    { "id": "minor_ticks", "group": "axes", "subgroup": "ticks", "tier": "more", "label": "Minor tick marks", "type": "bool", "keys": ["xtick.minor.visible", "ytick.minor.visible"], "default": false, "category": "live", "help": "xtick.minor.visible and ytick.minor.visible" },
-
-    { "id": "legend_loc", "group": "legend", "tier": "primary", "label": "Position", "type": "legendloc", "keys": ["legend.loc"], "default": "best", "category": "live",
+      "options": [
+        {
+          "value": "out",
+          "label": "Out"
+        },
+        {
+          "value": "in",
+          "label": "In"
+        },
+        {
+          "value": "inout",
+          "label": "Both"
+        }
+      ]
+    },
+    {
+      "id": "minor_ticks",
+      "group": "axes",
+      "subgroup": "ticks",
+      "tier": "more",
+      "label": "Minor tick marks",
+      "type": "bool",
+      "keys": [
+        "xtick.minor.visible",
+        "ytick.minor.visible"
+      ],
+      "default": false,
+      "category": "live",
+      "help": "xtick.minor.visible and ytick.minor.visible"
+    },
+    {
+      "id": "legend_loc",
+      "group": "legend",
+      "tier": "primary",
+      "label": "Position",
+      "type": "legendloc",
+      "keys": [
+        "legend.loc"
+      ],
+      "default": "best",
+      "category": "live",
       "help": "legend.loc. 'Custom position' places the legend's lower-left corner at (x, y) as fractions of the axes.",
       "options": [
-        { "value": "best", "label": "Best" }, { "value": "upper right", "label": "Upper right" }, { "value": "upper left", "label": "Upper left" },
-        { "value": "lower left", "label": "Lower left" }, { "value": "lower right", "label": "Lower right" }, { "value": "right", "label": "Right" },
-        { "value": "center left", "label": "Center left" }, { "value": "center right", "label": "Center right" }, { "value": "lower center", "label": "Lower center" },
-        { "value": "upper center", "label": "Upper center" }, { "value": "center", "label": "Center" } ] },
-    { "id": "legend_frameon", "group": "legend", "tier": "primary", "label": "Frame", "type": "bool", "keys": ["legend.frameon"], "default": true, "category": "live", "help": "legend.frameon" },
-    { "id": "legend_framealpha", "group": "legend", "tier": "more", "label": "Frame opacity", "type": "number", "keys": ["legend.framealpha"], "default": 0.8, "category": "live", "min": 0, "max": 1, "step": 0.05, "help": "legend.framealpha" },
-
-    { "id": "savefig_dpi", "group": "save", "tier": "primary", "label": "Resolution (dpi)", "type": "dpi", "keys": ["savefig.dpi"], "default": "figure", "category": "save", "min": 36, "max": 1200, "step": 1,
-      "help": "savefig.dpi. Leave empty to use the figure's own dpi." },
-    { "id": "savefig_transparent", "group": "save", "tier": "primary", "label": "Transparent background", "type": "bool", "keys": ["savefig.transparent"], "default": false, "category": "save", "help": "savefig.transparent" },
-    { "id": "savefig_bbox", "group": "save", "tier": "primary", "label": "Crop to content", "type": "enum", "keys": ["savefig.bbox"], "default": "standard", "category": "save", "help": "savefig.bbox",
-      "options": [ { "value": "standard", "label": "No" }, { "value": "tight", "label": "Yes" } ] }
+        {
+          "value": "best",
+          "label": "Best"
+        },
+        {
+          "value": "upper right",
+          "label": "Upper right"
+        },
+        {
+          "value": "upper left",
+          "label": "Upper left"
+        },
+        {
+          "value": "lower left",
+          "label": "Lower left"
+        },
+        {
+          "value": "lower right",
+          "label": "Lower right"
+        },
+        {
+          "value": "right",
+          "label": "Right"
+        },
+        {
+          "value": "center left",
+          "label": "Center left"
+        },
+        {
+          "value": "center right",
+          "label": "Center right"
+        },
+        {
+          "value": "lower center",
+          "label": "Lower center"
+        },
+        {
+          "value": "upper center",
+          "label": "Upper center"
+        },
+        {
+          "value": "center",
+          "label": "Center"
+        }
+      ]
+    },
+    {
+      "id": "legend_frameon",
+      "group": "legend",
+      "tier": "primary",
+      "label": "Frame",
+      "type": "bool",
+      "keys": [
+        "legend.frameon"
+      ],
+      "default": true,
+      "category": "live",
+      "help": "legend.frameon"
+    },
+    {
+      "id": "legend_framealpha",
+      "group": "legend",
+      "tier": "more",
+      "label": "Frame opacity",
+      "type": "number",
+      "keys": [
+        "legend.framealpha"
+      ],
+      "default": 0.8,
+      "category": "live",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "legend.framealpha"
+    },
+    {
+      "id": "savefig_dpi",
+      "group": "save",
+      "tier": "primary",
+      "label": "Resolution (dpi)",
+      "type": "dpi",
+      "keys": [
+        "savefig.dpi"
+      ],
+      "default": "figure",
+      "category": "save",
+      "min": 36,
+      "max": 1200,
+      "step": 1,
+      "help": "savefig.dpi for plt.savefig(). plotpolish sets 300 as soon as you change anything; matplotlib's own default is the figure's screen dpi.",
+      "panelDefault": 300
+    },
+    {
+      "id": "savefig_transparent",
+      "group": "save",
+      "tier": "primary",
+      "label": "Transparent background",
+      "type": "bool",
+      "keys": [
+        "savefig.transparent"
+      ],
+      "default": false,
+      "category": "save",
+      "help": "savefig.transparent"
+    },
+    {
+      "id": "savefig_bbox",
+      "group": "save",
+      "tier": "primary",
+      "label": "Crop to content",
+      "type": "enum",
+      "keys": [
+        "savefig.bbox"
+      ],
+      "default": "standard",
+      "category": "save",
+      "help": "savefig.bbox",
+      "options": [
+        {
+          "value": "standard",
+          "label": "No"
+        },
+        {
+          "value": "tight",
+          "label": "Yes"
+        }
+      ]
+    }
   ]
 }

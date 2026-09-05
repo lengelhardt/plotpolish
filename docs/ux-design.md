@@ -173,3 +173,39 @@ there with more plumbing. Belongs after the tiered layout has proven itself.
 * `controls.json` carries the tree unchanged from the tiered build.
 * Public API for sink, backend, settings and events is unchanged. US
   spelling everywhere in user-facing text.
+
+## Round three (2026-09-05, after trying the toolbar pill)
+
+Feedback: "looks great", but the pill should be easier to find; the "Style"
+label does nothing; dragging was not discoverable; per-line properties for
+the two data sets would be really nice; the dpi field showed the word
+"figure"; title size seemed to do nothing; ✕ did nothing. Decisions:
+
+* **The pill floats over the plot's top-right corner** (`layout="float"`,
+  the default when `figureElement` is set), positioned against the figure
+  container's bounding rect with an 8 px inset and re-positioned on
+  resize/scroll. Inline `pill` and vertical `rail` remain as host options.
+  Maximally discoverable; if it hides a title we will see and adjust.
+* **No "Style" label.** The tabs alone are the pill.
+* **Drag affordance:** a grip glyph at the left of the popover header, a grab
+  cursor, and a "Drag to move" tooltip. Bug fixed: pointer-downs on the
+  header's buttons no longer start a drag or capture the pointer, and a drag
+  begins only after the pointer moves 4 px, so ✕ and ⌖ receive their clicks.
+* **Number fields commit as you type**, debounced like the sliders, so a
+  typed title size shows on the plot without Enter or blur.
+* **Resolution:** the field shows a number, never the word "figure". 300 dpi
+  is plotpolish's opinionated default: `savefig.dpi: 300` is added when the
+  block is first created (the first change of anything) unless already set,
+  and can be reverted like any value. It affects `plt.savefig()`; the
+  toolbar's download button uses the on-screen canvas.
+* **Per-line properties through the property cycle.** matplotlib's
+  `axes.prop_cycle` can zip color, line width and line style, so
+  `mpl.cycler(color=[...], linewidth=[...], linestyle=[...])` means "the
+  first line gets these, the second those". The Lines tab gains a "Per line"
+  table: one row per line (rows = lines in the live figure, at least 2, at
+  most 8, plus an add-row button), each with a color swatch, width and style.
+  Live preview applies them to the matching lines. The Look tab's color
+  presets write the same key's `color` list. Limits, stated in the tooltip:
+  lines are addressed in drawing order, a line whose code passes its own
+  `color=`/`lw=` keeps it, and labels are not covered. `axes.prop_cycle`
+  therefore becomes a live-category key.

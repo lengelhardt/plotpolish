@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib as mpl
 import pytest
 
-from plotpolish import CURATED_KEYS, LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, rc_to_json
+from plotpolish import CURATED_KEYS, LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, json_to_rc, rc_to_json
 
 SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "src" / "schema" / "controls.json").read_text())
 CONTROLS = [c for c in SCHEMA["controls"] if c["type"] != "style"]
@@ -44,11 +44,18 @@ def test_schema_defaults_are_matplotlib_defaults(control):
             assert actual == expected, key
 
 
-@pytest.mark.parametrize("control", [c for c in CONTROLS if c["type"] == "enum"], ids=lambda c: c["id"])
+@pytest.mark.parametrize(
+    "control", [c for c in CONTROLS if c["type"] in ("enum", "legendloc")], ids=lambda c: c["id"]
+)
 def test_enum_options_are_accepted_by_matplotlib(control):
     for option in control["options"]:
         for key in control["keys"]:
             mpl.rcParams[key] = option["value"]
+
+
+def test_legend_loc_xy_json_is_accepted_by_matplotlib():
+    mpl.rcParams["legend.loc"] = json_to_rc("legend.loc", [0.6, 0.2])
+    assert mpl.rcParams["legend.loc"] == (0.6, 0.2)
 
 
 def test_colour_presets_are_valid_colours():

@@ -4,8 +4,9 @@
  * Grammar (and nothing more):
  *   dict    := "{" [ entry { "," entry } [ "," ] ] "}"
  *   entry   := string ":" value
- *   value   := string | number | "True" | "False" | list | cycler
+ *   value   := string | number | "True" | "False" | list | tuple | cycler
  *   list    := "[" [ scalar { "," scalar } [ "," ] ] "]"
+ *   tuple   := "(" [ scalar { "," scalar } [ "," ] ] ")"
  *   scalar  := string | number
  *   cycler  := "mpl.cycler" "(" "color" "=" list ")"
  *
@@ -14,14 +15,22 @@
  */
 
 export type PyScalar = number | boolean | string;
-export type PyValue = PyScalar | PyScalar[] | PyCycler;
+export type PyValue = PyScalar | PyScalar[] | PyCycler | PyTuple;
 
 export interface PyCycler {
   cycler: { color: string[] };
 }
 
+export interface PyTuple {
+  tuple: PyScalar[];
+}
+
 export function isPyCycler(v: PyValue): v is PyCycler {
   return typeof v === "object" && v !== null && !Array.isArray(v) && "cycler" in v;
+}
+
+export function isPyTuple(v: PyValue): v is PyTuple {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && "tuple" in v;
 }
 
 export class PyLitError extends Error {
@@ -199,6 +208,7 @@ class Parser {
       throw new PyLitError(`Unsupported name ${t.value}`, t.pos);
     }
     if (t.kind === "punct" && t.value === "[") return this.list();
+    if (t.kind === "punct" && t.value === "(") return this.tuple();
     throw new PyLitError("Expected a value", t.pos);
   }
 
@@ -215,6 +225,21 @@ class Parser {
     }
     this.expectPunct("]");
     return out;
+  }
+
+  tuple(): PyTuple {
+    this.expectPunct("(");
+    const out: PyScalar[] = [];
+    while (!this.isPunct(")")) {
+      const t = this.next();
+      if (t.kind === "str" || t.kind === "num") out.push(t.value);
+      else if (t.kind === "name" && (t.value === "True" || t.value === "False")) out.push(t.value === "True");
+      else throw new PyLitError("Tuples may only hold strings and numbers", t.pos);
+      if (this.isPunct(",")) this.next();
+      else if (!this.isPunct(")")) throw new PyLitError('Expected "," or ")"', this.peek().pos);
+    }
+    this.expectPunct(")");
+    return { tuple: out };
   }
 
   cycler(): PyCycler {
@@ -263,5 +288,10 @@ export function formatPyValue(value: PyValue): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(formatPyValue).join(", ")}]`;
   if (isPyCycler(value)) return `mpl.cycler(color=${formatPyValue(value.cycler.color)})`;
+  if (isPyTuple(value)) {
+    if (value.tuple.length === 0) return "()";
+    if (value.tuple.length === 1) return `(${formatPyValue(value.tuple[0]!)},)`;
+    return `(${value.tuple.map(formatPyValue).join(", ")})`;
+  }
   throw new PyLitError("Unsupported value", 0);
 }

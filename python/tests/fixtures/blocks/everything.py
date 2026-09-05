@@ -2,21 +2,18 @@
 import matplotlib as mpl
 mpl.style.use("ggplot")
 mpl.rcParams.update({
+    "axes.prop_cycle": mpl.cycler(color=["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]),
     "figure.figsize": [8, 5],
-    "savefig.dpi": 300,
-    "savefig.transparent": True,
-    "savefig.bbox": "tight",
     "font.size": 14,
-    "font.family": "serif",
     "axes.titlesize": "x-large",
     "axes.labelsize": 13,
     "xtick.labelsize": "small",
     "ytick.labelsize": "small",
     "legend.fontsize": 11.5,
+    "font.family": "serif",
     "lines.linewidth": 2.5,
     "lines.linestyle": "--",
     "lines.markersize": 8,
-    "axes.prop_cycle": mpl.cycler(color=["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]),
     "axes.grid": True,
     "grid.alpha": 0.3,
     "grid.linestyle": ":",
@@ -27,8 +24,11 @@ mpl.rcParams.update({
     "ytick.direction": "in",
     "xtick.minor.visible": True,
     "ytick.minor.visible": True,
-    "legend.frameon": False,
     "legend.loc": "upper left",
+    "legend.frameon": False,
     "legend.framealpha": 0.5,
+    "savefig.dpi": 300,
+    "savefig.transparent": True,
+    "savefig.bbox": "tight",
 })
 # --- end plot style ---

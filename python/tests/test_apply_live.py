@@ -133,6 +133,25 @@ def test_legend_properties():
     assert leg._loc == leg.codes["upper left"]
 
 
+def test_legend_loc_custom_xy_position():
+    fig, ax = make_figure()
+    leg = ax.get_legend()
+    apply_live({"legend.loc": [0.1, 0.9]})
+    assert leg._loc == (0.1, 0.9)
+    assert mpl.rcParams["legend.loc"] == (0.1, 0.9)
+    apply_live({"legend.loc": "upper left"}, previous={"legend.loc": [0.1, 0.9]})
+    assert leg._loc == leg.codes["upper left"]
+    assert mpl.rcParams["legend.loc"] == "upper left"
+
+
+def test_legend_loc_xy_user_placement_not_moved():
+    fig, ax = make_figure()
+    leg = ax.get_legend()
+    leg.set_loc((0.5, 0.5))  # user explicitly placed the legend
+    apply_live({"legend.loc": "upper right"}, previous={"legend.loc": "best"})
+    assert leg._loc == (0.5, 0.5)  # left alone: it wasn't at "best"
+
+
 def test_figsize_respects_user_figure_size():
     fig, ax = make_figure()
     apply_live({"figure.figsize": [8, 5]})

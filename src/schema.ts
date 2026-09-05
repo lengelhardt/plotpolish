@@ -13,7 +13,11 @@ export type ControlType =
   | "enum"
   | "number"
   | "fontsize"
-  | "colorcycle";
+  | "colorcycle"
+  | "legendloc";
+
+/** primary = visible as soon as the category opens; more = under the "More" expander. */
+export type Tier = "primary" | "more";
 
 export interface EnumOption {
   value: string;
@@ -29,6 +33,9 @@ export interface ColorPreset {
 export interface ControlSpec {
   id: string;
   group: string;
+  /** Optional sub-heading within the group (see GroupSpec.subgroups). */
+  subgroup?: string;
+  tier: Tier;
   label: string;
   type: ControlType;
   /** rc keys this control writes. Empty for the style control. */
@@ -43,9 +50,18 @@ export interface ControlSpec {
   presets?: ColorPreset[];
 }
 
+export interface SubgroupSpec {
+  id: string;
+  label: string;
+}
+
 export interface GroupSpec {
   id: string;
   label: string;
+  help?: string;
+  subgroups?: SubgroupSpec[];
+  /** "no-legend": hide this group when the live figure has no legend and no legend key is set. */
+  hideWhen?: "no-legend";
 }
 
 interface RawSchema {
@@ -74,9 +90,11 @@ export function categoryOf(key: string): Category | undefined {
   return CONTROL_FOR_KEY.get(key)?.category;
 }
 
-export function controlsInGroup(groupId: string): ControlSpec[] {
-  return CONTROLS.filter((c) => c.group === groupId);
+export function controlsInGroup(groupId: string, tier?: Tier): ControlSpec[] {
+  return CONTROLS.filter((c) => c.group === groupId && (tier === undefined || c.tier === tier));
 }
+
+export const GROUP_BY_ID: ReadonlyMap<string, GroupSpec> = new Map(GROUPS.map((g) => [g.id, g]));
 
 /** matplotlib.font_manager.font_scalings */
 export const FONT_SCALINGS: Readonly<Record<string, number>> = {

@@ -7,7 +7,7 @@
  */
 
 import { FENCE_END, FENCE_START } from "./constants";
-import { formatPyValue, isPyCycler, parsePyDict, parsePyString, PyLitError, type PyValue } from "./pylit";
+import { formatPyValue, isPyCycler, isPyTuple, parsePyDict, parsePyString, PyLitError, type PyScalar, type PyValue } from "./pylit";
 import { CONTROL_FOR_KEY, RC_KEYS, type RcValue } from "./schema";
 
 export interface StyleSettings {
@@ -117,6 +117,10 @@ function toPyValue(key: string, value: RcValue): PyValue {
   if (key === "axes.prop_cycle" && Array.isArray(value)) {
     return { cycler: { color: value.map(String) } };
   }
+  // matplotlib rejects a list for legend.loc's (x, y) form; it must be a tuple.
+  if (key === "legend.loc" && Array.isArray(value)) {
+    return { tuple: value as PyScalar[] };
+  }
   return value as PyValue;
 }
 
@@ -159,6 +163,11 @@ function fromPyValue(key: string, value: PyValue, line: number): RcValue {
   if (isPyCycler(value)) {
     if (key !== "axes.prop_cycle") throw new FenceError("malformed", `mpl.cycler is only valid for "axes.prop_cycle" (line ${line + 1}).`, line);
     return value.cycler.color;
+  }
+  if (isPyTuple(value)) {
+    if (value.tuple.every((v) => typeof v === "number")) return value.tuple as number[];
+    if (value.tuple.every((v) => typeof v === "string")) return value.tuple as string[];
+    throw new FenceError("malformed", `Malformed tuple for ${JSON.stringify(key)} (line ${line + 1}).`, line);
   }
   if (Array.isArray(value)) {
     if (value.every((v) => typeof v === "number")) return value as number[];

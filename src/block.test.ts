@@ -149,6 +149,16 @@ describe("generateBlock", () => {
     const block = generateBlock({ style: "default", rc: { "axes.prop_cycle": ["#111", "#222"] } })!;
     expect(block).toContain('"axes.prop_cycle": mpl.cycler(color=["#111", "#222"]),');
   });
+
+  it("emits legend.loc (number[]) as a tuple, not a list", () => {
+    const block = generateBlock({ style: "default", rc: { "legend.loc": [0.6, 0.2] } })!;
+    expect(block).toContain('"legend.loc": (0.6, 0.2),');
+  });
+
+  it("still emits figure.figsize as a list", () => {
+    const block = generateBlock({ style: "default", rc: { "figure.figsize": [8, 5] } })!;
+    expect(block).toContain('"figure.figsize": [8, 5],');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -248,6 +258,28 @@ describe("parseBlock", () => {
   it("rejects a bad style-name expression like mpl.style.use(name)", () => {
     const src = fenceBody(["import matplotlib as mpl", "mpl.style.use(name)"]);
     expect(captureFenceError(() => parseBlock(src)).kind).toBe("malformed");
+  });
+
+  it("reads legend.loc as a tuple back into a number[]", () => {
+    const src = fenceBody([
+      "import matplotlib as mpl",
+      "mpl.rcParams.update({",
+      '    "legend.loc": (0.6, 0.2),',
+      "})",
+    ]);
+    const parsed = parseBlock(src)!;
+    expect(parsed.settings.rc["legend.loc"]).toEqual([0.6, 0.2]);
+  });
+
+  it("parses a tuple for another key to number[] without error (block.ts is not the validator)", () => {
+    const src = fenceBody([
+      "import matplotlib as mpl",
+      "mpl.rcParams.update({",
+      '    "lines.linewidth": (1, 2),',
+      "})",
+    ]);
+    const parsed = parseBlock(src)!;
+    expect(parsed.settings.rc["lines.linewidth"]).toEqual([1, 2]);
   });
 });
 

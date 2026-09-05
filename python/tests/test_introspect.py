@@ -72,6 +72,16 @@ def test_style_applied_after_creation_counts_as_override():
     assert "axes.grid" in introspect_figure()["overridden"]
 
 
+def test_legend_custom_xy_loc_is_reported_and_overridden():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.legend(loc=(0.3, 0.4))
+    result = introspect_figure()
+    assert result["figure"]["axes"][0]["legend"]["loc"] == [0.3, 0.4]
+    assert result["rc"]["legend.loc"] == "best"
+    assert "legend.loc" in result["overridden"]
+
+
 def test_result_is_json_serialisable():
     import json
 

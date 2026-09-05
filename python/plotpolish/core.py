@@ -97,6 +97,10 @@ def rc_to_json(key, value):
         return "figure" if value == "figure" else float(value)
     if key == "figure.figsize":
         return [float(value[0]), float(value[1])]
+    if key == "legend.loc":
+        if isinstance(value, (list, tuple)):
+            return [float(value[0]), float(value[1])]
+        return value
     value = _plain(value)
     if isinstance(value, float) and value.is_integer():
         return value  # keep floats as floats; JSON will render 1.0 as 1.0
@@ -109,6 +113,8 @@ def json_to_rc(key, value):
         return mpl.cycler(color=list(value))
     if key == "figure.figsize":
         return [float(value[0]), float(value[1])]
+    if key == "legend.loc" and isinstance(value, (list, tuple)):
+        return tuple(float(v) for v in value)
     return value
 
 
@@ -218,6 +224,8 @@ def _legend_loc_name(legend):
         for name, code in legend.codes.items():
             if code == loc:
                 return name
+    if isinstance(loc, (list, tuple)):
+        return [float(loc[0]), float(loc[1])]
     return loc if isinstance(loc, str) else None
 
 
@@ -275,6 +283,9 @@ def _find_overrides(fig, rc):
         exp = rc[key] if expected is None else expected
         if isinstance(exp, bool) or isinstance(actual, bool):
             if bool(actual) != bool(exp):
+                over.add(key)
+        elif isinstance(exp, (list, tuple)) or isinstance(actual, (list, tuple)):
+            if not _close_or_equal(actual, exp):
                 over.add(key)
         elif isinstance(exp, (int, float)) and not isinstance(exp, bool):
             if not _close(actual, exp):
@@ -377,6 +388,8 @@ def _set_if_default(getter, setter, old, new, only_defaults):
 
 
 def _close_or_equal(a, b):
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_close_or_equal(x, y) for x, y in zip(a, b))
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
         return _close(a, b)
     return a == b
@@ -524,10 +537,13 @@ def _apply_legend_loc(fig, new, old, only):
         if leg is None:
             continue
         current = _legend_loc_name(leg)
-        if only and current is not None and current != old:
+        if only and current is not None and not _close_or_equal(current, old):
             continue
         if hasattr(leg, "set_loc"):
-            leg.set_loc(str(new))
+            if isinstance(new, (list, tuple)):
+                leg.set_loc(tuple(float(v) for v in new))
+            else:
+                leg.set_loc(str(new))
         else:  # pragma: no cover - matplotlib < 3.8
             leg._set_loc(leg.codes[str(new)])
 
@@ -570,7 +586,9 @@ def apply_live(rc, only_defaults=True, previous=None):
     key with an artist-level equivalent the retained figure is updated; for
     save-time keys the rcParam is set; re-run-only keys are reported back as
     deferred. ``mpl.rcParams`` is updated for every applied key so that a
-    subsequent call compares against the new baseline.
+    subsequent call compares against the new baseline. ``legend.loc`` is one
+    such key whose JSON value may be either a named location string or an
+    ``[x, y]`` axes-fraction pair for a custom position.
 
     With ``only_defaults=True`` (the default) an artist is only changed if it
     currently sits at the old rc value — a line the user drew with ``lw=3``

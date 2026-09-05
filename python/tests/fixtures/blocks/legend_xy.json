@@ -1,0 +1,6 @@
+{
+  "style": "default",
+  "rc": {
+    "legend.loc": [0.6, 0.2]
+  }
+}

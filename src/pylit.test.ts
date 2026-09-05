@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPyValue, isPyCycler, parsePyDict, parsePyString, PyLitError, type PyValue } from "./pylit";
+import { formatPyValue, isPyCycler, isPyTuple, parsePyDict, parsePyString, PyLitError, type PyValue } from "./pylit";
 
 // ---------------------------------------------------------------------------
 // Numbers
@@ -98,6 +98,38 @@ describe("cycler", () => {
   it("tolerates a trailing comma inside mpl.cycler(...)", () => {
     const { value } = parsePyDict('{"a": mpl.cycler(color=["#a", "#b"],)}');
     expect(value.a).toEqual({ cycler: { color: ["#a", "#b"] } });
+  });
+});
+
+describe("tuples", () => {
+  it("parses a two-element tuple", () => {
+    const { value } = parsePyDict('{"a": (0.6, 0.2)}');
+    expect(value.a).toEqual({ tuple: [0.6, 0.2] });
+    expect(isPyTuple(value.a!)).toBe(true);
+  });
+
+  it("tolerates a trailing comma", () => {
+    expect(parsePyDict('{"a": (1, 2,)}').value).toEqual({ a: { tuple: [1, 2] } });
+  });
+
+  it("parses a single-element tuple", () => {
+    expect(parsePyDict('{"a": (1,)}').value).toEqual({ a: { tuple: [1] } });
+  });
+
+  it("parses an empty tuple", () => {
+    expect(parsePyDict('{"a": ()}').value).toEqual({ a: { tuple: [] } });
+  });
+
+  it("rejects a nested tuple", () => {
+    expect(() => parsePyDict('{"a": ((1, 2), 3)}')).toThrow(PyLitError);
+  });
+
+  it("rejects a tuple inside a list", () => {
+    expect(() => parsePyDict('{"a": [(1, 2)]}')).toThrow(PyLitError);
+  });
+
+  it("rejects a list inside a tuple", () => {
+    expect(() => parsePyDict('{"a": ([1, 2],)}')).toThrow(PyLitError);
   });
 });
 
@@ -257,6 +289,19 @@ describe("formatPyValue", () => {
     );
   });
 
+  it("formats tuples", () => {
+    expect(formatPyValue({ tuple: [0.6, 0.2] })).toBe("(0.6, 0.2)");
+    expect(formatPyValue({ tuple: [1, 2, 3] })).toBe("(1, 2, 3)");
+  });
+
+  it("formats a single-element tuple with a trailing comma", () => {
+    expect(formatPyValue({ tuple: [1] })).toBe("(1,)");
+  });
+
+  it("formats an empty tuple", () => {
+    expect(formatPyValue({ tuple: [] })).toBe("()");
+  });
+
   it("throws PyLitError for non-finite numbers", () => {
     expect(() => formatPyValue(NaN)).toThrow(PyLitError);
     expect(() => formatPyValue(Infinity)).toThrow(PyLitError);
@@ -281,6 +326,22 @@ describe("isPyCycler", () => {
 });
 
 // ---------------------------------------------------------------------------
+// isPyTuple
+// ---------------------------------------------------------------------------
+
+describe("isPyTuple", () => {
+  it("recognizes a tuple value", () => {
+    expect(isPyTuple({ tuple: [0.6, 0.2] })).toBe(true);
+  });
+
+  it("rejects arrays and primitives", () => {
+    expect(isPyTuple([0.6, 0.2])).toBe(false);
+    expect(isPyTuple("tuple")).toBe(false);
+    expect(isPyTuple(42)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Round trip
 // ---------------------------------------------------------------------------
 
@@ -294,6 +355,7 @@ describe("round trip", () => {
       tags: ["a", "b", "c"],
       nums: [1, 2, 3.5],
       cycle: { cycler: { color: ["#111111", "#222222"] } },
+      loc: { tuple: [0.6, 0.2] },
     };
     const src =
       "{" +

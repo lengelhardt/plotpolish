@@ -36,6 +36,17 @@ def test_figsize_is_plain_floats():
     assert out == [6.4, 4.8] and all(type(v) is float for v in out)
 
 
+def test_legend_loc_xy_round_trip():
+    assert rc_to_json("legend.loc", (0.6, 0.2)) == [0.6, 0.2]
+    assert rc_to_json("legend.loc", "upper left") == "upper left"
+    back = json_to_rc("legend.loc", [0.6, 0.2])
+    assert back == (0.6, 0.2)
+    assert json_to_rc("legend.loc", "upper left") == "upper left"
+    mpl.rcParams["legend.loc"] = back
+    assert mpl.rcParams["legend.loc"] == (0.6, 0.2)
+    assert rc_to_json("legend.loc", mpl.rcParams["legend.loc"]) == [0.6, 0.2]
+
+
 @pytest.mark.parametrize("value,base,expected", [
     (12, None, 12.0),
     ("12", None, 12.0),

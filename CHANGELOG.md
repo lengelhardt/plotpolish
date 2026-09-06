@@ -3,6 +3,21 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.4 — 2026-09-05
+
+- **With no live preview, changes are now marked "re-run to see".** When a host
+  attaches no backend the panel had no way to apply a change *and* no way to
+  say so: the student moved a slider, the figure sat there, and nothing
+  indicated why. `livePreview` was only ever consulted to decide whether to
+  apply; it never marked anything pending. Now a change that cannot be
+  previewed raises the same ↻ indicator a style preset does, on the control and
+  its tab, and a completed run clears it.
+
+  This is the path Trinket's Web Worker runtime takes -- the program runs off
+  the main thread, so there is no interpreter on the page to preview against --
+  and it is what the integration plan meant by "the re-run to see path only".
+  Found by running that path rather than reading it.
+
 ## 0.1.3 — 2026-09-05
 
 Two corrections to the 0.1.2 drag fix.

@@ -1,7 +1,7 @@
 /** The one place the tool's name appears in code. Renaming = editing this file. */
 export const TOOL_NAME = "plotpolish";
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.1.4";
 
 /** Custom element tag. */
 export const ELEMENT_TAG = "plotpolish-panel";

@@ -177,12 +177,6 @@ panel.addEventListener("plotpolish-error", (event) => {
 // ---------------------------------------------------------------------------
 
 function mountPanel(): void {
-  // `figureElement` is not yet part of PlotpolishPanel's public type (the
-  // panel shell is being rewritten to the v3 contract concurrently); this
-  // cast lets us set it either way and keeps `tsc --noEmit` passing today
-  // and after that lands.
-  const withFigureElement = panel as unknown as { figureElement: HTMLElement | null };
-
   const toolbar = figureDiv.querySelector<HTMLElement>(".mpl-toolbar");
   if (toolbar) {
     const wrapper = toolbar.parentElement ?? figureDiv;
@@ -191,13 +185,13 @@ function mountPanel(): void {
     if (panel.parentElement !== toolbar || panel.previousElementSibling !== select) {
       toolbar.insertBefore(panel, anchor);
     }
-    withFigureElement.figureElement = wrapper;
+    panel.figureElement = wrapper;
     panel.removeAttribute("layout");
   } else {
     if (panel.parentElement !== panelDock) {
       panelDock.appendChild(panel);
     }
-    withFigureElement.figureElement = figureDiv;
+    panel.figureElement = figureDiv;
   }
 }
 

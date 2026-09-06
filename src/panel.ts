@@ -104,8 +104,6 @@ interface ControlView {
   addLineBtn?: HTMLButtonElement;
   /** style: the "Applies on the next run." note under the preset select. */
   nextRunNote?: HTMLElement;
-  /** bool with `requires`: the "needs X on" note shown when this one is silent. */
-  needsNote?: HTMLElement;
 }
 
 interface GroupView {
@@ -764,6 +762,7 @@ export class PlotpolishPanel extends HTMLElement {
   private setKeys(spec: ControlSpec, value: RcValue | undefined): void {
     const wasDefault = isDefaultSettings(this.settings);
     let apply: Record<string, RcValue> = {};
+    let touched: string[] = spec.keys;
     if (value === undefined) {
       // Reverting one control clears only what that control owns; on a key two
       // controls share, the other one's parts stay. See clearOwned().
@@ -774,12 +773,24 @@ export class PlotpolishPanel extends HTMLElement {
         apply[key] = this.settings.rc[key]!;
       }
       this.unifyPerLine(spec, apply);
+      // Switching this on switches on whatever it cannot work without, in the
+      // same write and the same apply. Only on the way on: turning the grid
+      // lines off is no reason to take the tick marks away, since the student
+      // may want those on their own.
+      const alsoOn = spec.turnsOn ? CONTROL_BY_ID.get(spec.turnsOn) : undefined;
+      if (alsoOn && rcEqual(value, boolOn(spec))) {
+        for (const key of alsoOn.keys) {
+          this.settings.rc[key] = boolOn(alsoOn);
+          apply[key] = this.settings.rc[key]!;
+        }
+        touched = [...spec.keys, ...alsoOn.keys];
+      }
     }
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     // Without a preview, a change cannot show until the program runs again, so
     // it is pending a re-run for the same reason a style preset always is.
-    if (spec.category === "rerun" || !this.canPreview) this.noteRerun(spec.keys);
+    if (spec.category === "rerun" || !this.canPreview) this.noteRerun(touched);
     else this.scheduleApply(apply);
     this.applySeeded(seeded);
     this.emitChange();
@@ -1705,13 +1716,6 @@ export class PlotpolishPanel extends HTMLElement {
    * a Look palette must not light up the Lines tab's dot and reset, and a
    * per-line width must not light up Look's.
    */
-  /** Whether a bool control is currently switched on, by its effective value. */
-  private controlIsOn(spec: ControlSpec): boolean {
-    const key = spec.keys[0];
-    if (!key) return false;
-    return rcEqual(this.effective(key) as RcValue, boolOn(spec));
-  }
-
   private controlIsSet(spec: ControlSpec): boolean {
     return spec.keys.some((key) => {
       const value = this.settings.rc[key];
@@ -1948,7 +1952,6 @@ export class PlotpolishPanel extends HTMLElement {
     let lineRowsView: LineRowView[] | undefined;
     let addLineBtnView: HTMLButtonElement | undefined;
     let nextRunNote: HTMLElement | undefined;
-    let needsNote: HTMLElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -2024,22 +2027,6 @@ export class PlotpolishPanel extends HTMLElement {
         );
         inputs.push(input);
         control.append(input);
-        // A control that needs another one on says so on the row, at the moment
-        // it is on and silent -- the help text said it too, but a tooltip is
-        // not where anyone looks when a switch appears to do nothing.
-        const needed = spec.requires ? CONTROL_BY_ID.get(spec.requires) : undefined;
-        if (needed) {
-          const fix = el("button", { type: "button", class: "needs-fix" }, `Turn on ${needed.label}`);
-          fix.addEventListener("click", () => this.setKeys(needed, boolOn(needed)));
-          const note = el(
-            "p",
-            { class: "needs", hidden: true },
-            el("span", {}, `Needs ${needed.label}: matplotlib draws a minor grid line only where a minor tick is. `),
-            fix
-          );
-          row.append(note);
-          needsNote = note;
-        }
         break;
       }
       case "number": {
@@ -2300,7 +2287,6 @@ export class PlotpolishPanel extends HTMLElement {
     if (lineRowsView) view.lineRows = lineRowsView;
     if (addLineBtnView) view.addLineBtn = addLineBtnView;
     if (nextRunNote) view.nextRunNote = nextRunNote;
-    if (needsNote) view.needsNote = needsNote;
     this.views.set(spec.id, view);
     return row;
   }
@@ -2579,23 +2565,10 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "copycode":
         break;  // a button: no value to reflect
-      case "bool": {
-        const on = spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
-        const box = view.inputs[0] as HTMLInputElement;
-        box.checked = on;
-        // A control whose prerequisite is off cannot do anything, so it is
-        // disabled rather than left switchable-but-silent -- and the row says
-        // why, with the one click that lifts it. Its stored value is NOT
-        // rewritten: changing one setting because another moved is the thing
-        // this panel does not do, and on load it would mean editing the
-        // student's block without them touching anything.
-        const needed = spec.requires ? CONTROL_BY_ID.get(spec.requires) : undefined;
-        const blocked = !!needed && !this.controlIsOn(needed);
-        box.disabled = blocked;
-        row.classList.toggle("blocked", blocked);
-        if (view.needsNote) view.needsNote.hidden = !blocked;
+      case "bool":
+        (view.inputs[0] as HTMLInputElement).checked =
+          spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
         break;
-      }
       case "number": {
         const v = typeof value === "number" ? String(value) : "";
         const isLineMaster = spec.keys.includes("lines.linewidth");

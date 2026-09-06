@@ -89,12 +89,13 @@ export interface ControlSpec {
   category: Category;
   help?: string;
   /**
-   * bool: the id of another control this one needs switched on before it draws
-   * anything. matplotlib only puts a minor grid line where a minor tick is, so
-   * "Minor grid lines" on its own is silent. The panel says so on the row
-   * rather than switching the other control on unasked.
+   * bool: another control to switch on alongside this one, because this one
+   * cannot do anything without it. matplotlib puts a minor grid line only where
+   * a minor tick is, so "Minor grid lines" on its own draws nothing. Asking for
+   * the grid lines IS asking for whatever it takes to see them; the tick marks
+   * are matplotlib's business, not a second decision for the student.
    */
-  requires?: string;
+  turnsOn?: string;
   /** bool: values written when on/off, when the key is not a plain boolean
    *  (axes.grid.which is "both"/"major", not true/false). Defaults to true/false. */
   onValue?: RcValue;

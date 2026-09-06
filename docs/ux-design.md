@@ -172,6 +172,18 @@ There is no cheap partial version. Because all four grid rcParams are shared,
 nothing distinguishes a minor gridline from a major one except whether it is
 drawn — which `axes.grid.which` already controls.
 
+A separate question, settled the other way (2026-09-06): "Minor grid lines"
+needs "Minor tick marks" on, because matplotlib puts a grid line only where a
+tick is. That was first left to the help text, then tried as disabling the
+switch until its prerequisite was met — which was worse, since the control was
+disabled by default and so the feature could not be reached at all. It now
+simply turns the tick marks on with it (`turnsOn` in controls.json). Asking for
+the grid lines IS asking for whatever it takes to see them; the ticks are
+matplotlib's business, not a second decision for the student. Only on the way
+on — switching the grid lines off leaves the ticks, which a student may want by
+themselves. This does not contradict the "no second change unasked" rule: the
+second key is not a separate setting, it is the first one's precondition.
+
 Decision: not in 0.1, and not as a bolt-on. It wants the finishing block —
 per-artist calls after the plot exists — so it should be built *with* the
 text-string phase, paying the second-block cost once. Note that its

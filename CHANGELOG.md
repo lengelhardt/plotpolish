@@ -3,6 +3,63 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.0 — 2026-09-06
+
+- **New: a regression harness that runs the block and diffs it against the live
+  preview** (`python/tests/test_live_matches_rerun.py`). Live preview must show
+  what a re-run of the block would draw; that promise had broken in five
+  separate places, every one found by eye. The harness runs the student's
+  program and applies the settings the way the panel does, then runs the block
+  plus the same program from a clean interpreter, and requires the two renders
+  to be identical. The reference is computed rather than stored, so there are no
+  golden images to refresh and nothing to re-tune when matplotlib moves. Cases
+  are built from `controls.json` by the real block generator, so a new control
+  arrives with a case; each one has to change at least one pixel or it is
+  rejected as proving nothing.
+
+- **Fixed: the legend's swatches never followed the lines.** A legend's sample
+  lines are copies taken when it was built, so changing colour, width, style,
+  marker or the per-line cycle updated the plot and left the swatches behind —
+  five controls with one cause. Found by the harness.
+
+- **Fixed: per-line widths applied or not depending on the order keys arrived
+  in.** The property cycle's "is this line still where I left it?" test read
+  `mpl.rcParams` for its fallback, which the same call had usually already
+  overwritten, so it concluded the student had styled every line by hand and
+  applied nothing. Found by the harness.
+
+- **Fixed: the axis offset label ("1e6") and the legend title kept their old
+  size.** The first is sized by the tick-label rcParam but not by
+  `tick_params`; the second follows `font.size`, not `legend.fontsize`.
+
+- **Fixed: resetting one category threw away another's work.** "Colors" (Look)
+  and the per-line table (Lines) both write `axes.prop_cycle`, and a reset
+  deleted the key outright. Each control now declares in `controls.json` which
+  parts of the value it owns, so a reset rewrites the value instead — and the
+  reset button no longer offers to undo work the other category did. Restoring
+  the palette changes its length, so the surviving per-line arrays are re-zipped
+  to match; without that the block would carry a cycler matplotlib refuses.
+
+- **Fixed: a style change did not mark the settings it seeds.** Picking a style
+  out of fully-default settings writes `savefig.dpi` and `figure.autolayout`
+  into the block. With a backend attached but live preview off — Trinket's
+  worker path — nothing applied them and nothing said so.
+
+- **Fixed: sliders ignored their own bounds.** `savefig.dpi` declared 36–1200
+  in the schema while the panel hardcoded 72–600; the fontsize and legend x/y
+  sliders hardcoded theirs too. They all read the schema now, and a test fails
+  if a slider gets its bounds anywhere else. A relative font size that lands
+  between steps ("large" at base 12 is 14.4) now puts the thumb on a step the
+  slider can hold while the readout keeps the exact value.
+
+- **Fixed: "Minor grid lines" rendered under "Tick marks."** It had no subgroup,
+  and the row loop only starts a new heading when the subgroup changes.
+
+- Four tests that passed for the wrong reason were replaced, each verified by
+  breaking the behaviour and watching the test go red. One of them had been the
+  only cover for all nine `isEditing` call sites, and another for the `writing`
+  guard — both of which the whole suite passed without.
+
 ## 0.2.0 — 2026-09-06
 
 - **New: "Minor grid lines" (Axes → More).** Draws grid lines at the minor

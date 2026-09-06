@@ -98,6 +98,20 @@ export class MockBackend implements FigureBackend {
         Object.assign(this.rc, saved);
         return { ...this.rc };
       }
+      case "save_figure": {
+        // A one-pixel PNG: the panel only forwards the bytes, so their content
+        // does not matter here, but the shape and the savefig.dpi that produced
+        // them do.
+        const format = (args.format as string | undefined) ?? "png";
+        if (!this.figure) return { has_figure: false, format, data: "", bytes: 0 };
+        return {
+          has_figure: true,
+          format,
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+          bytes: 70,
+          dpi: this.rc["savefig.dpi"],
+        };
+      }
       case "introspect_figure": {
         const keys = (args.keys as string[] | undefined) ?? RC_KEYS;
         const pick = (src: Record<string, RcValue>) => Object.fromEntries(keys.filter((k) => k in src).map((k) => [k, src[k]]));

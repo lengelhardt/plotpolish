@@ -12,7 +12,7 @@ import {
 import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
   PlotpolishPanel, shortStyleName, type AutoUpdateEventDetail, type ChangeEventDetail,
-  type PanelErrorEventDetail, type RerunNeededEventDetail,
+  type PanelErrorEventDetail, type RerunNeededEventDetail, type SavedEventDetail,
 } from "./panel";
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
@@ -3234,5 +3234,97 @@ describe("auto-update: the student's own pause switch", () => {
     // set_style still runs: it moves the baseline and never redraws.
     expect(backend.calls.some((c) => c.fn === "set_style")).toBe(true);
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+  });
+});
+
+describe("Save PNG", () => {
+  function saveBtn(p: PlotpolishPanel): HTMLButtonElement {
+    return input(p, "save_png") as HTMLButtonElement;
+  }
+  function said(p: PlotpolishPanel): string {
+    return (ctl(p, "save_png").querySelector(".copy-said") as HTMLElement).textContent ?? "";
+  }
+
+  it("saves through matplotlib's savefig, not the on-screen canvas", async () => {
+    // The Save category's three keys change what comes out of a FILE. Nothing
+    // in the tool produced one, so they had no observable effect at all -- and
+    // a host that grabs the canvas instead (Trinket's worker figure does) gets
+    // a screen-resolution PNG and none of them.
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(2);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+    backend.calls.length = 0;
+
+    const saved: SavedEventDetail[] = [];
+    panel.addEventListener("plotpolish-saved", (e) =>
+      saved.push((e as CustomEvent<SavedEventDetail>).detail)
+    );
+
+    saveBtn(panel).click();
+    await flush();
+
+    expect(backend.calls.map((c) => c.fn)).toContain("save_figure");
+    expect(saved.length).toBe(1);
+    expect(saved[0]!.format).toBe("png");
+    expect(saved[0]!.filename).toBe("plot.png");
+    expect(saved[0]!.bytes).toBeGreaterThan(0);
+  });
+
+  it("lets a host take the bytes instead, for an iframe that blocks downloads", async () => {
+    // Trinket runs the embed in an iframe, which is exactly where a page-driven
+    // download gets refused -- the trap Copy code already fell into. The event
+    // is cancelable so the host can deliver the file its own way.
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(1);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+
+    let handled = false;
+    panel.addEventListener("plotpolish-saved", (e) => {
+      handled = true;
+      e.preventDefault();
+    });
+
+    saveBtn(panel).click();
+    await flush();
+    expect(handled).toBe(true);
+    expect(said(panel)).toBe("Saved");
+  });
+
+  it("says what to do when there is no interpreter, rather than failing quietly", () => {
+    openTab(panel, "save");
+    saveBtn(panel).click();
+    expect(said(panel)).toBe("Run your code first");
+  });
+
+  it("says so when the interpreter has no figure", async () => {
+    const backend = new MockBackend();
+    backend.figure = null;
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+
+    saveBtn(panel).click();
+    await flush();
+    expect(said(panel)).toBe("No figure to save");
+  });
+
+  it("reports a backend failure instead of swallowing it", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(1);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+    const errors: PanelErrorEventDetail[] = [];
+    panel.addEventListener("plotpolish-error", (e) =>
+      errors.push((e as CustomEvent<PanelErrorEventDetail>).detail)
+    );
+
+    backend.failNext = "no space left on device";
+    saveBtn(panel).click();
+    await flush();
+
+    expect(said(panel)).toBe("Save failed");
+    expect(errors.map((e) => e.context)).toContain("save_figure");
+    expect(saveBtn(panel).disabled).toBe(false); // usable again
   });
 });

@@ -818,3 +818,82 @@ def test_every_live_key_moves_the_figure(key):
     assert _probe_matches(after, expected), (
         "%s: apply_live() left the figure at %r, expected %r" % (key, after, expected)
     )
+
+
+# --------------------------------------------------------------------------
+# save_figure: the only thing that exercises the Save category
+# --------------------------------------------------------------------------
+#
+# savefig.dpi, savefig.transparent and savefig.bbox change what comes out of a
+# FILE, so nothing that compares on-screen renders can see them -- the
+# live-vs-re-run harness rejects all three as cases that prove nothing. These
+# are their only cover.
+
+def _png_size(data):
+    """(width, height) from a PNG's IHDR, without pulling in an image library."""
+    import base64, struct
+    raw = base64.b64decode(data)
+    assert raw[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+    return struct.unpack(">II", raw[16:24])
+
+
+def test_save_figure_returns_a_png_of_the_current_figure():
+    from plotpolish import save_figure
+
+    fig, ax = make_figure()
+    result = save_figure()
+    assert result["has_figure"] is True and result["format"] == "png"
+    assert result["bytes"] > 0
+    width, height = _png_size(result["data"])
+    # 6.4 x 4.8 inches at the default savefig dpi, which is "figure" -> 100.
+    assert (width, height) == (640, 480)
+
+
+def test_save_figure_honours_savefig_dpi():
+    """The whole point: it goes through savefig, not the on-screen canvas.
+
+    A host that grabs the canvas gets a screen-resolution PNG whatever this is
+    set to, which is what Trinket's worker figure does today.
+    """
+    from plotpolish import save_figure
+
+    fig, ax = make_figure()
+    apply_live({"savefig.dpi": 200})
+    width, height = _png_size(save_figure()["data"])
+    assert (width, height) == (1280, 960), "savefig.dpi did not reach the file"
+
+
+def test_save_figure_honours_transparent_and_bbox():
+    from plotpolish import save_figure
+
+    fig, ax = make_figure()
+    opaque = _png_size(save_figure()["data"])
+
+    apply_live({"savefig.bbox": "tight"})
+    tight = _png_size(save_figure()["data"])
+    assert tight != opaque, "savefig.bbox did not reach the file"
+
+    # Transparency shows in the file's colour type, not its size.
+    import base64
+    apply_live({"savefig.bbox": "standard", "savefig.transparent": True})
+    raw = base64.b64decode(save_figure()["data"])
+    colour_type = raw[25]  # IHDR: width, height, bit depth, colour type
+    assert colour_type == 6, "expected RGBA (colour type 6) for a transparent save"
+
+
+def test_save_figure_with_no_figure_says_so_rather_than_raising():
+    from plotpolish import save_figure
+
+    result = save_figure()
+    assert result["has_figure"] is False and result["bytes"] == 0
+
+
+def test_save_figure_is_reachable_through_dispatch():
+    """The panel only ever calls it through dispatch(), so pin that too."""
+    import json as _json
+    from plotpolish import dispatch
+
+    fig, ax = make_figure()
+    response = _json.loads(dispatch(_json.dumps({"fn": "save_figure", "args": {"format": "png"}})))
+    assert response["ok"] is True
+    assert response["result"]["has_figure"] is True

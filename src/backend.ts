@@ -73,6 +73,16 @@ export interface IntrospectResult {
   overridden: string[];
 }
 
+/** A figure saved through `fig.savefig`, so the savefig.* rc keys apply. */
+export interface SaveResult {
+  has_figure: boolean;
+  format: string;
+  /** base64, because the transport is a JSON string. */
+  data: string;
+  bytes: number;
+  dpi?: number | string;
+}
+
 export interface ApplyResult {
   applied: string[];
   deferred: string[];
@@ -135,6 +145,15 @@ export class HelperClient {
   /** Reset the session's rcParams and apply `name`; returns the new effective curated values. */
   setStyle(name: string, keep: string[] = []): Promise<Record<string, RcValue>> {
     return this.call<Record<string, RcValue>>("set_style", { name, keep });
+  }
+
+  /**
+   * Save the figure the way the student's own savefig would, so the Save
+   * category's keys actually apply. A host that grabs the on-screen canvas
+   * instead gets a screen-resolution PNG and none of them.
+   */
+  saveFigure(format = "png"): Promise<SaveResult> {
+    return this.call<SaveResult>("save_figure", { format });
   }
 
   introspect(keys?: string[]): Promise<IntrospectResult> {

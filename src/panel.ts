@@ -48,6 +48,20 @@ export interface ChangeEventDetail {
   /** The full source after the write, or null for write-only sinks. */
   source: string | null;
 }
+/**
+ * Fired when the student asks for the figure to be saved. Cancelable: a host
+ * that cannot let a page trigger a download -- a sandboxed iframe, which is
+ * where this tool actually runs -- calls preventDefault() and delivers the
+ * bytes its own way.
+ */
+export interface SavedEventDetail {
+  format: string;
+  /** base64, as it came back from savefig. */
+  data: string;
+  bytes: number;
+  filename: string;
+}
+
 /** Fired when the student turns the figure's auto-update on or off. */
 export interface AutoUpdateEventDetail {
   autoUpdate: boolean;
@@ -1217,8 +1231,11 @@ export class PlotpolishPanel extends HTMLElement {
     this.emit<PanelErrorEventDetail>("error", { error: err, context });
   }
 
-  private emit<T>(name: string, detail: T): void {
-    this.dispatchEvent(new CustomEvent(`${EVENT_PREFIX}-${name}`, { detail, bubbles: true, composed: true }));
+  /** Returns false when a listener cancelled it (cancelable events only). */
+  private emit<T>(name: string, detail: T, cancelable = false): boolean {
+    return this.dispatchEvent(
+      new CustomEvent(`${EVENT_PREFIX}-${name}`, { detail, bubbles: true, composed: true, cancelable })
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -2044,6 +2061,52 @@ export class PlotpolishPanel extends HTMLElement {
         control.append(button, said);
         break;
       }
+      case "savefig": {
+        // The only thing in the tool that exercises the Save category. It goes
+        // through matplotlib's savefig rather than the on-screen canvas, so
+        // savefig.dpi / transparent / bbox actually apply -- a canvas grab
+        // gives a screen-resolution PNG and none of them.
+        const button = el("button", { type: "button", id, class: "save-fig" }, spec.label);
+        const said = el("span", { class: "copy-said", hidden: true });
+        const say = (text: string) => {
+          said.textContent = text;
+          said.hidden = false;
+          window.setTimeout(() => { said.hidden = true; }, 2500);
+        };
+        button.addEventListener("click", () => {
+          const client = this.client;
+          if (!client) { say("Run your code first"); return; }
+          button.disabled = true;
+          void client
+            .saveFigure("png")
+            .then((result) => {
+              if (!result.has_figure) { say("No figure to save"); return; }
+              const filename = `plot.${result.format}`;
+              // The host gets first refusal, because in an iframe a page-driven
+              // download is exactly the thing that gets blocked -- the same trap
+              // Copy code fell into.
+              const handled = !this.emit<SavedEventDetail>(
+                "saved",
+                { format: result.format, data: result.data, bytes: result.bytes, filename },
+                true
+              );
+              if (handled) { say("Saved"); return; }
+              const link = el("a", {
+                href: `data:image/${result.format};base64,${result.data}`,
+              }) as HTMLAnchorElement;
+              link.download = filename;
+              link.click();
+              say(`Saved ${filename}`);
+            })
+            .catch((e: unknown) => {
+              this.emitError(e, "save_figure");
+              say("Save failed");
+            })
+            .finally(() => { button.disabled = false; });
+        });
+        control.append(button, said);
+        break;
+      }
       case "bool": {
         const input = el("input", { type: "checkbox", id, class: "switch" });
         input.addEventListener("change", () =>
@@ -2299,6 +2362,15 @@ export class PlotpolishPanel extends HTMLElement {
     // revert is no longer appended anywhere: the category reset in the popover
     // header replaced it. The element stays in the view so updateControl can go
     // on setting `.hidden` without a type-by-type special case.
+    // A button says its own name, so repeating it in the label column reads as
+    // a stutter -- "Save PNG | [Save PNG]". The label carries the help tooltip,
+    // so that moves onto the button rather than being lost with it.
+    if (spec.type === "copycode" || spec.type === "savefig") {
+      label.hidden = true;
+      const button = control.querySelector("button");
+      if (button && spec.help) button.title = spec.help;
+    }
+
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
@@ -2589,6 +2661,10 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "copycode":
         break;  // a button: no value to reflect
+      case "savefig":
+        // Needs a live interpreter to save from; says so on click rather than
+        // going grey, since "Run your code first" is the actual instruction.
+        break;
       case "bool":
         (view.inputs[0] as HTMLInputElement).checked =
           spec.onValue === undefined ? Boolean(value) : value === spec.onValue;

@@ -652,6 +652,17 @@
       "help": "legend.framealpha. Fades the legend background box and its border together; the labels themselves stay solid."
     },
     {
+      "id": "save_png",
+      "group": "save",
+      "tier": "primary",
+      "label": "Save PNG",
+      "type": "savefig",
+      "keys": [],
+      "default": "",
+      "category": "save",
+      "help": "Write the figure to a PNG file, through matplotlib's own savefig, so the three settings below apply to it."
+    },
+    {
       "id": "savefig_dpi",
       "group": "save",
       "tier": "primary",

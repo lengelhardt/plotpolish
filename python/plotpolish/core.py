@@ -15,6 +15,8 @@ Design constraints (see docs/design.md):
   left alone under ``only_defaults``.
 """
 
+import base64
+import io
 import json
 import math
 import traceback
@@ -1086,11 +1088,40 @@ def apply_live(rc, only_defaults=True, previous=None):
     return result
 
 
+def save_figure(format="png"):
+    """Save the current figure exactly as the student's own ``savefig`` would.
+
+    This is the only thing in the tool that exercises the Save category. Every
+    other control changes what is on screen; ``savefig.dpi``,
+    ``savefig.transparent`` and ``savefig.bbox`` change what comes out of a
+    file, and nothing was producing a file. It goes through ``fig.savefig``
+    rather than the canvas, so the three of them actually apply -- a host that
+    grabs the on-screen canvas instead gets a screen-resolution PNG and none of
+    them.
+
+    Returns the bytes base64-encoded, because the transport is a JSON string.
+    """
+    fig = current_figure()
+    if fig is None:
+        return {"has_figure": False, "format": format, "data": "", "bytes": 0}
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format=format)
+    raw = buffer.getvalue()
+    return {
+        "has_figure": True,
+        "format": format,
+        "data": base64.b64encode(raw).decode("ascii"),
+        "bytes": len(raw),
+        "dpi": rc_to_json("savefig.dpi", mpl.rcParams["savefig.dpi"]),
+    }
+
+
 # --------------------------------------------------------------------------
 # JSON entry point used by the JS side
 # --------------------------------------------------------------------------
 
 _DISPATCH = {
+    "save_figure": lambda args: save_figure(**args),
     "list_styles": lambda args: list_styles(),
     "style_previews": lambda args: style_previews(),
     "set_style": lambda args: set_style(**args),

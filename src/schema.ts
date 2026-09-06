@@ -48,8 +48,9 @@ export type ControlType =
   | "colorcycle"
   | "legendloc"
   | "linecycle"
-  /** A button, not a setting: writes no rc key. */
-  | "copycode";
+  /** Buttons, not settings: they write no rc key. */
+  | "copycode"
+  | "savefig";
 
 /** primary = visible as soon as the category opens; more = under the "More" expander. */
 export type Tier = "primary" | "more";

@@ -5,6 +5,22 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.0 — 2026-09-06
 
+- **New: "Save PNG" (Save).** The Save category had three settings and no way
+  to save, so `savefig.dpi`, `savefig.transparent` and `savefig.bbox` had no
+  observable effect anywhere in the tool — the live-vs-re-run harness rejects
+  all three as cases that prove nothing, because it compares on-screen renders
+  and those keys change what comes out of a file. The button goes through
+  matplotlib's own `savefig`, so they apply: at dpi 200 the file really is
+  1280x960 rather than the 640x480 a canvas grab would give.
+
+  The `plotpolish-saved` event is cancelable, so a host that cannot let a page
+  trigger a download — a sandboxed iframe, which is where this runs — takes the
+  bytes and delivers them its own way. That is the trap "Copy code" already
+  fell into.
+
+  Button rows no longer repeat their own name in the label column.
+
+
 - **"Minor grid lines" now turns on the two things it cannot draw without:**
   "Grid" and "Minor tick marks". matplotlib draws a grid line only where a tick
   is, and only when the grid is on at all, so the switch did nothing by itself

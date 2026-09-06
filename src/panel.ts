@@ -2419,8 +2419,14 @@ export class PlotpolishPanel extends HTMLElement {
     ui.pill.title = statusText;
     ui.rail.title = statusText;
     this.updateGroupReset();
-    const canEverPreview = !!this.client && this._features.livePreview;
-    ui.autoBtn.hidden = !canEverPreview;  // nothing to pause on a worker host
+    // Shown whenever the HOST could ever preview, not once a backend has
+    // actually attached. On the demo's real path -- and on Trinket -- the
+    // interpreter arrives only when the student first runs, so keying this to
+    // `this.client` hid the switch for exactly as long as it was useful:
+    // before the first run, which is when someone about to start a long
+    // computation would reach for it. `features.livePreview` is the host's
+    // own declaration, so a worker host that can never preview still hides it.
+    ui.autoBtn.hidden = !this._features.livePreview;
     ui.autoBtn.setAttribute("aria-pressed", String(this._autoUpdate));
     ui.autoBtn.classList.toggle("off", !this._autoUpdate);
     ui.autoBtn.title = this._autoUpdate

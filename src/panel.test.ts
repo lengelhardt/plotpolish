@@ -2973,11 +2973,38 @@ describe("auto-update: the student's own pause switch", () => {
     expect(autoBtn(panel).title).toContain("off");
   });
 
-  it("is hidden on a host that could never preview anyway", async () => {
-    expect(autoBtn(panel).hidden).toBe(true); // no backend
+  it("is there before the interpreter is, and hidden only when the host says never", async () => {
+    // The backend arrives when the student first runs, so keying this to the
+    // backend hid it for exactly as long as it was useful: someone about to
+    // start a long computation reaches for this BEFORE running, not after.
+    expect(autoBtn(panel).hidden).toBe(false);
+    expect(panel.autoUpdate).toBe(true);
+
     panel.features = { livePreview: false };
+    expect(autoBtn(panel).hidden).toBe(true); // the host declared it cannot preview
     await attachBackend(panel, new MockBackend());
-    expect(autoBtn(panel).hidden).toBe(true); // backend, but the host said no
+    expect(autoBtn(panel).hidden).toBe(true); // ...and a backend does not change that
+  });
+
+  it("remembers a pause made before the interpreter arrived", async () => {
+    // Pausing on a blank page has to still be in force once Pyodide finishes
+    // loading, or the setting is lost at precisely the moment it starts to matter.
+    autoBtn(panel).click();
+    expect(panel.autoUpdate).toBe(false);
+
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    backend.calls.length = 0;
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    await panel.settle();
+
+    expect(panel.autoUpdate).toBe(false);
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).not.toBeNull();
   });
 
   it("stops applying and marks the changes instead", async () => {

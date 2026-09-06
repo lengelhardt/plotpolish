@@ -1,15 +1,13 @@
 /// <reference types="vitest/config" />
-import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
-
-const { version } = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+import { VERSION } from "./src/constants";
 
 // BSD-3-Clause clause 2 asks that binary redistributions reproduce the notice.
 // Hosts vendor the bundle by curling a release asset, so the notice has to
 // travel inside the file itself rather than depend on them fetching LICENSE.
 // The `/*!` form is the convention minifiers preserve.
 const BANNER =
-  `/*! plotpolish v${version} | (c) 2026 Larry Engelhardt and plotpolish contributors` +
+  `/*! plotpolish v${VERSION} | (c) 2026 Larry Engelhardt and plotpolish contributors` +
   ` | SPDX-License-Identifier: BSD-3-Clause | https://github.com/lengelhardt/plotpolish */`;
 
 // Library build. The Python helper is inlined by importing

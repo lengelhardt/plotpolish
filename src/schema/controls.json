@@ -554,7 +554,7 @@
       ],
       "default": false,
       "category": "live",
-      "help": "xtick.minor.visible and ytick.minor.visible"
+      "help": "Adds unlabeled tick marks between the numbered ones (xtick.minor.visible, ytick.minor.visible). matplotlib draws them small on purpose \u2014 2 pt against 3.5 pt for the numbered ones, so about three pixels \u2014 so look closely at the axis line rather than out in the plot."
     },
     {
       "id": "legend_loc",

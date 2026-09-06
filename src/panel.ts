@@ -619,8 +619,10 @@ export class PlotpolishPanel extends HTMLElement {
     if (value !== undefined) this.unifyPerLine(spec, apply);
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
-    if (spec.category === "rerun") this.noteRerun(spec.keys);
-    else if (this.client && this._features.livePreview) this.scheduleApply(apply);
+    // Without a preview, a change cannot show until the program runs again, so
+    // it is pending a re-run for the same reason a style preset always is.
+    if (spec.category === "rerun" || !this.canPreview) this.noteRerun(spec.keys);
+    else this.scheduleApply(apply);
     this.applySeeded(seeded);
     this.emitChange();
     this.update();
@@ -704,11 +706,21 @@ export class PlotpolishPanel extends HTMLElement {
     const apply: Record<string, RcValue> = {};
     for (const key of seeded) {
       const ctrl = CONTROL_FOR_KEY.get(key);
-      if (ctrl?.category === "rerun") rerunKeys.push(key);
+      if (ctrl?.category === "rerun" || !this.canPreview) rerunKeys.push(key);
       else apply[key] = this.settings.rc[key]!;
     }
     if (rerunKeys.length) this.noteRerun(rerunKeys);
-    if (Object.keys(apply).length && this.client && this._features.livePreview) this.scheduleApply(apply);
+    if (Object.keys(apply).length && this.canPreview) this.scheduleApply(apply);
+  }
+
+  /**
+   * Whether a change can be shown on the figure now, or only after a re-run.
+   * False when the host attached no backend at all -- Trinket's Web Worker path
+   * runs the program off the main thread, so there is nothing here to preview
+   * against -- or when the host turned live preview off explicitly.
+   */
+  private get canPreview(): boolean {
+    return !!this.client && this._features.livePreview;
   }
 
   /** Baseline values for `keys` (what the figure should return to when an override is cleared). */
@@ -1921,7 +1933,9 @@ export class PlotpolishPanel extends HTMLElement {
     const isSet = spec.keys.some((k) => k in this.settings.rc);
     const userOverrides = !this.stale && spec.keys.some((k) => this.overridden.has(k));
     const relevantRerunKeys = spec.id === "style" ? ["style"] : spec.keys;
-    const rerunPending = spec.category === "rerun" && relevantRerunKeys.some((k) => this.rerunKeys.has(k));
+    const rerunPending =
+      (spec.category === "rerun" || !this.canPreview) &&
+      relevantRerunKeys.some((k) => this.rerunKeys.has(k));
     row.classList.toggle("is-set", isSet);
     revert.hidden = !isSet;
 

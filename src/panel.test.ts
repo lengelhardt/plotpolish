@@ -753,6 +753,44 @@ describe("rerun indicators", () => {
     expect(tabRerun(panel, "look").hidden).toBe(true);
   });
 
+  it("with no backend, an ordinary change is marked pending a re-run", async () => {
+    // Trinket's Web Worker path attaches no backend: the program runs off the
+    // main thread, so there is nothing here to preview against. Every change is
+    // therefore "re-run to see", not just the style preset -- without this the
+    // student changes a setting, the figure does not move, and nothing says why.
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.backend = null;
+
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "16";
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+    change(size);
+
+    expect(tabRerun(panel, "text").hidden).toBe(false);
+    expect(ctl(panel, "font_size").querySelector(".badge.rerun")).not.toBeNull();
+
+    // And a completed run clears it, with still no backend attached.
+    await panel.refresh();
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+  });
+
+  it("with a backend and live preview, an ordinary change is applied, not marked", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "16";
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+    change(size);
+    await panel.settle();
+
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+    expect(backend.calls.filter((c) => c.fn === "apply_live").length).toBeGreaterThan(0);
+  });
+
   it("a style change shows ↻ on the Look tab and on the style control", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);

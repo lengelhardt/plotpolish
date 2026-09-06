@@ -1,9 +1,13 @@
+import json
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 from matplotlib import ticker
+from matplotlib.colors import to_hex
 
-from plotpolish import LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, apply_live
+from plotpolish import LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, apply_live, introspect_figure
 from plotpolish.core import _grid_on, _tick_direction
 
 
@@ -394,3 +398,132 @@ def test_marker_applies_to_default_lines_only():
     assert mpl.rcParams["lines.marker"] == "o"
     apply_live({"lines.marker": "None"}, previous={"lines.marker": "o"})
     assert ax.lines[0].get_marker() == "None"
+
+
+def test_prop_cycle_follows_lines_drawn_from_a_colormap():
+    """A figure drawn under ``cycler(color=plt.cm.viridis(...))`` follows a palette change.
+
+    The panel's ``previous`` comes back through JSON as hex strings, which
+    round the colormap's floats to 8 bits; an exact comparison would then call
+    every line user-set and skip it, while a re-run recolours them all.
+    """
+    rows = plt.cm.viridis(np.linspace(0, 1, 3))
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=rows)
+    fig, ax = plt.subplots()
+    lines = [ax.plot([0, 1], [i, i])[0] for i in range(3)]
+    previous = json.loads(json.dumps(introspect_figure()["rc"]))  # as the panel records it
+    apply_live({"axes.prop_cycle": ["#E69F00", "#56B4E9", "#009E73"]}, previous=previous)
+    assert [line.get_color() for line in lines] == ["#E69F00", "#56B4E9", "#009E73"]
+
+
+def test_colors_equal_tolerates_hex_rounding_but_not_a_different_colour():
+    from plotpolish.core import _colors_equal
+
+    row = plt.cm.viridis(0.0)
+    assert _colors_equal(row, to_hex(row))
+    assert not _colors_equal("#000000", "#010101")
+
+
+# --- grid vs. a re-run --------------------------------------------------------
+#
+# The panel's promise is that live preview shows what a re-run of the block
+# would draw, so these compare the live figure against a fresh figure drawn by
+# the same plotting code under the rcParams apply_live just set.
+
+MINOR_TICKS = {"xtick.minor.visible": True, "ytick.minor.visible": True}
+
+
+def figure_under(rc):
+    mpl.rcParams.update(rc)
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    return fig
+
+
+def grid_counts(fig):
+    """(major, minor) grid lines the figure actually draws."""
+    fig.canvas.draw()
+    major = minor = 0
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            major += sum(1 for t in axis.get_major_ticks() if t.gridline.get_visible())
+            minor += sum(1 for t in axis.get_minor_ticks() if t.gridline.get_visible())
+    return major, minor
+
+
+def rerun_grid_counts():
+    """What re-running the same plotting code draws under the current rcParams."""
+    fig = figure_under({})
+    try:
+        return grid_counts(fig)
+    finally:
+        plt.close(fig)
+
+
+def test_minor_grid_needs_the_grid_on_to_match_a_rerun():
+    fig = figure_under(MINOR_TICKS)  # axes.grid is False
+    apply_live({"axes.grid.which": "both"})
+    live = grid_counts(fig)
+    assert live == rerun_grid_counts()
+    assert live == (0, 0)  # no grid at all: axes.grid is off
+
+
+def test_turning_the_grid_off_removes_minor_grid_lines_too():
+    fig = figure_under({**MINOR_TICKS, "axes.grid": True, "axes.grid.which": "both"})
+    assert grid_counts(fig)[1] > 0
+    apply_live({"axes.grid": False})
+    assert grid_counts(fig) == rerun_grid_counts() == (0, 0)
+
+
+def test_turning_the_grid_on_draws_the_minor_grid_the_rc_asks_for():
+    fig = figure_under({**MINOR_TICKS, "axes.grid.which": "both"})
+    apply_live({"axes.grid": True})
+    live = grid_counts(fig)
+    assert live == rerun_grid_counts()
+    assert live[0] > 0 and live[1] > 0
+
+
+def test_minor_grid_toggles_while_the_grid_is_on():
+    fig = figure_under({**MINOR_TICKS, "axes.grid": True})
+    apply_live({"axes.grid.which": "both"})
+    assert grid_counts(fig) == rerun_grid_counts()
+    assert grid_counts(fig)[1] > 0
+    apply_live({"axes.grid.which": "major"})
+    assert grid_counts(fig) == rerun_grid_counts()
+    assert grid_counts(fig)[1] == 0
+
+
+@pytest.mark.parametrize("payload", [
+    {"axes.grid": True, "axes.grid.which": "both"},
+    {"axes.grid.which": "both", "axes.grid": True},
+], ids=["grid-first", "which-first"])
+def test_grid_and_minor_grid_in_one_call_agree_with_a_rerun(payload):
+    fig = figure_under(MINOR_TICKS)
+    apply_live(payload)
+    live = grid_counts(fig)
+    assert live == rerun_grid_counts()
+    assert live[1] > 0
+
+
+def test_minor_grid_set_in_code_is_left_alone():
+    """``ax.grid(True, which="both")`` in the user's code survives a re-run, so live keeps it."""
+    fig = figure_under(MINOR_TICKS)
+    fig.axes[0].grid(True, which="both")
+    before = grid_counts(fig)
+    assert before[1] > 0
+    apply_live({"axes.grid.which": "major"})  # the panel's "off" value
+    assert grid_counts(fig) == before
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "plot(x, y, 'r--') pins marker='None' on the Line2D at creation, so lines.marker never "
+    "reaches it on a re-run -- but the artist is indistinguishable from one that merely follows "
+    "the rcParam default (identical MarkerStyle, no record of the fmt string), so live preview "
+    "adds a marker that a re-run would not. Known limitation; see the session report."))
+def test_marker_does_not_reach_a_line_drawn_with_a_format_string():
+    fig, ax = plt.subplots()
+    (fmt_line,) = ax.plot([0, 1], [0, 1], "r--")
+    (kw_line,) = ax.plot([0, 1], [1, 0], color="r", ls="--")
+    apply_live({"lines.marker": "o"})
+    assert kw_line.get_marker() == "o"  # a re-run gives this line a marker...
+    assert fmt_line.get_marker() == "None"  # ...but never this one

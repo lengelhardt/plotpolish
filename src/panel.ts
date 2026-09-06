@@ -88,6 +88,7 @@ interface ControlView {
   segmented?: HTMLElement;
   swatchList?: HTMLElement;
   styleThumbs?: HTMLElement;
+  styleShowAll?: HTMLButtonElement;
   legendLoc?: LegendLocView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
@@ -184,6 +185,34 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Styles shown before "Show all": a spread of the range, not the first eight. */
+const CURATED_STYLES: readonly string[] = [
+  "default", "ggplot", "seaborn-v0_8", "seaborn-v0_8-colorblind",
+  "bmh", "fivethirtyeight", "dark_background", "grayscale",
+];
+
+const SHORT_STYLE_NAMES: Readonly<Record<string, string>> = {
+  dark_background: "dark bg",
+  fivethirtyeight: "538",
+  Solarize_Light2: "Solarize",
+  "tableau-colorblind10": "tableau",
+  "seaborn-v0_8": "seaborn",
+};
+
+/**
+ * What a style is *called* in the panel. Sixteen of matplotlib's twenty-six
+ * styles begin "seaborn-v0_8-", so the shared prefix is two thirds of the menu
+ * and none of the information: the variants read as a list under "seaborn"
+ * instead. Display only -- `mpl.style.use("seaborn-v0_8-bright")` is what goes
+ * into the student's file.
+ */
+function shortStyleName(name: string): string {
+  const known = SHORT_STYLE_NAMES[name];
+  if (known) return known;
+  if (name.startsWith("seaborn-v0_8-")) return `\u2013 ${name.slice("seaborn-v0_8-".length)}`;
+  return name;
+}
 
 /**
  * A small preview of a style, drawn from its own rc values rather than by
@@ -285,6 +314,8 @@ export class PlotpolishPanel extends HTMLElement {
   private _open = false;
   /** Collapsed: the pill shows only its grip, tucked into the figure's corner. */
   private popResetBtn: HTMLButtonElement | null = null;
+  /** "Show all" expands the style strip past the curated eight. */
+  private allStylesShown = false;
   private pillCollapsed = false;
   /** Where the pill was dragged to before collapsing, restored on expand. */
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
@@ -781,19 +812,38 @@ export class PlotpolishPanel extends HTMLElement {
     const host = view.styleThumbs;
     if (!host) return;
     const drawable = names.filter((n) => this.stylePreviews.has(n));
+    const showAll = view.styleShowAll;
     if (!drawable.length) {
       host.hidden = true;
+      if (showAll) showAll.hidden = true;
       return;
     }
     host.hidden = false;
-    if (host.dataset.names !== drawable.join("\n")) {
-      host.dataset.names = drawable.join("\n");
+
+    // Sixteen of matplotlib's twenty-six styles are seaborn variants that
+    // differ subtly, so showing every one by default costs six wrapped rows to
+    // little effect. The curated set spans the range. The current style is
+    // always included, or picking one from the expanded list would make it
+    // disappear the moment the list collapsed.
+    const curated = drawable.filter(
+      (n) => CURATED_STYLES.includes(n) || n === this.settings.style
+    );
+    const shown = this.allStylesShown || curated.length >= drawable.length ? drawable : curated;
+
+    if (showAll) {
+      showAll.hidden = curated.length >= drawable.length;
+      showAll.textContent = this.allStylesShown ? "Show fewer" : `Show all ${drawable.length}`;
+    }
+
+    if (host.dataset.names !== shown.join("\n")) {
+      host.dataset.names = shown.join("\n");
       host.replaceChildren(
-        ...drawable.map((name) => {
+        ...shown.map((name) => {
           const btn = el("button", { type: "button", class: "style-thumb", title: name });
           btn.dataset.style = name;
           btn.setAttribute("aria-label", name);
           btn.append(styleThumb(this.stylePreviews.get(name)!));
+          btn.append(el("span", { class: "style-name" }, shortStyleName(name)));
           btn.addEventListener("click", () => this.setStyle(name));
           return btn;
         })
@@ -1526,10 +1576,14 @@ export class PlotpolishPanel extends HTMLElement {
     resetGroupBtn.addEventListener("click", () => {
       if (this.category) this.resetCategory(this.category);
     });
+    // Title and reset travel together on the left. They share a flex: 1 wrapper
+    // rather than the title carrying flex itself, so the reset stays beside the
+    // name whether or not it is showing, and the pin/close still sit far right.
+    const headMain = el("div", { class: "pop-head-main" }, title, resetGroupBtn);
     const header = el(
       "div",
       { class: "pop-head", title: "Drag to move" },
-      grip, title, resetGroupBtn, reanchorBtn, closeBtn
+      grip, headMain, reanchorBtn, closeBtn
     );
     this.popResetBtn = resetGroupBtn;
     header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
@@ -1648,6 +1702,7 @@ export class PlotpolishPanel extends HTMLElement {
     let segmented: HTMLElement | undefined;
     let swatchList: HTMLElement | undefined;
     let styleThumbs: HTMLElement | undefined;
+    let styleShowAll: HTMLButtonElement | undefined;
     let legendLoc: LegendLocView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
@@ -1666,7 +1721,10 @@ export class PlotpolishPanel extends HTMLElement {
 
     switch (spec.type) {
       case "style": {
-        const select = el("select", { id });
+        // No <select>: the thumbnails select the style and say more doing it.
+        // They are real buttons with aria-label/aria-pressed, so keyboard and
+        // screen-reader users lose nothing by the select going away.
+        const select = el("select", { id, hidden: true });
         select.addEventListener("change", () => this.setStyle(select.value));
         inputs.push(select);
         control.append(select);
@@ -1678,6 +1736,13 @@ export class PlotpolishPanel extends HTMLElement {
         const thumbs = el("div", { class: "style-thumbs" , hidden: true });
         row.append(thumbs);
         styleThumbs = thumbs;
+        const showAll = el("button", { type: "button", class: "show-all-styles", hidden: true });
+        showAll.addEventListener("click", () => {
+          this.allStylesShown = !this.allStylesShown;
+          this.update();
+        });
+        row.append(showAll);
+        styleShowAll = showAll;
         const note = el("p", { class: "next-run" }, "Applies on the next run.");
         row.append(note);
         nextRunNote = note;
@@ -1968,6 +2033,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
     if (styleThumbs) view.styleThumbs = styleThumbs;
+    if (styleShowAll) view.styleShowAll = styleShowAll;
     if (legendLoc) view.legendLoc = legendLoc;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;

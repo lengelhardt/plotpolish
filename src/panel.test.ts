@@ -1857,7 +1857,16 @@ describe("style thumbnails", () => {
     const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
     const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"));
     expect(host.hidden).toBe(false);
-    expect(buttons.map((b) => b.dataset.style)).toEqual(backend.styles);
+    // Curated by default: the seaborn variant is behind "Show all".
+    expect(buttons.map((b) => b.dataset.style)).toEqual(["default", "dark_background", "ggplot"]);
+
+    const showAll = panel.shadowRoot!.querySelector(".show-all-styles") as HTMLButtonElement;
+    expect(showAll.hidden).toBe(false);
+    expect(showAll.textContent).toBe("Show all 4");
+    showAll.click();
+    expect(
+      Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb")).map((b) => b.dataset.style)
+    ).toEqual(backend.styles);
     // The current style is marked, so the strip says which one is in force.
     expect(buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.style))
       .toEqual(["default"]);
@@ -1877,6 +1886,23 @@ describe("style thumbnails", () => {
     // ggplot has a grid; dark_background does not.
     expect(host.querySelectorAll('button[data-style="ggplot"] line').length).toBeGreaterThan(0);
     expect(host.querySelectorAll('button[data-style="dark_background"] line').length).toBe(0);
+  });
+
+  it("shortens the display name without touching what goes into the code", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+
+    const dark = host.querySelector('button[data-style="dark_background"]')!;
+    expect(dark.querySelector(".style-name")!.textContent).toBe("dark bg");
+    // The real name stays reachable, and is what the block will carry.
+    expect((dark as HTMLElement).title).toBe("dark_background");
+
+    (dark as HTMLButtonElement).click();
+    expect(panel.getSettings().style).toBe("dark_background");
+    expect(panel.getBlock()).toContain('mpl.style.use("dark_background")');
   });
 
   it("clicking a thumbnail selects that style", async () => {

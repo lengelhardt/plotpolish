@@ -134,3 +134,36 @@ def test_explicit_marker_is_flagged():
     fig, ax = plt.subplots()
     ax.plot([0, 1], marker="o")
     assert "lines.marker" in introspect_figure()["overridden"]
+
+
+def test_minor_grid_set_in_code_is_flagged():
+    fig, ax = plt.subplots()
+    ax.minorticks_on()
+    ax.grid(True, which="both")
+    result = introspect_figure()
+    assert "axes.grid.which" in result["overridden"]
+    assert result["figure"]["axes"][0]["grid_which"] == "both"
+
+
+def test_major_only_grid_in_code_does_not_flag_minor_grid():
+    fig, ax = plt.subplots()
+    ax.grid(True)
+    result = introspect_figure()
+    assert "axes.grid" in result["overridden"]
+    assert "axes.grid.which" not in result["overridden"]
+    assert result["figure"]["axes"][0]["grid_which"] == "major"
+
+
+def test_no_grid_reports_no_grid_which():
+    fig, ax = plt.subplots()
+    result = introspect_figure()
+    assert result["figure"]["axes"][0]["grid_which"] is None
+    assert "axes.grid.which" not in result["overridden"]
+
+
+def test_minor_grid_from_rc_is_not_an_override():
+    mpl.rcParams.update({"axes.grid": True, "axes.grid.which": "both", "xtick.minor.visible": True})
+    fig, ax = plt.subplots()
+    result = introspect_figure()
+    assert result["overridden"] == []
+    assert result["figure"]["axes"][0]["grid_which"] == "both"

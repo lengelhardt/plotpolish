@@ -1,5 +1,10 @@
+import json
+
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
 import pytest
+from matplotlib.colors import to_hex, to_rgba
 
 from plotpolish import json_to_rc, rc_to_json, resolve_size
 
@@ -38,6 +43,52 @@ def test_prop_cycle_dict_form_optional_keys_omitted_when_absent():
         "color": ["#E69F00", "#56B4E9"],
         "linewidth": [2.0, 1.0],
     }
+
+
+def test_prop_cycle_from_a_colormap_serializes_to_hex():
+    """``cycler(color=plt.cm.viridis(np.linspace(0, 1, 4)))`` is an ordinary idiom.
+
+    Its colours are numpy rows, which json.dumps refuses; they must come out
+    as hex strings that still name the colours a re-run would draw.
+    """
+    rows = plt.cm.viridis(np.linspace(0, 1, 4))
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=rows)
+    out = rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"])
+    json.dumps(out)
+    assert out == [to_hex(r) for r in rows]
+    assert all(isinstance(c, str) and len(c) == 7 for c in out)
+    for got, row in zip(out, rows):
+        assert to_rgba(got) == pytest.approx(tuple(row), abs=0.5 / 255)
+
+
+def test_prop_cycle_dict_form_from_a_colormap_serializes_to_hex():
+    rows = plt.cm.viridis(np.linspace(0, 1, 3))
+    cyc = mpl.cycler(color=rows) + mpl.cycler(linewidth=np.array([1.0, 2.0, 3.0]))
+    out = rc_to_json("axes.prop_cycle", cyc)
+    json.dumps(out)
+    assert out == {"color": [to_hex(r) for r in rows], "linewidth": [1.0, 2.0, 3.0]}
+
+
+def test_prop_cycle_tuple_colours_serialize_to_hex_keeping_a_non_opaque_alpha():
+    cyc = mpl.cycler(color=[(1, 0, 0), (0, 0, 1, 0.5)])
+    out = rc_to_json("axes.prop_cycle", cyc)
+    assert out == ["#ff0000", "#0000ff80"]
+    mpl.rcParams["axes.prop_cycle"] = json_to_rc("axes.prop_cycle", out)  # matplotlib takes it back
+    assert rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"]) == out
+
+
+def test_prop_cycle_string_colours_are_kept_verbatim():
+    cyc = mpl.cycler(color=["red", "#E69F00", "0.5"])
+    assert rc_to_json("axes.prop_cycle", cyc) == ["red", "#E69F00", "0.5"]
+
+
+def test_plain_turns_numpy_arrays_into_lists():
+    from plotpolish.core import _plain
+
+    assert _plain(np.array([1.0, 2.0])) == [1.0, 2.0]
+    assert _plain(np.array([1.0])) == [1.0]
+    assert _plain(np.float64(1.5)) == 1.5
+    assert json.dumps(_plain((np.float32(1), np.array([2, 3])))) == "[1.0, [2, 3]]"
 
 
 def test_prop_cycle_mismatched_lengths_raise_value_error():

@@ -22,7 +22,7 @@ import traceback
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib import ticker as _ticker
-from matplotlib.colors import to_rgba as _to_rgba
+from matplotlib.colors import to_hex as _to_hex, to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
 __version__ = "0.2.0"
@@ -79,8 +79,10 @@ _REL_TOL = 1e-6
 # --------------------------------------------------------------------------
 
 def _plain(value):
-    """Turn numpy scalars / tuples into plain JSON-serializable Python."""
+    """Turn numpy scalars / arrays / tuples into plain JSON-serializable Python."""
     if hasattr(value, "item") and not isinstance(value, (str, bytes)):
+        if getattr(value, "ndim", 0):
+            return value.tolist()  # an ndarray: item() only works on scalars
         try:
             return value.item()
         except (TypeError, ValueError):
@@ -88,6 +90,22 @@ def _plain(value):
     if isinstance(value, (list, tuple)):
         return [_plain(v) for v in value]
     return value
+
+
+def _color_json(color):
+    """One prop_cycle colour as the panel expects it: a string.
+
+    Strings pass through verbatim. Anything else -- an RGB(A) tuple, or a numpy
+    row from ``plt.cm.viridis(np.linspace(0, 1, n))``, which is an ordinary way
+    to build a cycler -- becomes hex, keeping alpha only when it is not 1.
+    """
+    if isinstance(color, str):
+        return color
+    try:
+        rgba = _to_rgba(color)
+    except (ValueError, TypeError):
+        return _plain(color)
+    return _to_hex(rgba, keep_alpha=rgba[3] != 1)
 
 
 def rc_to_json(key, value):
@@ -103,8 +121,8 @@ def rc_to_json(key, value):
         items = list(value)
         keys = set(value.keys)
         if keys == {"color"}:
-            return [c["color"] for c in items]
-        result = {"color": [c["color"] for c in items]} if "color" in keys else {"color": []}
+            return [_color_json(c["color"]) for c in items]
+        result = {"color": [_color_json(c["color"]) for c in items]} if "color" in keys else {"color": []}
         if "linewidth" in keys:
             result["linewidth"] = [float(c["linewidth"]) for c in items]
         if "linestyle" in keys:
@@ -263,6 +281,30 @@ def _grid_on(axis):
     return bool(lines and lines[0].get_visible())
 
 
+def _minor_grid_on(axis):
+    try:
+        params = axis.get_tick_params(which="minor")
+        if "gridOn" in params:
+            return bool(params["gridOn"])
+    except Exception:  # pragma: no cover - very old/odd backends
+        pass
+    ticks = axis.get_minor_ticks(numticks=1)
+    return bool(ticks and ticks[0].gridline.get_visible())
+
+
+def _grid_which(ax):
+    """``axes.grid.which`` as the live figure shows it, or ``None`` when no grid is drawn."""
+    major = _grid_on(ax.xaxis) or _grid_on(ax.yaxis)
+    minor = _minor_grid_on(ax.xaxis) or _minor_grid_on(ax.yaxis)
+    if major and minor:
+        return "both"
+    if major:
+        return "major"
+    if minor:
+        return "minor"
+    return None
+
+
 def _gridline(axis):
     lines = axis.get_gridlines()
     return lines[0] if lines else None
@@ -319,6 +361,7 @@ def _describe_axes(ax, fig):
     gx = _gridline(ax.xaxis)
     return {
         "grid": _grid_on(ax.xaxis) or _grid_on(ax.yaxis),
+        "grid_which": _grid_which(ax),
         "grid_alpha": None if gx is None else _plain(gx.get_alpha()),
         "grid_linestyle": None if gx is None else gx.get_linestyle(),
         "spines": {name: bool(sp.get_visible()) for name, sp in ax.spines.items()},
@@ -390,6 +433,7 @@ def _find_overrides(fig, rc):
 
     for ax in fig.axes:
         differs("axes.grid", _grid_on(ax.xaxis) or _grid_on(ax.yaxis))
+        differs("axes.grid.which", _grid_which(ax))
         gx = _gridline(ax.xaxis)
         if gx is not None:
             differs("grid.alpha", gx.get_alpha() if gx.get_alpha() is not None else 1.0)
@@ -536,33 +580,43 @@ def _apply_font_family(fig, new, old, only):
 
 
 def _apply_grid(fig, new, old, only):
+    """axes.grid, with the same truth table as a fresh axes.
+
+    A re-run draws the major grid when ``axes.grid`` is on and
+    ``axes.grid.which`` includes it, the minor grid likewise; off is off for
+    both. ``ax.grid(new)`` alone would only touch the major grid (matplotlib's
+    default ``which``), leaving minor grid lines behind on the way off and
+    never drawing them on the way on.
+    """
+    which = str(mpl.rcParams["axes.grid.which"])
+    major = bool(new) and which in ("major", "both")
+    minor = bool(new) and which in ("minor", "both")
     for ax in fig.axes:
         current = _grid_on(ax.xaxis) or _grid_on(ax.yaxis)
         if only and current != bool(old):
             continue
-        ax.grid(bool(new))
+        ax.grid(major, which="major")
+        ax.grid(minor, which="minor")
 
 
 def _apply_grid_which(fig, new, old, only):
     """Draw grid lines at the minor ticks as well as the major ones.
 
-    matplotlib only draws a minor grid line where a minor tick exists, so this
-    does nothing visible unless xtick/ytick.minor.visible are on -- the panel
-    says so in the control's help rather than silently turning them on, which
-    would be a second change the user did not ask for.
+    On a re-run matplotlib draws the minor grid only when ``axes.grid`` is on
+    *and* ``axes.grid.which`` asks for it, and only where a minor tick exists,
+    so this does nothing visible unless xtick/ytick.minor.visible are on -- the
+    panel says so in the control's help rather than silently turning them on,
+    which would be a second change the user did not ask for. Live, an axis's
+    major grid stands in for ``axes.grid``: no major grid, no minor grid.
     """
-    which = str(new)
-    minor_on = which in ("minor", "both")
+    minor_new = str(new) in ("minor", "both")
+    minor_old = str(old) in ("minor", "both")
     for ax in fig.axes:
         for axis in (ax.xaxis, ax.yaxis):
-            if only:
-                current = _grid_on(axis)
-                if not current:
-                    continue
-            for tick in axis.get_minor_ticks():
-                tick.gridline.set_visible(minor_on)
-        # Keep the major grid as it was; ax.grid(which=...) would toggle it.
-        ax.tick_params(axis="both", which="minor", gridOn=minor_on)
+            grid_on = _grid_on(axis)
+            if only and _minor_grid_on(axis) != (grid_on and minor_old):
+                continue  # the user's code set the minor grid itself
+            axis.grid(grid_on and minor_new, which="minor")
 
 
 def _apply_grid_kw(kw):
@@ -656,12 +710,23 @@ def _legend_texts(ax):
     return leg.get_texts() if leg is not None else []
 
 
+# to_hex rounds each channel to 8 bits, so a colour that went through the
+# panel's JSON can sit up to half a step away from the float the artist holds.
+_HEX_TOL = 0.5 / 255 + 1e-9
+
+
 def _colors_equal(a, b):
-    """Color equality that treats equivalent spellings (e.g. case) as equal."""
+    """Color equality that treats equivalent spellings (e.g. case) as equal.
+
+    Tolerates the rounding of a hex round trip: a line drawn from a colormap
+    holds floats such as 0.267004 while the panel's ``previous`` (JSON from
+    :func:`introspect_figure`) says ``#440154``; both name the same colour.
+    """
     try:
-        return _to_rgba(a) == _to_rgba(b)
+        ra, rb = _to_rgba(a), _to_rgba(b)
     except (ValueError, TypeError):
         return a == b
+    return all(abs(x - y) <= _HEX_TOL for x, y in zip(ra, rb))
 
 
 # Scalar rc key -> the axes.prop_cycle property that overrides it on a draw.

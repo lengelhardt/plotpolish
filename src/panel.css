@@ -149,7 +149,8 @@ button.menu-toggle:hover { color: var(--_accent); }
 .pop-head { display: flex; align-items: center; gap: 4px; min-height: 22px; cursor: grab; touch-action: none; margin: 0 0 6px; }
 .popover.dragging .pop-head { cursor: grabbing; }
 .pop-head .grip { color: var(--_muted); font-size: 11px; line-height: 1; letter-spacing: -1px; user-select: none; }
-.pop-head .title { flex: 1; font-size: 12px; font-weight: 700; }
+.pop-head-main { flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pop-head .title { font-size: 12px; font-weight: 700; }
 .pop-head button { border: 0; background: transparent; color: var(--_muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
 .pop-head button:hover { color: var(--_accent); }
 
@@ -251,7 +252,7 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .readout { display: inline-block; min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; color: var(--_muted); }
 
 /* Color-cycle swatch list */
-.pop-head .reset-group { margin-left: 4px; border: 0; background: none; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px; color: var(--_muted); }
+.pop-head .reset-group { border: 0; background: none; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px; color: var(--_muted); }
 .pop-head .reset-group:hover { background: var(--_field-bg); color: var(--_fg); }
 
 /* Collapsed: only the grip shows, tucked into the figure's top-right corner. */
@@ -259,7 +260,10 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .pill.collapsed { padding: 2px; gap: 0; }
 .pill.collapsed .grip { padding: 2px 3px; }
 
-.style-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; max-height: 118px; overflow-y: auto; }
+.style-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
+.style-thumbs .style-name { display: block; font-size: 10px; line-height: 12px; color: var(--_muted); text-align: center; max-width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.style-thumbs .style-thumb[aria-pressed="true"] .style-name { color: var(--_fg); font-weight: 600; }
+.show-all-styles { margin: 4px 0 0; border: 0; background: none; padding: 2px 0; font-size: 11px; color: var(--_accent); cursor: pointer; }
 .style-thumbs .style-thumb { padding: 2px; border: 1px solid var(--_border); border-radius: 4px; background: var(--_field-bg); line-height: 0; cursor: pointer; }
 .style-thumbs .style-thumb:hover { border-color: var(--_accent); }
 .style-thumbs .style-thumb[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }

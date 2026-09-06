@@ -49,17 +49,6 @@
   ],
   "controls": [
     {
-      "id": "style",
-      "group": "look",
-      "tier": "primary",
-      "label": "Style preset",
-      "type": "style",
-      "keys": [],
-      "default": "default",
-      "category": "rerun",
-      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; the other controls override it. Applies on the next run."
-    },
-    {
       "id": "prop_cycle",
       "group": "look",
       "tier": "primary",
@@ -132,6 +121,17 @@
           ]
         }
       ]
+    },
+    {
+      "id": "style",
+      "group": "look",
+      "tier": "primary",
+      "label": "Styles",
+      "type": "style",
+      "keys": [],
+      "default": "default",
+      "category": "rerun",
+      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; the other controls override it. Applies on the next run."
     },
     {
       "id": "font_size",

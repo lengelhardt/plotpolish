@@ -68,10 +68,14 @@ button.small { padding: 0 6px; font-size: 11px; line-height: 20px; }
 
 /* --- Tab pill --- */
 .pill {
-  display: inline-flex; align-items: center; gap: 4px; height: 26px;
+  display: inline-flex; align-items: center; height: 26px;
   padding: 0 4px; border-radius: 999px; background: var(--_accent-tint);
   border: 1px solid var(--_border);
 }
+/* min-width: 0 is load-bearing. A flex item's automatic minimum is
+   min-content, which overrides max-width, so the strip would refuse to
+   fold below the width of its own tabs. */
+.pill-body { display: flex; align-items: center; gap: 4px; overflow: hidden; min-width: 0; }
 .pill.error { border-color: var(--_danger); }
 .pill .err {
   color: var(--_danger); font-weight: 700; padding: 0 4px; cursor: default;
@@ -255,24 +259,58 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .pop-head .reset-group { border: 0; background: none; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px; color: var(--_muted); }
 .pop-head .reset-group:hover { background: var(--_field-bg); color: var(--_fg); }
 
-/* Collapsed: only the grip shows, tucked into the figure's top-right corner. */
-.pill.collapsed > *:not(.grip) { display: none; }
-.pill.collapsed { padding: 2px; gap: 0; }
+/* Collapsed: only the grip shows, tucked into the figure's top-right corner.
+   It folds rather than cutting to it: the strip is one grid column, so 1fr ->
+   0fr animates its real width with no measuring and no magic number.
+   `visibility` flips only once the fold has finished, which is what keeps a
+   folded tab out of the tab order and off the accessibility tree rather than
+   merely invisible. */
+.pill { overflow: hidden; transition: padding 140ms ease; }
+/* The fold is a measured max-width, set from togglePillCollapsed. A CSS-only
+   fold needs a number the stylesheet cannot know: `max-width` off a guess
+   spends most of its duration above the strip's real width doing nothing, and
+   an `fr` grid track keeps a min-content floor it will not fold below. */
+.pill-body {
+  visibility: visible; opacity: 1;
+  transition: max-width 140ms ease, opacity 100ms ease, visibility 0s;
+}
+.pill.collapsed .pill-body {
+  /* max-width is set inline by foldPillBody(), which measures it. */
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: max-width 140ms ease, opacity 100ms ease, visibility 0s linear 140ms;
+}
 .pill.collapsed .grip { padding: 2px 3px; }
+/* A pill mid-drag must track the pointer exactly, not ease toward it. */
+.pill.dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pill, .pill-body, .pill.collapsed .pill-body { transition: none; }
+}
 
-.style-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
-/* Two lines, fixed height so every cell lines up. sb-dark-palette needs 76px
-   on one line against a 46px cell, and abbreviating does not close that gap
-   (sb-drkpalette is still 66px), so the label wraps -- breaking mid-word where
-   there is no hyphen to break at. The full name stays in the title. */
-.style-thumbs .style-name { display: block; font-size: 10px; line-height: 11px; height: 22px; color: var(--_muted); text-align: center; width: 46px; overflow: hidden; overflow-wrap: anywhere; }
-.style-thumbs .style-thumb[aria-pressed="true"] .style-name { color: var(--_fg); font-weight: 600; }
-.style-thumbs .show-all-styles { width: 50px; height: 56px; border: 1px dashed var(--_border); border-radius: 4px; background: none; padding: 0 2px; font-size: 10px; line-height: 12px; color: var(--_accent); cursor: pointer; white-space: normal; }
+/* The auto-update switch. Struck through when off, which reads as "paused"
+   without needing a second glyph. */
+.auto-update {
+  font: inherit; font-size: 12px; line-height: 1; padding: 2px 4px; cursor: pointer;
+  color: var(--_muted); background: none; border: 1px solid transparent; border-radius: 4px;
+}
+.auto-update:hover { color: var(--_fg); border-color: var(--_border); }
+.auto-update[aria-pressed="true"] { color: var(--_accent); }
+.auto-update.off { text-decoration: line-through; }
+
+/* Spans both grid columns: the strip is about the whole control, not a value
+   sitting opposite the label. Captions are gone -- no abbreviation fitted the
+   46px cell, and the name is in the menu, the title and the aria-label -- so a
+   cell is now just the swatch. */
+.style-thumbs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
+.style-thumbs .show-all-styles { width: 50px; height: 36px; border: 1px dashed var(--_border); border-radius: 4px; background: none; padding: 0 2px; font-size: 10px; line-height: 12px; color: var(--_accent); cursor: pointer; white-space: normal; }
 .style-thumbs .show-all-styles:hover { border-color: var(--_accent); border-style: solid; }
 .style-thumbs .style-thumb { padding: 2px; border: 1px solid var(--_border); border-radius: 4px; background: var(--_field-bg); line-height: 0; cursor: pointer; }
 .style-thumbs .style-thumb:hover { border-color: var(--_accent); }
 .style-thumbs .style-thumb[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }
 .style-thumbs .thumb { display: block; width: 44px; height: 30px; }
+
+/* The menu sits opposite the label, and is allowed to be narrow: the option
+   text is abbreviated and each option carries the full name as a title. */
+.style-select { max-width: 132px; }
 
 .swatch-list { display: inline-flex; flex-direction: row; flex-wrap: nowrap; gap: 4px; align-items: center; }
 .swatch-list .preset { display: inline-flex; padding: 2px; border-radius: 4px; background: var(--_field-bg); }

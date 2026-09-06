@@ -1153,13 +1153,54 @@ describe("draggable pill", () => {
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
 
     expect(pill(panel).classList.contains("collapsed")).toBe(true);
-    // Tucking the pill away has to take the open popover with it, or a panel
-    // that is meant to be out of the way leaves its biggest piece on screen.
-    expect(popover.hidden).toBe(true);
+    // The open window stays open. Tucking the strip away is for reclaiming the
+    // figure's corner, not for putting your work away -- closing it lost the
+    // student's place every time. The caret goes, because the tab it pointed
+    // at has folded up.
+    expect(popover.hidden).toBe(false);
+    expect(panel.category).toBe("text");
+    expect((panel.shadowRoot!.querySelector(".caret") as HTMLElement).hidden).toBe(true);
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(popover.hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".caret") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("folds the strip to a measured width rather than hiding it outright", async () => {
+    // The fold animates an inline max-width, because the width to animate to is
+    // a number CSS cannot know (and an inline value outranks any rule, so the
+    // stylesheet could not own the other end either).
+    //
+    // What this does NOT cover, because happy-dom has no compositor: that the
+    // end state is reached without a frame ever being painted. Staging the
+    // second write on requestAnimationFrame passes this test and still leaves a
+    // collapse begun just before the student switched tabs stuck half open, so
+    // foldPillBody() writes both values synchronously on purpose. Its comment
+    // is the guard there, not this test.
+    const body = panel.shadowRoot!.querySelector(".pill-body") as HTMLElement;
+    const grip = pillGrip(panel);
+    const click = () => {
+      grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+      grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+    };
+    expect(body).not.toBeNull();
+
+    click();
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    expect(body.style.maxWidth).toBe("0px");
+
+    // ...and once the fold has finished, the strip is out of layout entirely,
+    // so a folded tab is not merely invisible but unfocusable and unread.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(body.hidden).toBe(true);
+
+    click();
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(body.hidden).toBe(false);
+    // Back to a width, not to zero and not to "none": a measured target.
+    expect(body.style.maxWidth).toMatch(/^\d+px$/);
   });
 
   it("a drag of the grip moves the pill without collapsing it", () => {
@@ -2087,32 +2128,51 @@ describe("style thumbnails", () => {
     expect(host.querySelectorAll('button[data-style="dark_background"] line').length).toBe(0);
   });
 
-  it("shortens the display name without touching what goes into the code", async () => {
+  it("carries the full name on the thumbnail rather than a caption under it", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);
     await panel.settle();
     openTab(panel, "look");
     const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
 
-    const dark = host.querySelector('button[data-style="dark_background"]')!;
-    expect(dark.querySelector(".style-name")!.textContent).toBe("dark bg");
-    // The real name stays reachable, and is what the block will carry.
-    expect((dark as HTMLElement).title).toBe("dark_background");
+    const dark = host.querySelector('button[data-style="dark_background"]') as HTMLElement;
+    // The captions are gone: they did not fit the cell. The tooltip and the
+    // accessible name carry the real name instead, and so does the menu.
+    expect(dark.querySelector(".style-name")).toBeNull();
+    expect(dark.title).toBe("dark_background");
+    expect(dark.getAttribute("aria-label")).toBe("dark_background");
 
     (dark as HTMLButtonElement).click();
     expect(panel.getSettings().style).toBe("dark_background");
     expect(panel.getBlock()).toContain('mpl.style.use("dark_background")');
   });
 
-  it("prefixes seaborn variants with sb- and keeps every caption to two lines", () => {
-    // Display only, and measured against the caption box: sb-dark-palette wraps
-    // at its hyphen, but "colorblind" has none and is wider than the cell, so
-    // it alone is abbreviated rather than spilling to a third line.
+  it("offers every style in a menu beside the label, abbreviated but titled in full", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "look");
+    const select = input(panel, "style") as HTMLSelectElement;
+    expect(select.hidden).toBe(false);
+
+    const byValue = new Map(Array.from(select.options).map((o) => [o.value, o]));
+    expect(byValue.get("seaborn-v0_8-whitegrid")!.textContent).toBe("- whitegrid");
+    expect(byValue.get("seaborn-v0_8-whitegrid")!.title).toBe("seaborn-v0_8-whitegrid");
+    expect(byValue.get("dark_background")!.textContent).toBe("dark bg");
+
+    select.value = "ggplot";
+    change(select);
+    expect(panel.getSettings().style).toBe("ggplot");
+  });
+
+  it("indents the seaborn variants under seaborn rather than repeating the prefix", () => {
+    // Sixteen of matplotlib's twenty-six styles begin "seaborn-v0_8-", which is
+    // two thirds of the menu and none of the information. Display only: the
+    // block still carries the name matplotlib knows.
     expect(shortStyleName("seaborn-v0_8")).toBe("seaborn");
-    expect(shortStyleName("seaborn-v0_8-bright")).toBe("sb-bright");
-    expect(shortStyleName("seaborn-v0_8-dark")).toBe("sb-dark");
-    expect(shortStyleName("seaborn-v0_8-dark-palette")).toBe("sb-dark-palette");
-    expect(shortStyleName("seaborn-v0_8-colorblind")).toBe("sb-cblind");
+    expect(shortStyleName("seaborn-v0_8-bright")).toBe("- bright");
+    expect(shortStyleName("seaborn-v0_8-dark")).toBe("- dark");
+    expect(shortStyleName("seaborn-v0_8-dark-palette")).toBe("- dark-palette");
+    expect(shortStyleName("seaborn-v0_8-colorblind")).toBe("- colorblind");
     expect(shortStyleName("dark_background")).toBe("dark bg");
     expect(shortStyleName("fivethirtyeight")).toBe("538");
     expect(shortStyleName("Solarize_Light2")).toBe("Solarize");
@@ -2888,5 +2948,114 @@ describe("the widgets agree with the schema that describes them", () => {
     // And the block gets the exact size, not the snapped one.
     expect(panel.getSettings().rc["axes.titlesize"]).toBeUndefined();
     expect(panel.getBlock()).not.toContain("14.5");
+  });
+});
+
+describe("auto-update: the student's own pause switch", () => {
+  function autoBtn(p: PlotpolishPanel): HTMLButtonElement {
+    return p.shadowRoot!.querySelector(".pill button.auto-update") as HTMLButtonElement;
+  }
+
+  it("sits in the pill, on by default, and says which way it is", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    // In the pill, not inside a category: a student reaches for it when a
+    // change is about to be expensive, which is before they open anything.
+    expect(autoBtn(panel)).not.toBeNull();
+    expect(autoBtn(panel).hidden).toBe(false);
+    expect(panel.autoUpdate).toBe(true);
+    expect(autoBtn(panel).getAttribute("aria-pressed")).toBe("true");
+    expect(autoBtn(panel).title).toContain("on");
+
+    autoBtn(panel).click();
+    expect(panel.autoUpdate).toBe(false);
+    expect(autoBtn(panel).getAttribute("aria-pressed")).toBe("false");
+    expect(autoBtn(panel).title).toContain("off");
+  });
+
+  it("is hidden on a host that could never preview anyway", async () => {
+    expect(autoBtn(panel).hidden).toBe(true); // no backend
+    panel.features = { livePreview: false };
+    await attachBackend(panel, new MockBackend());
+    expect(autoBtn(panel).hidden).toBe(true); // backend, but the host said no
+  });
+
+  it("stops applying and marks the changes instead", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+    backend.calls.length = 0;
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    await panel.settle();
+
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+    // The block still gets it -- pausing the preview is not pausing the tool.
+    expect(panel.getSettings().rc["lines.linewidth"]).toBe(5);
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
+  it("catches the figure up when it is switched back on", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    (input(panel, "grid") as HTMLInputElement).checked = true;
+    change(input(panel, "grid"));
+    await panel.settle();
+    backend.calls.length = 0;
+
+    autoBtn(panel).click();
+    await panel.settle();
+
+    const applied = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(applied.length).toBe(1);
+    const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
+    expect(rc["lines.linewidth"]).toBe(5);
+    expect(rc["axes.grid"]).toBe(true);
+    // ...and the marks go, because the figure is no longer behind.
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).toBeNull();
+  });
+
+  it("still reports a style as pending after catching up, because a style needs the run", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    await panel.settle();
+
+    autoBtn(panel).click();
+    autoBtn(panel).click();
+    await panel.settle();
+    expect(ctl(panel, "style").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
+  it("does not re-apply the overrides a style change would, while paused", async () => {
+    // applyStyle used to read features.livePreview directly rather than
+    // canPreview. With only a host-level flag those were the same condition;
+    // with a switch the student can throw, they are not.
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+    backend.calls.length = 0;
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    await panel.settle();
+
+    // set_style still runs: it moves the baseline and never redraws.
+    expect(backend.calls.some((c) => c.fn === "set_style")).toBe(true);
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
   });
 });

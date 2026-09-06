@@ -5,6 +5,27 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.0 — 2026-09-06
 
+- **New: an auto-update switch, in the tab pill.** The figure follows every
+  change by default; the switch pauses that, and the changes go on being
+  written to the block with the "re-run to see" mark the worker path already
+  used. It sits in the pill rather than inside a category because a student
+  reaches for it when a change is about to be expensive, which is before they
+  have opened anything. Turning it back on catches the figure up in one apply.
+
+- **The Look category reads top down again.** "Colors" is above "Styles" (it is
+  one row; the style grid is five), "Style preset" is just "Styles", and the
+  style menu is back beside the label with the names shortened — the sixteen
+  seaborn variants read as an indented list under "seaborn" rather than
+  repeating the prefix sixteen times. The thumbnails lost their captions, which
+  never fitted the 46px cell; the full name is on the tooltip, the accessible
+  name and the menu.
+
+- **The tab pill folds rather than cutting.** Collapsing it now animates, and it
+  leaves an open category window open — tucking the strip away is for
+  reclaiming the figure's corner, not for putting your work away, and closing
+  the window lost the student's place every time.
+
+
 - **New: a regression harness that runs the block and diffs it against the live
   preview** (`python/tests/test_live_matches_rerun.py`). Live preview must show
   what a re-run of the block would draw; that promise had broken in five

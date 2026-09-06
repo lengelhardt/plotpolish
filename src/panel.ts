@@ -47,6 +47,11 @@ export interface ChangeEventDetail {
   /** The full source after the write, or null for write-only sinks. */
   source: string | null;
 }
+/** Fired when the student turns the figure's auto-update on or off. */
+export interface AutoUpdateEventDetail {
+  autoUpdate: boolean;
+}
+
 export interface RerunNeededEventDetail {
   /** rc keys (or "style") whose change needs a re-run to be visible. */
   keys: string[];
@@ -128,6 +133,9 @@ interface DragStart {
 const APPLY_DEBOUNCE_MS = 60;
 const RAIL_WIDTH = 50;
 const FLOAT_INSET_PX = 8;
+
+/** How long the tab strip takes to fold away or come back. Matches panel.css. */
+const FOLD_MS = 140;
 /** Pixels the pointer must move before a header pointerdown becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
 
@@ -211,11 +219,9 @@ export function shortStyleName(name: string): string {
   const known = SHORT_STYLE_NAMES[name];
   if (known) return known;
   if (name.startsWith("seaborn-v0_8-")) {
-    const variant = name.slice("seaborn-v0_8-".length);
-    // Every other variant wraps into the caption's two lines; "colorblind" is
-    // the one that needs a third, because it has no hyphen to break at and is
-    // wider than the cell on its own. Measured, not guessed.
-    return `sb-${variant === "colorblind" ? "cblind" : variant}`;
+    // A leading dash, so the sixteen variants read as an indented list under
+    // "seaborn" in the menu rather than repeating the prefix sixteen times.
+    return `- ${name.slice("seaborn-v0_8-".length)}`;
   }
   return name;
 }
@@ -288,6 +294,12 @@ export class PlotpolishPanel extends HTMLElement {
   private _sink: CodeSink | null = null;
   private unsubscribeSink: (() => void) | null = null;
   private _features: PanelFeatures = { ...DEFAULT_FEATURES };
+  /**
+   * Whether the figure follows every change, or waits for the next run. The
+   * student's switch, not the host's: `features.livePreview` says whether this
+   * host CAN preview at all, and this says whether they want it to right now.
+   */
+  private _autoUpdate = true;
 
   private settings: StyleSettings = defaultSettings();
   private baseline: Record<string, RcValue> = schemaDefaults();
@@ -324,6 +336,8 @@ export class PlotpolishPanel extends HTMLElement {
   private allStylesShown = false;
   private pillCollapsed = false;
   /** Where the pill was dragged to before collapsing, restored on expand. */
+  /** Pending "take the folded strip out of layout" timer, if any. */
+  private foldTimer: number | null = null;
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
@@ -348,6 +362,10 @@ export class PlotpolishPanel extends HTMLElement {
     pill: HTMLElement;
     pillGrip: HTMLElement;
     errMark: HTMLElement;
+    /** Everything in the pill but the grip; folded away when collapsed. */
+    pillBody: HTMLElement;
+    /** The pill's auto-update switch. */
+    autoBtn: HTMLButtonElement;
     menuToggle: HTMLButtonElement;
     rail: HTMLElement;
     popover: HTMLElement;
@@ -848,8 +866,9 @@ export class PlotpolishPanel extends HTMLElement {
           const btn = el("button", { type: "button", class: "style-thumb", title: name });
           btn.dataset.style = name;
           btn.setAttribute("aria-label", name);
+          // No caption: the names did not fit the cell, and the button's
+          // title and aria-label already carry the full one.
           btn.append(styleThumb(this.stylePreviews.get(name)!));
-          btn.append(el("span", { class: "style-name" }, shortStyleName(name)));
           btn.addEventListener("click", () => this.setStyle(name));
           return btn;
         })
@@ -943,7 +962,33 @@ export class PlotpolishPanel extends HTMLElement {
    * against -- or when the host turned live preview off explicitly.
    */
   private get canPreview(): boolean {
-    return !!this.client && this._features.livePreview;
+    return !!this.client && this._features.livePreview && this._autoUpdate;
+  }
+
+  /** Whether the figure follows every change. Off: changes wait for the next run. */
+  get autoUpdate(): boolean {
+    return this._autoUpdate;
+  }
+
+  set autoUpdate(on: boolean) {
+    if (this._autoUpdate === on) return;
+    this._autoUpdate = on;
+    if (on) {
+      // Catch the figure up on everything that was marked while it was off,
+      // rather than leaving it showing a state the block no longer describes.
+      this.rerunKeys.clear();
+      if (this.settings.style !== "default" && this.settings.style !== "") {
+        this.noteRerun(["style"]);  // a style still only lands on a re-run
+      }
+      if (this.canPreview && Object.keys(this.settings.rc).length) {
+        this.scheduleApply({ ...this.settings.rc });
+      }
+    } else if (Object.keys(this.settings.rc).length) {
+      // Whatever is in the block is now ahead of the figure, and says so.
+      this.noteRerun(Object.keys(this.settings.rc));
+    }
+    this.emit<AutoUpdateEventDetail>("auto-update", { autoUpdate: on });
+    this.update();
   }
 
   /** Baseline values for `keys` (what the figure should return to when an override is cleared). */
@@ -1053,7 +1098,10 @@ export class PlotpolishPanel extends HTMLElement {
       .then(() => client.setStyle(name, this.hostRcKeys))
       .then((rc) => {
         this.baseline = { ...schemaDefaults(), ...rc };
-        if (this._features.livePreview) {
+        // canPreview, not _features.livePreview: set_style itself is worth
+        // doing either way (it moves the baseline and never redraws), but
+        // re-applying the overrides on top is a live preview like any other.
+        if (this.canPreview) {
           const again = { ...this.baselineFor(restoreKeys), ...this.settings.rc };
           if (Object.keys(again).length) this.scheduleApply(again);
         }
@@ -1172,7 +1220,10 @@ export class PlotpolishPanel extends HTMLElement {
     const tab = tabView && this.activeTabButton(tabView);
     if (!tab) return;
     const { popover, caret } = this.ui;
-    const rect = tab.getBoundingClientRect();
+    // Collapsed, the tabs are folded to nothing, so the window hangs off the
+    // grip instead -- with no caret, because there is no tab left to point at.
+    const collapsed = this.pillCollapsed && this._layoutMode !== "rail";
+    const rect = (collapsed ? this.ui.pillGrip : tab).getBoundingClientRect();
     const popRect = popover.getBoundingClientRect();
     const width = popRect.width || 260;
     const height = popRect.height || 96;
@@ -1189,7 +1240,8 @@ export class PlotpolishPanel extends HTMLElement {
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
     popover.classList.toggle("below", below);
-    caret.hidden = false;
+    caret.hidden = collapsed;
+    if (collapsed) return;
     const center = rect.left + rect.width / 2 - left;
     caret.style.left = `${Math.max(8, Math.min(center, Math.max(8, width - 16)))}px`;
   }
@@ -1495,7 +1547,10 @@ export class PlotpolishPanel extends HTMLElement {
     if (this.pillCollapsed) {
       this.pillPosBeforeCollapse = this.pillPos;
       this.pillPos = null;
-      if (this._open) this.showCategory(null);
+      // The open category stays open. Tucking the strip away is for reclaiming
+      // the figure's corner, not for putting your work away, and closing the
+      // window lost the student's place every time. Its caret points at a tab
+      // that is no longer there, so it is hidden while collapsed.
       if (this._menuOpen) this.closeMenu();
     } else {
       this.pillPos = this.pillPosBeforeCollapse;
@@ -1506,8 +1561,64 @@ export class PlotpolishPanel extends HTMLElement {
       ? "Show the plot style controls"
       : "Drag to move, click to tuck away";
     this.update();
+    // After update(), not before: update() re-renders the strip, which would
+    // discard an inline width set ahead of it and leave the fold a click behind.
+    this.foldPillBody();
     this.measureLayout();
     this.positionFloatPill();
+    // The window it left open was anchored to a tab that has just folded away
+    // (or come back), so it needs re-hanging either way.
+    if (this._open && !this.dragPos) this.positionPopover();
+  }
+
+  /**
+   * Fold the tab strip away, or unfold it, over FOLD_MS.
+   *
+   * Both ends are set here rather than in the stylesheet, because the width to
+   * animate to is a number CSS cannot know -- and because an inline max-width
+   * outranks any rule, so a stylesheet `max-width: 0` could never win against
+   * the measured value anyway. A guessed constant is worse than useless: it
+   * spends most of the duration above the strip's real width, doing nothing.
+   */
+  private foldPillBody(): void {
+    const body = this.ui.pillBody;
+    // Both values are written synchronously, with a forced reflow between them
+    // so the transition has a start to interpolate from. Deliberately NOT
+    // staged on requestAnimationFrame: rAF does not tick in a backgrounded tab,
+    // so a collapse begun just before the student switched tabs would never
+    // reach its end state and the strip would be stuck half open. This way the
+    // state is always right and the easing is what the browser skips.
+    if (this.foldTimer !== null) {
+      clearTimeout(this.foldTimer);
+      this.foldTimer = null;
+    }
+    if (this.pillCollapsed) {
+      body.style.maxWidth = `${body.scrollWidth}px`;  // measured while open
+      void body.offsetWidth;
+      body.style.maxWidth = "0px";
+      // Then take it out of layout for real. The CSS says visibility: hidden
+      // for the fold, but a folded tab that is merely invisible is still
+      // focusable and still read out, and this must be true whether or not the
+      // transition ran at all.
+      this.foldTimer = window.setTimeout(() => {
+        this.foldTimer = null;
+        if (this.pillCollapsed) body.hidden = true;
+      }, FOLD_MS);
+      return;
+    }
+    // Unfolding: the strip measures zero while folded, so lift the limit to
+    // read its real width, put it back, and animate to what was measured.
+    body.hidden = false;
+    body.style.maxWidth = "none";
+    const target = body.scrollWidth;
+    body.style.maxWidth = "0px";
+    void body.offsetWidth;
+    body.style.maxWidth = `${target}px`;
+    // Then hand the width back to layout, so the strip can still grow when a
+    // tab appears or a label changes.
+    window.setTimeout(() => {
+      if (!this.pillCollapsed) body.style.maxWidth = "";
+    }, FOLD_MS + 20);
   }
 
   /** End a pill drag from any exit path. See endHeaderDrag. */
@@ -1658,7 +1769,18 @@ export class PlotpolishPanel extends HTMLElement {
     // pointerup, so without this the drag state would be left standing.
     pillGrip.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
     pillGrip.addEventListener("dblclick", () => this.reanchorPill());
-    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, ...pillTabs, errMark, menuToggle);
+    // In the pill rather than in a category, because a student reaches for it
+    // when a change is about to be expensive -- which is before they have
+    // opened anything. Always visible, so it is discoverable without hunting.
+    const autoBtn = el("button", { type: "button", class: "auto-update" }, "\u27F3");
+    autoBtn.addEventListener("click", () => {
+      this.autoUpdate = !this._autoUpdate;
+    });
+    // Everything but the grip lives in one wrapper, so collapsing is a single
+    // grid column going 1fr -> 0fr. Animating each child's max-width instead
+    // spends most of the duration above their natural width, doing nothing.
+    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, autoBtn, menuToggle);
+    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---
@@ -1757,7 +1879,7 @@ export class PlotpolishPanel extends HTMLElement {
 
     this.root.append(style, pill, rail, popover, menu);
     this.ui = {
-      pill, pillGrip, errMark, menuToggle, rail,
+      pill, pillGrip, pillBody, errMark, autoBtn, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
       groups: groupViews,
@@ -1820,10 +1942,11 @@ export class PlotpolishPanel extends HTMLElement {
 
     switch (spec.type) {
       case "style": {
-        // No <select>: the thumbnails select the style and say more doing it.
-        // They are real buttons with aria-label/aria-pressed, so keyboard and
-        // screen-reader users lose nothing by the select going away.
-        const select = el("select", { id, hidden: true });
+        // The menu and the thumbnails do different jobs and both earn their
+        // place: the menu names every style and is reachable in one keystroke,
+        // the thumbnails show what one looks like. The menu sits beside the
+        // label, so the grid below it starts at the top of the control.
+        const select = el("select", { id, class: "style-select" });
         select.addEventListener("change", () => this.setStyle(select.value));
         inputs.push(select);
         control.append(select);
@@ -2296,6 +2419,14 @@ export class PlotpolishPanel extends HTMLElement {
     ui.pill.title = statusText;
     ui.rail.title = statusText;
     this.updateGroupReset();
+    const canEverPreview = !!this.client && this._features.livePreview;
+    ui.autoBtn.hidden = !canEverPreview;  // nothing to pause on a worker host
+    ui.autoBtn.setAttribute("aria-pressed", String(this._autoUpdate));
+    ui.autoBtn.classList.toggle("off", !this._autoUpdate);
+    ui.autoBtn.title = this._autoUpdate
+      ? "Auto-update is on: the figure follows every change. Click to pause it."
+      : "Auto-update is off: changes wait for the next run. Click to resume.";
+    ui.autoBtn.setAttribute("aria-label", this._autoUpdate ? "Auto-update on" : "Auto-update off");
     ui.pill.classList.toggle("error", Boolean(this.fenceError));
     ui.rail.classList.toggle("error", Boolean(this.fenceError));
     ui.errMark.hidden = !this.fenceError;
@@ -2388,7 +2519,17 @@ export class PlotpolishPanel extends HTMLElement {
         const names = this.styles.includes(this.settings.style) ? this.styles : [...this.styles, this.settings.style];
         const current = Array.from(select.options).map((o) => o.value);
         if (current.join("\n") !== names.join("\n")) {
-          select.replaceChildren(...names.map((n) => el("option", { value: n }, n === this.settings.style && !this.styles.includes(n) ? `${n} (not available here)` : n)));
+          select.replaceChildren(
+            ...names.map((n) =>
+              el(
+                "option",
+                { value: n, title: n },
+                n === this.settings.style && !this.styles.includes(n)
+                  ? `${shortStyleName(n)} (not available here)`
+                  : shortStyleName(n)
+              )
+            )
+          );
         }
         select.value = this.settings.style;
         this.updateStyleThumbs(view, names);

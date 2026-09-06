@@ -19,4 +19,9 @@ declare module "node:fs" {
 declare module "node:path" {
   export function resolve(...parts: string[]): string;
 }
+
+// vite.config.ts resolves LICENSE relative to itself.
+declare module "url" {
+  export function fileURLToPath(url: string | URL): string;
+}
 declare const process: { cwd(): string; env: Record<string, string | undefined> };

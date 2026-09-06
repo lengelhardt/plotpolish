@@ -74,7 +74,7 @@ jobs:
           done
 
       # The tag and every version string in the tree must agree, or the released
-      # asset is mislabelled and the panel reports a version it isn't.
+      # asset is mislabeled and the panel reports a version it isn't.
       - name: Verify the tag matches every version string
         run: |
           tag="${GITHUB_REF_NAME#v}"

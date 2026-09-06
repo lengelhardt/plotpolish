@@ -14,7 +14,7 @@ export default defineConfig({
   root: "demo",
   base: "./",
   server: {
-    // Honour $PORT so more than one checkout (or more than one agent session)
+    // Honor $PORT so more than one checkout (or more than one agent session)
     // can run the demo at once; 5173 stays the default when nothing sets it.
     port: Number(process.env.PORT) || 5173,
     fs: {

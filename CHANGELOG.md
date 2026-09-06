@@ -256,7 +256,7 @@ project is pre-1.0, so minor versions may change behavior.
 
 Two corrections to the 0.1.2 drag fix.
 
-- **A second pointer ending cancelled a drag in progress.** The window-level
+- **A second pointer ending canceled a drag in progress.** The window-level
   safety net added in 0.1.2 ended *any* live drag on *any* `pointerup`,
   without checking which pointer it belonged to. Lifting a second finger, or a
   stylus ending while a mouse drag was live, dropped the drag out from under

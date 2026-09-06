@@ -846,7 +846,7 @@ def _uncycle(fig, new_props, old_props, only, rc=None):
     """
     for prop in set(old_props) - set(new_props):
         if prop == "color":
-            continue  # every cycle carries colour; there is no scalar to fall back to
+            continue  # every cycle carries color; there is no scalar to fall back to
         getter_name, setter_name, caster = _PROP_CYCLE_ATTRS[prop]
         key = "lines." + prop
         # What a re-run would draw: this call's own scalar if it carries one,

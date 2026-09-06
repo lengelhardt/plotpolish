@@ -257,7 +257,7 @@ function ensurePyodide(): Promise<PyodideInterface> {
     "This demo will download Pyodide and matplotlib from jsDelivr (tens of MB, cached by " +
       "the browser after the first time). Continue?",
   );
-  if (!proceed) return Promise.reject(new Error("cancelled"));
+  if (!proceed) return Promise.reject(new Error("canceled"));
 
   pyodideLoading = (async () => {
     setStatus("Downloading Pyodide...");
@@ -310,8 +310,8 @@ async function run(): Promise<void> {
     const py = await ensurePyodide();
     await runProgram(py);
   } catch (err) {
-    if (err instanceof Error && err.message === "cancelled") {
-      setStatus("Cancelled.");
+    if (err instanceof Error && err.message === "canceled") {
+      setStatus("Canceled.");
     } else {
       setStatus(err instanceof Error ? err.message : String(err), true);
     }

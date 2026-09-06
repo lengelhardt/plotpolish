@@ -66,7 +66,7 @@ behind it is worse than no number):
 Main thread: panel mounts over the figure, `matplotlib 3.8.4` introspected,
 the fenced block round-trips into `main.py`, live preview applies without a
 re-run, the cursor survives a slider drag, and one drag collapses to a single
-undo entry (Ace honours `session.mergeUndoDeltas`).
+undo entry (Ace honors `session.mergeUndoDeltas`).
 
 Worker (`features.workerRuntime: true`): runtime reports `worker`, the panel
 mounts with **no backend** and `livePreview: false`, a change writes the block
@@ -190,7 +190,7 @@ would interleave with the student's program.
 
 ### Backend, worker
 
-One request/response pair, modelled on `snapshot` → `snapshot-result`:
+One request/response pair, modeled on `snapshot` → `snapshot-result`:
 
 * page → worker `{ type: "plotpolish-run", id, code }`
 * worker → page `{ type: "plotpolish-result", id, json }`, or the existing

@@ -858,7 +858,7 @@ def test_save_figure_returns_a_png_of_the_current_figure():
     assert (width, height) == (640, 480)
 
 
-def test_save_figure_honours_savefig_dpi():
+def test_save_figure_honors_savefig_dpi():
     """The whole point: it goes through savefig, not the on-screen canvas.
 
     A host that grabs the canvas gets a screen-resolution PNG whatever this is
@@ -872,7 +872,7 @@ def test_save_figure_honours_savefig_dpi():
     assert (width, height) == (1280, 960), "savefig.dpi did not reach the file"
 
 
-def test_save_figure_honours_transparent_and_bbox():
+def test_save_figure_honors_transparent_and_bbox():
     from plotpolish import save_figure
 
     fig, ax = make_figure()
@@ -882,12 +882,12 @@ def test_save_figure_honours_transparent_and_bbox():
     tight = _png_size(save_figure()["data"])
     assert tight != opaque, "savefig.bbox did not reach the file"
 
-    # Transparency shows in the file's colour type, not its size.
+    # Transparency shows in the file's color type, not its size.
     import base64
     apply_live({"savefig.bbox": "standard", "savefig.transparent": True})
     raw = base64.b64decode(save_figure()["data"])
-    colour_type = raw[25]  # IHDR: width, height, bit depth, colour type
-    assert colour_type == 6, "expected RGBA (colour type 6) for a transparent save"
+    color_type = raw[25]  # IHDR: width, height, bit depth, color type
+    assert color_type == 6, "expected RGBA (color type 6) for a transparent save"
 
 
 def test_save_figure_with_no_figure_says_so_rather_than_raising():

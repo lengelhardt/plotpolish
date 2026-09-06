@@ -102,7 +102,7 @@ Every control declares one of three categories in `controls.json`:
 | Category | Meaning | UI |
 | --- | --- | --- |
 | `live` | Has an artist-level equivalent; `apply_live` changes the retained figure immediately. | Applies on change. |
-| `save` | Read by `savefig`, not by artists; `apply_live` sets the rcParam so the next save honors it. | Labelled "applies when saving". |
+| `save` | Read by `savefig`, not by artists; `apply_live` sets the rcParam so the next save honors it. | Labeled "applies when saving". |
 | `rerun` | rcParams-only. Today only the style sheet (handled by `set_style`); color cycle and font family became live once artist-level handlers existed. | Marked "Applies on the next run"; the panel raises a `rerun-needed` event. |
 
 `apply_live` only touches artists that currently sit at the *current*

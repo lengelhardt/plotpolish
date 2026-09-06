@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import { VERSION } from "./src/constants";
 
@@ -21,7 +22,11 @@ import { VERSION } from "./src/constants";
 // from a subdirectory still builds. `/*!` is the form minifiers preserve, and
 // the SPDX id stays on the first line where a scanner (and the release gate)
 // looks for it.
-const LICENSE_PATH = decodeURIComponent(new URL("./LICENSE", import.meta.url).pathname);
+//
+// fileURLToPath, not `.pathname`: on Windows a file: URL's pathname is
+// "/C:/..." with a leading slash, which readFileSync cannot open. It also does
+// the percent-decoding that decodeURIComponent was here for.
+const LICENSE_PATH = fileURLToPath(new URL("./LICENSE", import.meta.url));
 const LICENSE_TEXT = readFileSync(LICENSE_PATH, "utf8").trimEnd();
 const BANNER = [
   `/*! plotpolish v${VERSION} | SPDX-License-Identifier: BSD-3-Clause | https://github.com/lengelhardt/plotpolish`,

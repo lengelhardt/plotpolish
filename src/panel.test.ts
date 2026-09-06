@@ -1273,7 +1273,7 @@ describe("draggable pill", () => {
     expect(pill(panel).classList.contains("dragging")).toBe(true);
     const moved = pill(panel).style.left;
 
-    // A cancelled gesture never sends pointerup.
+    // A canceled gesture never sends pointerup.
     grip.dispatchEvent(Object.assign(new Event("pointercancel"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("dragging")).toBe(false);
 
@@ -1714,7 +1714,7 @@ describe("commit as you type", () => {
   // dragged slider, and a slider moved by a sibling control -- and each one
   // fails with the guard removed. The test they replace drove `title_size`
   // with the string "6.0", which no browser can produce: that control is an
-  // <input type="range">, so the value is sanitised to a step boundary on
+  // <input type="range">, so the value is sanitized to a step boundary on
   // assignment and cannot be typed into at all.
   it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", async () => {
     await attachBackend(panel, new MockBackend());

@@ -1231,7 +1231,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.emit<PanelErrorEventDetail>("error", { error: err, context });
   }
 
-  /** Returns false when a listener cancelled it (cancelable events only). */
+  /** Returns false when a listener canceled it (cancelable events only). */
   private emit<T>(name: string, detail: T, cancelable = false): boolean {
     return this.dispatchEvent(
       new CustomEvent(`${EVENT_PREFIX}-${name}`, { detail, bubbles: true, composed: true, cancelable })
@@ -1370,7 +1370,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   /**
    * End a popover drag from any exit path: a pointerup on the header, one that
-   * landed anywhere else, a cancelled gesture, or a move that arrives with no
+   * landed anywhere else, a canceled gesture, or a move that arrives with no
    * button held. Leaving `dragStart` set is what let a later hover silently
    * resume the drag without a click.
    */
@@ -1542,7 +1542,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (!start) return;
     // A move with no button held means the release happened somewhere we never
     // saw: outside the element, off the window, or a gesture the browser
-    // cancelled. Without this the stale start survives, and simply hovering the
+    // canceled. Without this the stale start survives, and simply hovering the
     // grip later resumes the drag with no click -- and because the pill then
     // jumps away from the cursor, only the direction that chases it keeps
     // delivering moves, so it appears to drag one way but not the other.
@@ -1820,7 +1820,7 @@ export class PlotpolishPanel extends HTMLElement {
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
-    // A cancelled gesture (touch interrupted, browser takeover) never sends
+    // A canceled gesture (touch interrupted, browser takeover) never sends
     // pointerup, so without this the drag state would be left standing.
     pillGrip.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
     pillGrip.addEventListener("dblclick", () => this.reanchorPill());
@@ -2467,7 +2467,7 @@ export class PlotpolishPanel extends HTMLElement {
       if (i < rowCount) {
         const r = rows[i]!;
         // Unchanged since it was rendered: write back what the color actually
-        // was, not the input's sanitised idea of it.
+        // was, not the input's sanitized idea of it.
         const untouched = r.color.dataset.rendered !== undefined && r.color.value === r.color.dataset.rendered;
         color.push(untouched ? (r.color.dataset.orig ?? r.color.value) : r.color.value);
         const w = Number(r.width.value);

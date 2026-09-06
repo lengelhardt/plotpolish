@@ -99,7 +99,7 @@ size lives under Look because students think of size as part of the overall
 look. "Box around the plot" toggles the top and right spines together; the
 individual spines are gone from the UI, which is the point. Axes has three
 sub-sections, grid, box and tick marks, because it is the only category with
-three distinct ideas. Save is last and labelled as applying when saving.
+three distinct ideas. Save is last and labeled as applying when saving.
 
 **Legend is hidden when the live figure has no legend**, unless the block
 already sets legend keys, in which case it stays with a note. Before the

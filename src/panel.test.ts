@@ -800,6 +800,30 @@ describe("rerun indicators", () => {
     expect(tabRerun(panel, "text").hidden).toBe(true);
   });
 
+  it("with no backend, resetting a style AND rc keys marks both, not just the style", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    // A non-default style plus a Look rc key, so the reset has both to undo.
+    const style = input(panel, "style") as HTMLSelectElement;
+    style.value = "ggplot";
+    change(style);
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    await panel.settle();
+    await panel.refresh();
+    expect(tabRerun(panel, "look").hidden).toBe(true);
+
+    panel.backend = null;
+    panel.reset();
+
+    // The style is pending, and so is the reverted grid key. Marking only the
+    // style would leave the reverted control with no indicator at all.
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+    expect(ctl(panel, "grid").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
   it("with no backend, resetting one category marks that category pending", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);

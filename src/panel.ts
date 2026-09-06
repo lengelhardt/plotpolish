@@ -518,8 +518,10 @@ export class PlotpolishPanel extends HTMLElement {
     if (previous.style !== "default") this.noteRerun(["style"]);
     // With no preview the revert cannot be shown either: the figure still
     // carries whatever the last run drew, so the reverted keys are pending a
-    // re-run exactly as a fresh change would be.
-    else if (!this.canPreview && keys.length) this.noteRerun(keys);
+    // re-run exactly as a fresh change would be. Not an `else`: resetting a
+    // style AND reverting rc keys both need a run, and marking only the style
+    // would leave every reverted control without an indicator.
+    if (!this.canPreview && keys.length) this.noteRerun(keys);
     this.emitChange();
     this.update();
   }
@@ -750,8 +752,9 @@ export class PlotpolishPanel extends HTMLElement {
       else if (keys.length) this.scheduleApply(this.baselineFor(keys));
     }
     if (willResetStyle) this.noteRerun(["style"]);
-    // See reset(): a revert that cannot be previewed is still pending a re-run.
-    else if (!this.canPreview && keys.length) this.noteRerun(keys);
+    // See reset(): a revert that cannot be previewed is still pending a re-run,
+    // and that is true alongside a style reset, not instead of it.
+    if (!this.canPreview && keys.length) this.noteRerun(keys);
     this.emitChange();
     this.update();
   }

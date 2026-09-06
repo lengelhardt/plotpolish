@@ -777,6 +777,51 @@ describe("rerun indicators", () => {
     expect(tabRerun(panel, "text").hidden).toBe(true);
   });
 
+  it("with no backend, Reset all marks the reverted keys pending a re-run", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "16";
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+    change(size);
+    await panel.settle();
+    await panel.refresh();
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+
+    // The host drops to a runtime it cannot introspect, then the student resets.
+    panel.backend = null;
+    panel.reset();
+
+    // The block is empty now, but the figure still carries what the last run
+    // drew, so the revert is pending a re-run just as a change would be.
+    expect(tabRerun(panel, "text").hidden).toBe(false);
+    await panel.refresh();
+    expect(tabRerun(panel, "text").hidden).toBe(true);
+  });
+
+  it("with no backend, resetting one category marks that category pending", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "16";
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+    change(size);
+    await panel.settle();
+    await panel.refresh();
+
+    // The Reset <Category> item only appears for the *active* category.
+    panel.backend = null;
+    openTab(panel, "text");
+    openMenu(panel);
+    const item = menuItem(panel, "reset-category");
+    expect(item.hidden).toBe(false);
+    item.click();
+
+    expect(tabRerun(panel, "text").hidden).toBe(false);
+  });
+
   it("with a backend and live preview, an ordinary change is applied, not marked", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);

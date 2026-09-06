@@ -509,13 +509,17 @@ export class PlotpolishPanel extends HTMLElement {
     const previous = this.settings;
     this.settings = defaultSettings();
     this.writeToSink();
-    if (this.client && this._features.livePreview) {
-      const keys = Object.keys(previous.rc);
+    const keys = Object.keys(previous.rc);
+    if (this.canPreview) {
       if (previous.style !== "default") this.applyStyle("default", keys);
       else this.scheduleApply(this.baselineFor(keys));
     }
     this.rerunKeys.clear();
     if (previous.style !== "default") this.noteRerun(["style"]);
+    // With no preview the revert cannot be shown either: the figure still
+    // carries whatever the last run drew, so the reverted keys are pending a
+    // re-run exactly as a fresh change would be.
+    else if (!this.canPreview && keys.length) this.noteRerun(keys);
     this.emitChange();
     this.update();
   }
@@ -741,11 +745,13 @@ export class PlotpolishPanel extends HTMLElement {
     for (const key of keys) delete this.settings.rc[key];
     if (willResetStyle) this.settings.style = "default";
     this.writeToSink();
-    if (this.client && this._features.livePreview) {
+    if (this.canPreview) {
       if (willResetStyle) this.applyStyle("default", keys);
       else if (keys.length) this.scheduleApply(this.baselineFor(keys));
     }
     if (willResetStyle) this.noteRerun(["style"]);
+    // See reset(): a revert that cannot be previewed is still pending a re-run.
+    else if (!this.canPreview && keys.length) this.noteRerun(keys);
     this.emitChange();
     this.update();
   }

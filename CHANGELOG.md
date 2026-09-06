@@ -3,6 +3,17 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.5 — 2026-09-05
+
+- **The reset flows had the same no-preview gap 0.1.4 fixed for changes.**
+  `reset()` and `resetCategory()` also branched on
+  `client && livePreview` and otherwise did nothing visible: with no backend
+  the block was rewritten and neither applied nor marked, so a student hit
+  Reset, the figure kept whatever the last run drew, and nothing said why.
+  A revert that cannot be previewed is now pending a re-run exactly as a
+  change is. `canPreview` is now the only place either condition is spelled
+  out.
+
 ## 0.1.4 — 2026-09-05
 
 - **With no live preview, changes are now marked "re-run to see".** When a host

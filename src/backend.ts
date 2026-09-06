@@ -47,6 +47,17 @@ export interface AxesDescription {
   };
 }
 
+/** What a style looks like, without rendering it: enough for a thumbnail. */
+export interface StylePreview {
+  name: string;
+  figure: string;
+  axes: string;
+  grid: boolean;
+  grid_color: string;
+  edge: string;
+  colors: string[];
+}
+
 export interface FigureDescription {
   figsize: [number, number];
   dpi: number;
@@ -114,6 +125,11 @@ export class HelperClient {
 
   listStyles(): Promise<string[]> {
     return this.call<string[]>("list_styles");
+  }
+
+  /** Enough of each style to draw a thumbnail. Same order as `listStyles()`. */
+  stylePreviews(): Promise<StylePreview[]> {
+    return this.call<StylePreview[]>("style_previews");
   }
 
   /** Reset the session's rcParams and apply `name`; returns the new effective curated values. */

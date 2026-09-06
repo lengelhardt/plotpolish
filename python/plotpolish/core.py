@@ -181,6 +181,42 @@ def list_styles():
     return ["default"] + names
 
 
+def style_previews():
+    """Enough of each style to draw a thumbnail, without rendering anything.
+
+    ``plt.style.library[name]`` is only the style's *overrides*, so a value it
+    omits has to fall back to matplotlib's defaults -- seaborn-v0_8-darkgrid,
+    for instance, sets no prop_cycle at all and would otherwise preview with no
+    lines. Returns one entry per name from ``list_styles()``, in the same order,
+    so the panel can pair them up positionally.
+    """
+    defaults = mpl.rcParamsDefault
+    library = plt.style.library
+
+    def resolve(overrides, key):
+        value = overrides.get(key)
+        return defaults.get(key) if value is None else value
+
+    out = []
+    for name in list_styles():
+        overrides = {} if name == "default" else dict(library.get(name, {}))
+        cycle = resolve(overrides, "axes.prop_cycle")
+        try:
+            colors = list(cycle.by_key().get("color", []))[:4]
+        except Exception:  # pragma: no cover - a cycle without colors
+            colors = []
+        out.append({
+            "name": name,
+            "figure": _plain(resolve(overrides, "figure.facecolor")),
+            "axes": _plain(resolve(overrides, "axes.facecolor")),
+            "grid": bool(resolve(overrides, "axes.grid")),
+            "grid_color": _plain(resolve(overrides, "grid.color")),
+            "edge": _plain(resolve(overrides, "axes.edgecolor")),
+            "colors": [_plain(c) for c in colors],
+        })
+    return out
+
+
 def set_style(name, keep=None):
     """Reset the session's rcParams to library defaults, then apply style ``name``.
 
@@ -873,6 +909,7 @@ def apply_live(rc, only_defaults=True, previous=None):
 
 _DISPATCH = {
     "list_styles": lambda args: list_styles(),
+    "style_previews": lambda args: style_previews(),
     "set_style": lambda args: set_style(**args),
     "introspect_figure": lambda args: introspect_figure(**args),
     "apply_live": lambda args: apply_live(**args),

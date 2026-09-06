@@ -20,10 +20,11 @@ from .core import (  # noqa: F401
     rc_to_json,
     resolve_size,
     set_style,
+    style_previews,
 )
 
 __all__ = [
     "CURATED_KEYS", "LIVE_KEYS", "RERUN_KEYS", "SAVE_KEYS", "TOOL_NAME", "__version__",
     "apply_live", "current_figure", "dispatch", "introspect_figure", "json_to_rc",
-    "list_styles", "rc_to_json", "resolve_size", "set_style",
+    "list_styles", "rc_to_json", "resolve_size", "set_style", "style_previews",
 ]

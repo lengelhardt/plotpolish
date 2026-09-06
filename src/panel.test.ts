@@ -1125,11 +1125,63 @@ describe("draggable pill", () => {
     return p.shadowRoot!.querySelector(".pill .grip") as HTMLElement;
   }
 
-  it("shows a grip glyph at the left of the pill with a 'Drag to move' title", () => {
+  it("shows a grip glyph at the left of the pill, whose title names both of its jobs", () => {
     const grip = pillGrip(panel);
     expect(grip).not.toBeNull();
-    expect(grip.title).toBe("Drag to move");
+    // The grip drags the pill and, on a click that never becomes a drag,
+    // collapses it. A title naming only one of those hides the other.
+    expect(grip.title).toBe("Drag to move, click to tuck away");
     expect(pill(panel).firstElementChild).toBe(grip);
+  });
+
+  it("a click on the grip collapses the pill to the grip alone, and again expands it", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "text");
+    const grip = pillGrip(panel);
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    expect(popover.hidden).toBe(false);
+
+    // Press and release without clearing the drag threshold: a click.
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // Tucking the pill away has to take the open popover with it, or a panel
+    // that is meant to be out of the way leaves its biggest piece on screen.
+    expect(popover.hidden).toBe(true);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+  });
+
+  it("a drag of the grip moves the pill without collapsing it", () => {
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(pill(panel).style.left).not.toBe("");
+  });
+
+  it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", () => {
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    const dragged = pill(panel).style.left;
+    expect(dragged).not.toBe("");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).style.left).toBe(dragged);
   });
 
   it("a pointerdown on a tab button does not start a drag", () => {
@@ -1731,6 +1783,59 @@ describe("panelDefault seeding", () => {
     select.value = "ggplot";
     change(select);
     expect(panel.getSettings().rc).toEqual({ ...SEEDED });
+  });
+});
+
+describe("style thumbnails", () => {
+  it("draws one thumbnail per style once the backend supplies previews", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"));
+    expect(host.hidden).toBe(false);
+    expect(buttons.map((b) => b.dataset.style)).toEqual(backend.styles);
+    // The current style is marked, so the strip says which one is in force.
+    expect(buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.style))
+      .toEqual(["default"]);
+  });
+
+  it("draws each style from its own colours, so they are distinguishable", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    const dark = host.querySelector('button[data-style="dark_background"] rect') as SVGRectElement;
+    const ggplot = host.querySelector('button[data-style="ggplot"] rect') as SVGRectElement;
+    expect(dark.getAttribute("fill")).toBe("#000000");
+    expect(ggplot.getAttribute("fill")).toBe("#E5E5E5");
+    // ggplot has a grid; dark_background does not.
+    expect(host.querySelectorAll('button[data-style="ggplot"] line').length).toBeGreaterThan(0);
+    expect(host.querySelectorAll('button[data-style="dark_background"] line').length).toBe(0);
+  });
+
+  it("clicking a thumbnail selects that style", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    (host.querySelector('button[data-style="ggplot"]') as HTMLButtonElement).click();
+    expect(panel.getSettings().style).toBe("ggplot");
+    expect((input(panel, "style") as HTMLSelectElement).value).toBe("ggplot");
+  });
+
+  it("stays hidden when the host supplies no previews", () => {
+    // No backend at all: the select still works, the strip simply is not there.
+    panel.sink = new MemorySink("");
+    openTab(panel, "look");
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    expect(host.hidden).toBe(true);
   });
 });
 

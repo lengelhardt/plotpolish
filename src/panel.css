@@ -251,6 +251,17 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .readout { display: inline-block; min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; color: var(--_muted); }
 
 /* Color-cycle swatch list */
+/* Collapsed: only the grip shows, tucked into the figure's top-right corner. */
+.pill.collapsed > *:not(.grip) { display: none; }
+.pill.collapsed { padding: 2px; gap: 0; }
+.pill.collapsed .grip { padding: 2px 3px; }
+
+.style-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; max-height: 118px; overflow-y: auto; }
+.style-thumbs .style-thumb { padding: 2px; border: 1px solid var(--_border); border-radius: 4px; background: var(--_field-bg); line-height: 0; cursor: pointer; }
+.style-thumbs .style-thumb:hover { border-color: var(--_accent); }
+.style-thumbs .style-thumb[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }
+.style-thumbs .thumb { display: block; width: 44px; height: 30px; }
+
 .swatch-list { display: inline-flex; flex-direction: row; flex-wrap: nowrap; gap: 4px; align-items: center; }
 .swatch-list .preset { display: inline-flex; padding: 2px; border-radius: 4px; background: var(--_field-bg); }
 .swatch-list .preset[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }

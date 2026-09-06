@@ -17,7 +17,7 @@
  */
 
 import css from "./panel.css?inline";
-import { BackendError, HelperClient, type FigureBackend, type FigureDescription } from "./backend";
+import { BackendError, HelperClient, type FigureBackend, type FigureDescription, type StylePreview } from "./backend";
 import {
   FenceError, defaultSettings, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
   type StyleSettings,
@@ -87,6 +87,7 @@ interface ControlView {
   revert: HTMLButtonElement;
   segmented?: HTMLElement;
   swatchList?: HTMLElement;
+  styleThumbs?: HTMLElement;
   legendLoc?: LegendLocView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
@@ -182,6 +183,54 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return node;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * A small preview of a style, drawn from its own rc values rather than by
+ * rendering matplotlib: background, frame, grid and the first three cycle
+ * colours are all the eye needs to tell ggplot from dark_background, and
+ * asking Python for 26 rendered PNGs to fill a dropdown would not be.
+ */
+function styleThumb(preview: StylePreview): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
+  svg.setAttribute("viewBox", "0 0 44 30");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("thumb");
+
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", "1.5");
+  rect.setAttribute("y", "1.5");
+  rect.setAttribute("width", "41");
+  rect.setAttribute("height", "27");
+  rect.setAttribute("fill", preview.axes || "#ffffff");
+  rect.setAttribute("stroke", preview.edge || "#888888");
+  svg.append(rect);
+
+  if (preview.grid) {
+    for (const y of [9, 15, 21]) {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", "1.5");
+      line.setAttribute("x2", "42.5");
+      line.setAttribute("y1", String(y));
+      line.setAttribute("y2", String(y));
+      line.setAttribute("stroke", preview.grid_color || "#b0b0b0");
+      line.setAttribute("stroke-width", "0.8");
+      svg.append(line);
+    }
+  }
+
+  const shapes = ["M4,23 L15,15 L26,18 L40,7", "M4,17 L15,21 L26,9 L40,13", "M4,10 L15,6 L26,23 L40,19"];
+  preview.colors.slice(0, shapes.length).forEach((colour, i) => {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", shapes[i]!);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", colour);
+    path.setAttribute("stroke-width", "1.6");
+    svg.append(path);
+  });
+  return svg;
+}
+
 /** The value a bool control writes when switched on: true unless it says otherwise. */
 function boolOn(spec: ControlSpec): RcValue {
   return spec.onValue === undefined ? true : spec.onValue;
@@ -217,6 +266,8 @@ export class PlotpolishPanel extends HTMLElement {
   /** Last-introspected figure description, or null before any refresh / with no figure. */
   private figure: FigureDescription | null = null;
   private styles: string[] = ["default"];
+  /** Thumbnail data per style, keyed by name. Empty until a backend supplies it. */
+  private stylePreviews = new Map<string, StylePreview>();
   private overridden = new Set<string>();
   private unknownKeys: string[] = [];
   private fenceError: FenceError | null = null;
@@ -232,6 +283,10 @@ export class PlotpolishPanel extends HTMLElement {
   private applyChain: Promise<void> = Promise.resolve();
 
   private _open = false;
+  /** Collapsed: the pill shows only its grip, tucked into the figure's corner. */
+  private pillCollapsed = false;
+  /** Where the pill was dragged to before collapsing, restored on expand. */
+  private pillPosBeforeCollapse: { x: number; y: number } | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
   private _codeOpen = false;
@@ -498,6 +553,20 @@ export class PlotpolishPanel extends HTMLElement {
       try {
         const [styles, intro] = await Promise.all([this.client.listStyles(), this.client.introspect()]);
         this.styles = styles.length ? styles : ["default"];
+        // Fire and forget, and never fail refresh over it: a host whose helper
+        // predates style_previews just gets the plain list, and the styles a
+        // session offers do not change, so this runs once rather than per run.
+        if (!this.stylePreviews.size && this.client) {
+          void this.client
+            .stylePreviews()
+            .then((previews) => {
+              for (const p of previews) this.stylePreviews.set(p.name, p);
+              this.update();
+            })
+            .catch(() => {
+              /* no thumbnails; the select still works */
+            });
+        }
         this.baseline = { ...schemaDefaults(), ...intro.rc };
         this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
@@ -686,6 +755,37 @@ export class PlotpolishPanel extends HTMLElement {
     const cycleSpec = CONTROLS.find((c) => c.type === "linecycle");
     const visible = cycleSpec ? this.lineCycleRowCount(cycleSpec) : arr.length;
     return arr.slice(0, Math.min(arr.length, Math.max(1, visible)));
+  }
+
+  /**
+   * Fill the style thumbnail strip. Rebuilt only when the set of names changes,
+   * not on every update: this runs on every keystroke that touches the panel.
+   */
+  private updateStyleThumbs(view: ControlView, names: string[]): void {
+    const host = view.styleThumbs;
+    if (!host) return;
+    const drawable = names.filter((n) => this.stylePreviews.has(n));
+    if (!drawable.length) {
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    if (host.dataset.names !== drawable.join("\n")) {
+      host.dataset.names = drawable.join("\n");
+      host.replaceChildren(
+        ...drawable.map((name) => {
+          const btn = el("button", { type: "button", class: "style-thumb", title: name });
+          btn.dataset.style = name;
+          btn.setAttribute("aria-label", name);
+          btn.append(styleThumb(this.stylePreviews.get(name)!));
+          btn.addEventListener("click", () => this.setStyle(name));
+          return btn;
+        })
+      );
+    }
+    for (const btn of Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"))) {
+      btn.setAttribute("aria-pressed", String(btn.dataset.style === this.settings.style));
+    }
   }
 
   /** True when the rows the table shows carry per-line values that differ. */
@@ -1234,7 +1334,36 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onPillGripPointerUp(e: PointerEvent): void {
+    // A press and release that never cleared the drag threshold is a click,
+    // not a drag, so the grip doubles as the collapse toggle.
+    const wasClick = !!this.pillDragStart && !this.pillDragStart.captured;
     this.endPillDrag(e.pointerId);
+    if (wasClick) this.togglePillCollapsed();
+  }
+
+  /**
+   * Collapse the pill to its grip, tucked into the figure's top-right corner,
+   * or expand it again. Collapsing drops any dragged position so it really is
+   * in the corner rather than wherever it was left; expanding puts it back.
+   */
+  private togglePillCollapsed(): void {
+    this.pillCollapsed = !this.pillCollapsed;
+    if (this.pillCollapsed) {
+      this.pillPosBeforeCollapse = this.pillPos;
+      this.pillPos = null;
+      if (this._open) this.showCategory(null);
+      if (this._menuOpen) this.closeMenu();
+    } else {
+      this.pillPos = this.pillPosBeforeCollapse;
+      this.pillPosBeforeCollapse = null;
+    }
+    this.ui.pill.classList.toggle("collapsed", this.pillCollapsed);
+    this.ui.pillGrip.title = this.pillCollapsed
+      ? "Show the plot style controls"
+      : "Drag to move, click to tuck away";
+    this.update();
+    this.measureLayout();
+    this.positionFloatPill();
   }
 
   /** End a pill drag from any exit path. See endHeaderDrag. */
@@ -1342,7 +1471,7 @@ export class PlotpolishPanel extends HTMLElement {
       railTabs.push(railTab.btn);
     }
 
-    const pillGrip = el("span", { class: "grip", title: "Drag to move" }, "⋮⋮");
+    const pillGrip = el("span", { class: "grip", title: "Drag to move, click to tuck away" }, "⋮⋮");
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
@@ -1472,6 +1601,7 @@ export class PlotpolishPanel extends HTMLElement {
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
     let segmented: HTMLElement | undefined;
     let swatchList: HTMLElement | undefined;
+    let styleThumbs: HTMLElement | undefined;
     let legendLoc: LegendLocView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
@@ -1497,6 +1627,11 @@ export class PlotpolishPanel extends HTMLElement {
         // Spans the full row width, under the preset select (see the "row"
         // grid: an unplaced child would otherwise land in the narrow label
         // column), so it reads as a note about the whole control.
+        // Thumbnails are populated in update(): the previews arrive from the
+        // backend after the first refresh, and a host may never supply them.
+        const thumbs = el("div", { class: "style-thumbs" , hidden: true });
+        row.append(thumbs);
+        styleThumbs = thumbs;
         const note = el("p", { class: "next-run" }, "Applies on the next run.");
         row.append(note);
         nextRunNote = note;
@@ -1784,6 +1919,7 @@ export class PlotpolishPanel extends HTMLElement {
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
+    if (styleThumbs) view.styleThumbs = styleThumbs;
     if (legendLoc) view.legendLoc = legendLoc;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;
@@ -2035,6 +2171,7 @@ export class PlotpolishPanel extends HTMLElement {
           select.replaceChildren(...names.map((n) => el("option", { value: n }, n === this.settings.style && !this.styles.includes(n) ? `${n} (not available here)` : n)));
         }
         select.value = this.settings.style;
+        this.updateStyleThumbs(view, names);
         if (view.nextRunNote) view.nextRunNote.classList.toggle("pending", this.rerunKeys.has("style"));
         break;
       }

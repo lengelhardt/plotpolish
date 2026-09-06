@@ -379,6 +379,56 @@ def test_every_live_key_is_dispatched():
     assert result["deferred"] == [] and result["unknown"] == []
 
 
+def test_legend_title_follows_the_base_font_size_not_the_legend_size():
+    """rcParams["legend.title_fontsize"] is None, which means "use font.size".
+
+    So a re-run draws the legend's title at font.size while the labels beside it
+    follow legend.fontsize. Applying legend.fontsize to the title as well left
+    the live figure disagreeing with a re-run by a whole font size. The
+    live-vs-re-run harness cannot reach this one: every case that would show it
+    also trips the legend-frame divergence pinned there.
+    """
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="a")
+    leg = ax.legend(title="Runs")
+    assert leg.get_title().get_fontsize() == 10
+
+    apply_live({"legend.fontsize": 31.5})
+    assert leg.get_texts()[0].get_fontsize() == 31.5
+    assert leg.get_title().get_fontsize() == 10, "the title does not follow legend.fontsize"
+
+    apply_live({"font.size": 19.5})
+    assert leg.get_title().get_fontsize() == 19.5, "the title does follow font.size"
+    assert leg.get_texts()[0].get_fontsize() == 31.5  # still its own size
+
+
+def test_offset_text_follows_the_tick_label_size():
+    """The "1e6" at the end of an axis is sized by the tick-label rcParam, but
+    tick_params does not touch it, so it used to stay behind at the old size."""
+    fig, ax = plt.subplots()
+    ax.plot([0, 1e6], [0, 2.5e6])
+    fig.canvas.draw()
+    assert ax.xaxis.get_offset_text().get_fontsize() == 10
+
+    apply_live({"xtick.labelsize": 17})
+    assert ax.xaxis.get_offset_text().get_fontsize() == 17
+
+
+def test_legend_samples_follow_the_lines_they_stand_for():
+    """A legend's swatches are copies made when the legend was built, so walking
+    ax.lines leaves them showing the old style while a re-run shows the new."""
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="follows")
+    ax.plot([0, 1], [1, 0], lw=3, label="set by hand")
+    leg = ax.legend()
+
+    apply_live({"lines.linewidth": 6, "lines.linestyle": "--"})
+    samples = leg.get_lines()
+    assert samples[0].get_linewidth() == 6 and samples[0].get_linestyle() == "--"
+    # only_defaults left the student's line at 3, so its swatch stays at 3 too.
+    assert samples[1].get_linewidth() == 3
+
+
 def test_autolayout_sets_and_clears_the_tight_layout_engine():
     fig, ax = make_figure()
     assert fig.get_layout_engine() is None or type(fig.get_layout_engine()).__name__ != "TightLayoutEngine"

@@ -702,12 +702,36 @@ def _apply_tick_label_size(axis_name):
             if only and current is not None and not _close(current, old_pts):
                 continue
             ax.tick_params(axis=axis_name, which="both", labelsize=new_pts)
+            # The exponent/offset label ("1e6", "+3.5") takes its size from the
+            # same rcParam but not from tick_params, so it stayed behind while
+            # the tick labels around it grew.
+            offset = axis.get_offset_text()
+            if not only or _close(offset.get_fontsize(), old_pts):
+                offset.set_fontsize(new_pts)
     return apply
 
 
 def _legend_texts(ax):
     leg = ax.get_legend()
     return leg.get_texts() if leg is not None else []
+
+
+def _apply_legend_title_size(fig, base_old, base_new, only):
+    """The legend's title follows font.size, not legend.fontsize.
+
+    rcParams["legend.title_fontsize"] is None by default, and a None title font
+    falls back to the general font size -- so a re-run draws the title at
+    font.size while the labels beside it follow legend.fontsize. The panel has
+    no control for the title, so it has no handler of its own; it rides along
+    with the base size like any other text that never asked for a size.
+    """
+    for ax in fig.axes:
+        leg = ax.get_legend()
+        if leg is None:
+            continue
+        title = leg.get_title()
+        if not only or _close(title.get_fontsize(), base_old):
+            title.set_fontsize(base_new)
 
 
 # to_hex rounds each channel to 8 bits, so a colour that went through the
@@ -755,7 +779,7 @@ def _cycle_props(value):
     return {k: list(v) for k, v in value.items() if k in _PROP_CYCLE_ATTRS and v}
 
 
-def _apply_prop_cycle(fig, new, old, only):
+def _apply_prop_cycle(fig, new, old, only, fallback=None):
     """Apply per-line color/linewidth/linestyle through the property cycle.
 
     For each axes and each line at index ``i``, the new value for a
@@ -763,8 +787,10 @@ def _apply_prop_cycle(fig, new, old, only):
     (what the line would already show if it followed the previous cycle)
     comes the same way from ``old``. When ``old`` carries no entry for a
     property — no old cycle at all, or an old cycle that never mentioned
-    linewidth/linestyle — the fallback is ``mpl.rcParams``'s current value
-    for linewidth/linestyle, and the line's own current color for color
+    linewidth/linestyle — the fallback comes from ``fallback``: what the
+    caller believes the lines were last drawn against, read before this call
+    began writing to ``mpl.rcParams``. For color the fallback is the line's
+    own current color
     (which trivially "matches", so a first per-line color change is never
     blocked by ``only_defaults``).
     """
@@ -783,6 +809,8 @@ def _apply_prop_cycle(fig, new, old, only):
                     old_val = old_list[i % len(old_list)]
                 elif prop == "color":
                     old_val = line.get_color()
+                elif fallback is not None and prop in fallback:
+                    old_val = fallback[prop]
                 else:
                     old_val = mpl.rcParams["lines." + prop]
                 if only:
@@ -794,6 +822,60 @@ def _apply_prop_cycle(fig, new, old, only):
                     if not matches:
                         continue
                 getattr(line, setter_name)(caster(new_val))
+
+
+# Line properties the panel can move, and how to copy one between Line2Ds.
+_LINE_SYNC_ATTRS = {
+    "color": ("get_color", "set_color"),
+    "linewidth": ("get_linewidth", "set_linewidth"),
+    "linestyle": ("get_linestyle", "set_linestyle"),
+    "marker": ("get_marker", "set_marker"),
+    "markersize": ("get_markersize", "set_markersize"),
+}
+
+# rc key -> the line properties applying it can move.
+_LINE_PROPS_FOR_KEY = {
+    "lines.linewidth": ("linewidth",),
+    "lines.linestyle": ("linestyle",),
+    "lines.marker": ("marker",),
+    "lines.markersize": ("markersize",),
+}
+
+
+def _sync_legend_handles(fig, props):
+    """Copy ``props`` from each plotted line onto the legend's sample of it.
+
+    A legend's sample lines are COPIES taken when the legend was built, not the
+    lines themselves, so walking ``ax.lines`` leaves them showing the old style
+    while a re-run -- which builds the legend from lines that already carry the
+    new one -- shows the new. That is a live-preview-versus-re-run divergence in
+    five of the panel's controls at once, and the only one the eye is likely to
+    miss, because the swatches are small.
+
+    Copying from the source line rather than from rcParams is what keeps the
+    ``only_defaults`` promise: a line the student drew with ``lw=3`` was left
+    alone above, so its sample is left at 3 too.
+
+    Samples are matched to lines by label, which is how the legend chose them.
+    An entry with no matching line -- a handle the student passed explicitly, a
+    proxy artist -- is left alone, as a re-run would leave it.
+    """
+    if not props:
+        return
+    for ax in fig.axes:
+        legend = ax.get_legend()
+        if legend is None:
+            continue
+        by_label = {}
+        for line in ax.lines:
+            by_label.setdefault(line.get_label(), line)
+        for sample, text in zip(legend.get_lines(), legend.get_texts()):
+            source = by_label.get(text.get_text())
+            if source is None:
+                continue
+            for prop in props:
+                getter_name, setter_name = _LINE_SYNC_ATTRS[prop]
+                getattr(sample, setter_name)(getattr(source, getter_name)())
 
 
 def _apply_line_prop(getter_name, setter_name, caster):
@@ -924,6 +1006,15 @@ def apply_live(rc, only_defaults=True, previous=None):
             return previous[key]
         return rc_to_json(key, mpl.rcParams[key])
 
+    # What the lines were last drawn against, for the cycler's own
+    # only_defaults test. Read BEFORE the loop below starts writing to
+    # mpl.rcParams: "lines.linewidth" and "axes.prop_cycle" usually arrive in
+    # the same batch, and if the scalar was written first the cycler compared
+    # each line against the value it was about to be given, concluded every
+    # line had been styled by hand, and applied nothing -- so whether the
+    # per-line widths appeared at all depended on dict order.
+    cycle_fallback = {prop: old_value("lines." + prop) for prop in ("linewidth", "linestyle")}
+
     # font.size first: relative sizes ("large") resolve against it.
     base_old = float(old_value("font.size"))
     base_new = float(rc["font.size"]) if "font.size" in rc else base_old
@@ -935,6 +1026,7 @@ def apply_live(rc, only_defaults=True, previous=None):
                 current = old_value(key)
                 if isinstance(current, str):  # relative: follows font.size
                     handler(fig, current, current, only_defaults, base_old=base_old, base_new=base_new)
+            _apply_legend_title_size(fig, base_old, base_new, only_defaults)
         mpl.rcParams["font.size"] = base_new
         result["applied"].append("font.size")
 
@@ -949,7 +1041,11 @@ def apply_live(rc, only_defaults=True, previous=None):
             result["applied"].append(key)
         elif key in _LIVE_HANDLERS:
             if fig is not None and _CYCLE_MASTERS.get(key) not in cycled:
-                _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
+                if key == "axes.prop_cycle":
+                    _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults,
+                                        fallback=cycle_fallback)
+                else:
+                    _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
             mpl.rcParams[key] = json_to_rc(key, value)
             result["applied"].append(key)
         elif key in SAVE_KEYS:
@@ -961,6 +1057,14 @@ def apply_live(rc, only_defaults=True, previous=None):
             result["unknown"].append(key)
 
     if fig is not None and result["applied"]:
+        # The legend's sample lines are copies of the plotted ones; bring them
+        # along, or the swatches keep the style the figure no longer has.
+        touched = set()
+        for key in result["applied"]:
+            touched.update(_LINE_PROPS_FOR_KEY.get(key, ()))
+        if "axes.prop_cycle" in result["applied"]:
+            touched.update(_cycle_props(rc["axes.prop_cycle"]))
+        _sync_legend_handles(fig, touched & set(_LINE_SYNC_ATTRS))
         try:
             fig.canvas.draw_idle()
         except Exception:  # pragma: no cover - headless canvases without draw_idle

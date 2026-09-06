@@ -10,3 +10,13 @@ declare module "fs" {
   export function existsSync(path: string): boolean;
   export function readFileSync(path: string, encoding: "utf8"): string;
 }
+
+// src/live-cases.test.ts writes the harness's case file (see that file's header).
+declare module "node:fs" {
+  export function readFileSync(path: string, encoding: "utf8"): string;
+  export function writeFileSync(path: string, data: string): void;
+}
+declare module "node:path" {
+  export function resolve(...parts: string[]): string;
+}
+declare const process: { cwd(): string };

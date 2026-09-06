@@ -8,7 +8,10 @@ from matplotlib import ticker
 from matplotlib.colors import to_hex
 
 from plotpolish import LIVE_KEYS, RERUN_KEYS, SAVE_KEYS, apply_live, introspect_figure
-from plotpolish.core import _grid_on, _tick_direction
+from plotpolish.core import (
+    _gridline, _grid_on, _layout_is_tight, _legend_loc_name, _minor_grid_on,
+    _tick_direction, _tick_label_size,
+)
 
 
 def make_figure():
@@ -358,7 +361,14 @@ def test_prop_cycle_only_defaults_false_forces_everything():
     assert user_line.get_color() == "#56B4E9"
 
 
-def test_every_live_key_has_a_path():
+def test_every_live_key_is_dispatched():
+    """Every live key reaches a handler rather than being reported unknown.
+
+    Applying defaults to a default figure only proves the dispatch table has an
+    entry per key -- every ``only_defaults`` guard passes trivially and a
+    handler that did nothing would look identical. That is what
+    test_every_live_key_moves_the_figure, at the foot of this file, is for.
+    """
     fig, ax = make_figure()
     defaults = {k: mpl.rcParamsDefault[k] for k in LIVE_KEYS}
     from plotpolish import rc_to_json
@@ -527,3 +537,211 @@ def test_marker_does_not_reach_a_line_drawn_with_a_format_string():
     apply_live({"lines.marker": "o"})
     assert kw_line.get_marker() == "o"  # a re-run gives this line a marker...
     assert fmt_line.get_marker() == "None"  # ...but never this one
+
+
+# --------------------------------------------------------------------------
+# Every live key really moves the figure
+# --------------------------------------------------------------------------
+#
+# One case per LIVE key: a value that is genuinely NOT the rc default, and a
+# probe that reads the resulting state back off the artists. The test asserts
+# the probe reads something else BEFORE the call, so a value that quietly
+# equals the default fails here instead of passing vacuously; and it asserts
+# the exact expected state after, so a handler that becomes a no-op fails.
+#
+# Each case sends ONE key per apply_live() call. That is deliberate: with
+# "axes.prop_cycle" in the same payload, apply_live's ``cycled`` set stops
+# "lines.linewidth"/"lines.linestyle" from walking the artists at all (see
+# ``_CYCLE_MASTERS``), so a combined payload would silently excuse those two
+# handlers from doing anything.
+
+def _grid_setup(fig, ax):
+    """axes.grid.which only draws a minor grid where a major grid already is."""
+    ax.grid(True, which="major")
+
+
+# key -> {value, probe, expected, setup?}
+LIVE_KEY_CASES = {
+    # font.size cascades into every text still at a relative size.
+    "font.size": {
+        "value": 20,
+        "probe": lambda fig, ax: ax.title.get_fontsize(),  # 'large' = 1.2 x base
+        "expected": 24.0,
+    },
+    "axes.titlesize": {
+        "value": 22,
+        "probe": lambda fig, ax: ax.title.get_fontsize(),
+        "expected": 22.0,
+    },
+    "axes.labelsize": {
+        "value": 17,
+        "probe": lambda fig, ax: ax.xaxis.label.get_fontsize(),
+        "expected": 17.0,
+    },
+    "xtick.labelsize": {
+        "value": 7,
+        "probe": lambda fig, ax: _tick_label_size(ax.xaxis),
+        "expected": 7.0,
+    },
+    "ytick.labelsize": {
+        "value": 7,
+        "probe": lambda fig, ax: _tick_label_size(ax.yaxis),
+        "expected": 7.0,
+    },
+    "legend.fontsize": {
+        "value": 15,
+        "probe": lambda fig, ax: ax.get_legend().get_texts()[0].get_fontsize(),
+        "expected": 15.0,
+    },
+    "font.family": {
+        "value": "serif",
+        "probe": lambda fig, ax: list(ax.title.get_fontfamily()),
+        "expected": ["serif"],
+    },
+    "figure.autolayout": {
+        "value": True,
+        "probe": lambda fig, ax: _layout_is_tight(fig),
+        "expected": True,
+    },
+    "axes.grid": {
+        "value": True,
+        "probe": lambda fig, ax: _grid_on(ax.xaxis),
+        "expected": True,
+    },
+    "axes.grid.which": {
+        "setup": _grid_setup,
+        "value": "both",
+        "probe": lambda fig, ax: _minor_grid_on(ax.xaxis),
+        "expected": True,
+    },
+    "grid.alpha": {
+        "value": 0.25,
+        "probe": lambda fig, ax: _gridline(ax.xaxis).get_alpha(),
+        "expected": 0.25,
+    },
+    "grid.linestyle": {
+        "value": ":",
+        "probe": lambda fig, ax: _gridline(ax.xaxis).get_linestyle(),
+        "expected": ":",
+    },
+    "axes.spines.top": {
+        "value": False,
+        "probe": lambda fig, ax: ax.spines["top"].get_visible(),
+        "expected": False,
+    },
+    "axes.spines.right": {
+        "value": False,
+        "probe": lambda fig, ax: ax.spines["right"].get_visible(),
+        "expected": False,
+    },
+    "axes.linewidth": {
+        "value": 2.5,
+        "probe": lambda fig, ax: ax.spines["left"].get_linewidth(),
+        "expected": 2.5,
+    },
+    "xtick.direction": {
+        "value": "in",
+        "probe": lambda fig, ax: _tick_direction(ax.xaxis),
+        "expected": "in",
+    },
+    "ytick.direction": {
+        "value": "in",
+        "probe": lambda fig, ax: _tick_direction(ax.yaxis),
+        "expected": "in",
+    },
+    "xtick.minor.visible": {
+        "value": True,
+        "probe": lambda fig, ax: type(ax.xaxis.get_minor_locator()).__name__,
+        "expected": "AutoMinorLocator",
+    },
+    "ytick.minor.visible": {
+        "value": True,
+        "probe": lambda fig, ax: type(ax.yaxis.get_minor_locator()).__name__,
+        "expected": "AutoMinorLocator",
+    },
+    "lines.linewidth": {
+        "value": 4,
+        "probe": lambda fig, ax: ax.lines[0].get_linewidth(),
+        "expected": 4.0,
+    },
+    "lines.linestyle": {
+        "value": "--",
+        "probe": lambda fig, ax: ax.lines[0].get_linestyle(),
+        "expected": "--",
+    },
+    "lines.marker": {
+        "value": "o",
+        "probe": lambda fig, ax: ax.lines[0].get_marker(),
+        "expected": "o",
+    },
+    "lines.markersize": {
+        "value": 9,
+        "probe": lambda fig, ax: ax.lines[0].get_markersize(),
+        "expected": 9.0,
+    },
+    # The cycler carries all three properties it can, and each must land.
+    "axes.prop_cycle": {
+        "value": {"color": ["#E69F00", "#56B4E9"], "linewidth": [2.5, 4.0],
+                  "linestyle": ["--", ":"]},
+        "probe": lambda fig, ax: [ax.lines[0].get_color(),
+                                  ax.lines[0].get_linewidth(),
+                                  ax.lines[0].get_linestyle(),
+                                  ax.lines[1].get_color()],
+        "expected": ["#E69F00", 2.5, "--", "#56B4E9"],
+    },
+    "legend.frameon": {
+        "value": False,
+        "probe": lambda fig, ax: ax.get_legend().get_frame_on(),
+        "expected": False,
+    },
+    "legend.framealpha": {
+        "value": 0.25,
+        "probe": lambda fig, ax: ax.get_legend().get_frame().get_alpha(),
+        "expected": 0.25,
+    },
+    "legend.loc": {
+        "value": "lower left",
+        "probe": lambda fig, ax: _legend_loc_name(ax.get_legend()),
+        "expected": "lower left",
+    },
+}
+
+
+def _probe_matches(actual, expected):
+    """Compare probe readings, tolerating float representation."""
+    if isinstance(actual, list) and isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _probe_matches(a, e) for a, e in zip(actual, expected)
+        )
+    if isinstance(expected, float) and isinstance(actual, (int, float)):
+        return actual == pytest.approx(expected)
+    return actual == expected
+
+
+def test_every_live_key_has_a_case():
+    """A new live key must arrive with a case below, or this test names it."""
+    assert sorted(LIVE_KEY_CASES) == sorted(LIVE_KEYS)
+
+
+@pytest.mark.parametrize("key", LIVE_KEYS)
+def test_every_live_key_moves_the_figure(key):
+    case = LIVE_KEY_CASES[key]
+    fig, ax = make_figure()
+    if "setup" in case:
+        case["setup"](fig, ax)
+
+    before = case["probe"](fig, ax)
+    expected = case["expected"]
+    assert before != expected, (
+        "%s: the test value is not distinguishable from the figure's starting "
+        "state, so this case would pass even with no handler at all" % key
+    )
+
+    result = apply_live({key: case["value"]})
+
+    assert result["applied"] == [key]
+    assert result["deferred"] == [] and result["unknown"] == []
+    after = case["probe"](fig, ax)
+    assert _probe_matches(after, expected), (
+        "%s: apply_live() left the figure at %r, expected %r" % (key, after, expected)
+    )

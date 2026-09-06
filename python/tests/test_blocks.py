@@ -2,9 +2,11 @@
 
 import json
 import math
+import warnings
 from pathlib import Path
 
 import matplotlib as mpl
+import matplotlib.style  # noqa: F401  -- for mpl.style.library
 import pytest
 
 from plotpolish import TOOL_NAME, list_styles, rc_to_json
@@ -46,12 +48,10 @@ def test_block_is_fenced_and_self_contained(name):
 @pytest.mark.parametrize("name", NAMES)
 def test_block_executes_and_sets_rcparams(name):
     source, expected = load(name)
-    mpl.rcParams["figure.autolayout"] = True  # what Trinket sets before every run
     namespace = {}
     exec(compile(source, name + ".py", "exec"), namespace)
     assert set(namespace) - {"__builtins__"} == {"mpl"}, "block must bind only 'mpl'"
 
-    assert mpl.rcParams["figure.autolayout"] is True, "host per-run rc values must survive the block"
     if expected["style"] != "default":
         assert expected["style"] in list_styles()
     for key, value in expected["rc"].items():
@@ -72,3 +72,91 @@ def test_style_sheet_values_survive_under_overrides():
     exec(source, {})
     assert mpl.rcParams["axes.grid"] is True
     assert mpl.rcParams["axes.edgecolor"] == ".8"  # from the whitegrid sheet, untouched by the block
+
+
+# Values a host may have set before the block runs. Trinket sets
+# figure.autolayout before every run, and figure.figsize in the worker; the rest
+# are here so that ANY blanket reset -- mpl.rcdefaults(), mpl.style.use("default"),
+# mpl.rcParams.update(mpl.rcParamsDefault) -- shows up as a diff whichever fixture
+# is running. Pinning one key was not enough: `everything` sets figure.autolayout
+# itself, so a block that wiped every host value and then re-set that one key
+# passed. Every value here differs from the library default, which
+# test_host_sentinels_differ_from_library_defaults keeps true.
+HOST_RC = {
+    "figure.autolayout": True,
+    "figure.figsize": [7.5, 5.0],
+    "figure.dpi": 111.0,
+    "figure.facecolor": "#fedcba",
+    "figure.edgecolor": "#abcdef",
+    "figure.subplot.left": 0.2,
+    "savefig.pad_inches": 0.42,
+    "font.size": 11.5,
+    "lines.linewidth": 3.25,
+    "axes.grid": True,
+    "axes.titlepad": 12.5,
+    "xtick.major.pad": 7.5,
+    "text.color": "#336699",
+    "image.cmap": "plasma",
+    "legend.borderpad": 0.55,
+    "path.simplify": False,
+}
+
+# Reading these resolves a backend, which is a side effect, not a value to diff.
+NOT_DIFFED = {"backend", "backend_fallback"}
+
+
+def claimed_keys(expected):
+    """Every rc key a block is entitled to change: its own, plus its style sheet's."""
+    keys = set(expected["rc"])
+    if expected["style"] != "default":
+        keys |= set(mpl.style.library[expected["style"]])
+    return keys
+
+
+def rc_snapshot():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return {key: repr(value) for key, value in mpl.rcParams.items() if key not in NOT_DIFFED}
+
+
+def test_host_sentinels_differ_from_library_defaults():
+    """A sentinel equal to the default would silently stop detecting a reset."""
+    defaults = {key: repr(mpl.rcParams[key]) for key in HOST_RC}
+    mpl.rcParams.update(HOST_RC)
+    unchanged = sorted(key for key in HOST_RC if repr(mpl.rcParams[key]) == defaults[key])
+    assert not unchanged, ("sentinels equal to the library default", unchanged)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_block_leaves_host_rc_values_alone(name):
+    """The block only ever ADDS its own settings; it never disturbs the rest of rc.
+
+    Trinket sets figure.autolayout (and, in the worker, a pane-fitting
+    figure.figsize) via rcParams before every run, and the block runs
+    mid-program, so a reset inside the fence silently changes every figure the
+    student draws. Checked by diffing rcParams across the exec rather than by
+    grepping the source, so it is blind to spelling: rcdefaults(),
+    style.use("default") and update(rcParamsDefault) all read the same. The
+    second assertion catches the opposite failure -- a block that sets keys the
+    settings never asked for, which nothing else here would notice.
+    """
+    source, expected = load(name)
+    unknown = sorted(key for key in expected["rc"] if key not in mpl.rcParams)
+    assert not unknown, ("fixture names rc keys this matplotlib does not have", unknown)
+
+    claimed = claimed_keys(expected)
+    host = {key: value for key, value in HOST_RC.items() if key not in claimed}
+    assert len(host) >= 8, (name, "too few unclaimed sentinels left to detect a reset", sorted(host))
+
+    mpl.rcParams.update(host)
+    before = rc_snapshot()
+    exec(compile(source, name + ".py", "exec"), {})
+    after = rc_snapshot()
+
+    clobbered = sorted(key for key in host if after[key] != before[key])
+    assert not clobbered, ("%s: block reset host rc values it never set" % name, clobbered)
+    stray = sorted(key for key in before if before[key] != after[key] and key not in claimed)
+    assert not stray, (
+        "%s: block changed rc keys that neither its own dict nor style %r claims" % (name, expected["style"]),
+        stray,
+    )

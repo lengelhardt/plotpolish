@@ -1664,17 +1664,75 @@ describe("commit as you type", () => {
     expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("150");
   });
 
-  it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
+  // update() rewrites every control from state on each change, so it has to
+  // leave alone whatever the user is in the middle of. `isEditing` is what
+  // stops it, and it guards nine places: the fontsize and dpi sliders, the
+  // figure-size pair, the per-line colour swatch and width cell, and the
+  // legend x/y sliders. These three cover the three shapes -- a typed field, a
+  // dragged slider, and a slider moved by a sibling control -- and each one
+  // fails with the guard removed. The test they replace drove `title_size`
+  // with the string "6.0", which no browser can produce: that control is an
+  // <input type="range">, so the value is sanitised to a step boundary on
+  // assignment and cannot be typed into at all.
+  it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", async () => {
+    await attachBackend(panel, new MockBackend());
+    panel.sink = new MemorySink("");
+    openTab(panel, "lines");
+
+    // The per-line width cell is the panel's one free-text field.
+    const cell = panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width")[0]!;
+    expect(cell.type).toBe("number");
+    cell.focus();
+    cell.value = "3.0";
+    fireInput(cell);
+
+    const cycle = panel.getSettings().rc["axes.prop_cycle"];
+    expect(isPropCycle(cycle) && cycle.linewidth?.[0]).toBe(3);
+    // update() ran and would write String(3) -- "3" -- over the trailing zero
+    // the user has not finished typing past.
+    expect(cell.value).toBe("3.0");
+    cell.blur();
+  });
+
+  it("leaves a focused slider where the user is holding it, while the readout still follows", () => {
+    panel.sink = new MemorySink("");
     const titleInput = input(panel, "title_size") as HTMLInputElement;
+    expect(titleInput.value).toBe("12"); // "large" at base 10
+
     titleInput.focus();
-    titleInput.value = "6.0";
-    fireInput(titleInput);
-    expect(panel.getSettings().rc["axes.titlesize"]).toBe(6);
-    // update() ran (setKeys always calls it) but must not reformat the field while it is focused.
-    expect(titleInput.value).toBe("6.0");
+    const fontSizeInput = input(panel, "font_size") as HTMLInputElement;
+    fontSizeInput.value = "20";
+    fireInput(fontSizeInput);
+
+    // "large" now resolves to 24. The unfocused case (asserted by the test
+    // above this describe block) moves the slider; the focused one must not,
+    // or the thumb jumps out from under the pointer mid-drag.
+    expect(titleInput.value).toBe("12");
+    // But the guard skips the slider position ONLY. Everything that tells the
+    // user what the value actually is has to keep up.
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("24");
+    expect(titleInput.title).toContain("24");
     titleInput.blur();
+  });
+
+  it("leaves a focused legend x slider alone when the named location moves it", async () => {
+    await attachBackend(panel, new MockBackend());
+    panel.sink = new MemorySink("");
+    openTab(panel, "legend");
+
+    const xRange = input(panel, "legend_loc") as HTMLInputElement;
+    const snap = ctl(panel, "legend_loc").querySelector("select.snap") as HTMLSelectElement;
+    const xOut = ctl(panel, "legend_loc").querySelector(".readout") as HTMLElement;
+    const before = xRange.value;
+
+    xRange.focus();
+    snap.value = "lower left";
+    change(snap);
+
+    expect(panel.getSettings().rc["legend.loc"]).toBe("lower left");
+    expect(xRange.value).toBe(before); // held by the user, so left where it is
+    expect(xOut.textContent).not.toBe(before); // the readout still reports the truth
+    xRange.blur();
   });
 });
 
@@ -2285,17 +2343,115 @@ describe("sink subscribe", () => {
     expect(panel.currentFenceError).toBeInstanceOf(FenceError);
   });
 
+  /**
+   * A sink that behaves like the editors the panel actually runs against (Ace,
+   * in Trinket): replacing the document notifies subscribers, and the document
+   * is momentarily EMPTY partway through, because setValue() drops every line
+   * and then inserts the new ones, firing a change at each step.
+   *
+   * MemorySink cannot stand in here. Its setSource() never notifies
+   * subscribers (see sink.test.ts, "does not call subscribed listeners on
+   * setSource, only on externalEdit"), and externalEdit() publishes the whole
+   * new document before notifying -- so re-parsing round-trips to the settings
+   * the panel just wrote, and nothing the `writing` guard prevents is visible.
+   */
+  class EditorSink implements CodeSink {
+    private source: string;
+    private listeners = new Set<() => void>();
+    private inWrite = false;
+    readonly writes: string[] = [];
+    /** getSource() calls made from inside the panel's own setSource(). */
+    readonly readsDuringWrite: string[] = [];
+    /** Panel state sampled at each notification the panel's own write raised. */
+    readonly snapshotsDuringWrite: unknown[] = [];
+
+    constructor(initial: string, private readonly sample: () => unknown = () => null) {
+      this.source = initial;
+    }
+
+    getSource(): string {
+      if (this.inWrite) this.readsDuringWrite.push(this.source);
+      return this.source;
+    }
+
+    setSource(source: string): void {
+      this.writes.push(source);
+      // Stop an unbounded write -> notify -> write cascade, so a regression
+      // fails these assertions instead of hanging the suite.
+      if (this.writes.length > 10) throw new Error("runaway write loop");
+      const outer = this.inWrite;
+      this.inWrite = true;
+      try {
+        this.source = "";      // Ace: remove every line, fire a change
+        this.notify();
+        this.source = source;  // Ace: insert the new lines, fire a change
+        this.notify();
+      } finally {
+        this.inWrite = outer;
+      }
+    }
+
+    /** An edit made outside the panel (the user typing in the editor). */
+    externalEdit(source: string): void {
+      this.source = source;
+      this.notify();
+    }
+
+    subscribe(listener: () => void): () => void {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+
+    private notify(): void {
+      // Sample BEFORE the listeners run, so a listener that clobbers panel
+      // state against the half-applied document shows up in the NEXT snapshot.
+      if (this.inWrite) this.snapshotsDuringWrite.push(this.sample());
+      for (const l of [...this.listeners]) l();
+    }
+  }
+
   it("does not re-trigger a reload loop from the panel's own writes", () => {
-    const userSrc = "x = 1\n";
-    let sink!: MemorySink;
-    sink = new MemorySink(userSrc, (s) => sink.externalEdit(s));
+    const sink = new EditorSink("x = 1\n", () => panel.getSettings().rc["font.size"]);
     panel.sink = sink;
 
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
     fireInput(fs);
 
+    // The panel's own state is never replaced by the editor's half-applied
+    // document: it holds font.size 14 across both of the write's changes.
+    expect(sink.snapshotsDuringWrite).toEqual([14, 14]);
+    expect(sink.readsDuringWrite).toEqual([]); // it never re-read mid-write
+    expect(sink.writes.length).toBe(1);        // one write, no cascade
+    expect(panel.getSettings().rc["font.size"]).toBe(14);
+
+    // An edit from outside is still picked up: the guard is only about the
+    // panel's own writes, not about ignoring the sink.
+    sink.externalEdit(generateBlock({ style: "default", rc: { "font.size": 20 } })!);
+    expect(panel.getSettings().rc["font.size"]).toBe(20);
+  });
+
+  it("does not re-trigger a reload loop from Replace block", () => {
+    const src = [
+      FENCE_START, FENCE_START, "import matplotlib as mpl",
+      "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
+      "print('kept')",
+    ].join("\n");
+    const sink = new EditorSink(src, () => panel.currentFenceError !== null);
+    panel.sink = sink;
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+    openTab(panel, "text");
+
+    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
+    (banner.querySelector("button") as HTMLButtonElement).click();
+
+    // replaceBlock() clears the fence error from its own reload afterwards --
+    // never from a reload triggered against its own half-written document.
+    expect(sink.snapshotsDuringWrite).toEqual([true, true]);
+    expect(sink.readsDuringWrite).toEqual([]);
     expect(sink.writes.length).toBe(1);
+    expect(panel.currentFenceError).toBeNull();
+    expect(sink.writes[0]).toContain("print('kept')");
   });
 });
 

@@ -1004,6 +1004,56 @@ describe("draggable pill", () => {
     expect(panel.category).toBe("text");
   });
 
+  it("a hover after a release that missed the grip does not resume the drag", () => {
+    const grip = pillGrip(panel);
+    const before = pill(panel).style.left;
+
+    // Press the grip, then release somewhere the grip never sees -- the common
+    // case when a drag ends outside the pill, or the pointer leaves the window.
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    document.body.dispatchEvent(
+      Object.assign(new Event("pointerup", { bubbles: true }), { clientX: 200, clientY: 200, pointerId: 1, buttons: 0 })
+    );
+
+    // Now merely move over the grip with no button held. This must do nothing:
+    // before the fix the stale start made it silently grab and drag the pill.
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 90, clientY: 90, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+    expect(pill(panel).style.left).toBe(before);
+  });
+
+  it("pointercancel ends a drag, and a later hover does not resume it", () => {
+    const grip = pillGrip(panel);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 1 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(true);
+    const moved = pill(panel).style.left;
+
+    // A cancelled gesture never sends pointerup.
+    grip.dispatchEvent(Object.assign(new Event("pointercancel"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 300, clientY: 300, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).style.left).toBe(moved);
+  });
+
+  it("a held drag still moves the pill in both directions", () => {
+    const grip = pillGrip(panel);
+    const px = () => parseFloat(pill(panel).style.left || "0");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 100, clientY: 100, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 160, clientY: 100, pointerId: 1, buttons: 1 }));
+    const right = px();
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 40, clientY: 100, pointerId: 1, buttons: 1 }));
+    const left = px();
+
+    expect(left).toBeLessThan(right);
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 40, clientY: 100, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+  });
+
   it("a move under 4px does not start a drag; a grip drag of >= 4px sets inline left/top and '.dragging'", () => {
     const grip = pillGrip(panel);
 

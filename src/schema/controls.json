@@ -1,5 +1,5 @@
 {
-  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md. Two controls may share a key (prop_cycle presets and line_cycle both write axes.prop_cycle). panelDefault: a value plotpolish applies when the block is first created if the key is not set.",
+  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md. Two controls may share a key (prop_cycle presets and line_cycle both write axes.prop_cycle); each such control declares an owns map (rc key -> the parts of that key's value it is responsible for), so a category reset clears only its own parts instead of deleting the whole key and throwing away the other category's work. panelDefault: a value plotpolish applies when the block is first created if the key is not set.",
   "groups": [
     {
       "id": "look",
@@ -68,6 +68,11 @@
       "keys": [
         "axes.prop_cycle"
       ],
+      "owns": {
+        "axes.prop_cycle": [
+          "color"
+        ]
+      },
       "category": "live",
       "help": "The color given to the 1st, 2nd, … line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
       "default": [
@@ -247,6 +252,12 @@
       "keys": [
         "axes.prop_cycle"
       ],
+      "owns": {
+        "axes.prop_cycle": [
+          "linewidth",
+          "linestyle"
+        ]
+      },
       "category": "live",
       "default": [
         "#1f77b4",

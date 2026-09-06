@@ -13,7 +13,7 @@ import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
   PlotpolishPanel, shortStyleName, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
 } from "./panel";
-import { CONTROLS, GROUPS, isPropCycle } from "./schema";
+import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
@@ -2670,5 +2670,139 @@ describe("every slider keeps its readout in sync while being dragged", () => {
     }
     expect(checked).toBeGreaterThanOrEqual(10);
     p.remove();
+  });
+});
+
+describe("two controls, one key: axes.prop_cycle", () => {
+  // "Colors" (Look) and the per-line table (Lines) both write axes.prop_cycle.
+  // Each declares in controls.json which parts of the value it owns, so a
+  // category reset rewrites the key rather than deleting it and throwing the
+  // other category's work away.
+  const OKABE = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!;
+  const DEFAULT_PALETTE = CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[];
+
+  function widthCells(p: PlotpolishPanel): HTMLInputElement[] {
+    return Array.from(p.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width"));
+  }
+  function setWidth(p: PlotpolishPanel, i: number, value: string): void {
+    const cell = widthCells(p)[i]!;
+    cell.value = value;
+    fireInput(cell);
+  }
+  function pickPalette(p: PlotpolishPanel, id: string): void {
+    (ctl(p, "prop_cycle").querySelector(`button.preset[data-preset="${id}"]`) as HTMLButtonElement).click();
+  }
+  function cycle(p: PlotpolishPanel): PropCycleValue | string[] | undefined {
+    return p.getSettings().rc["axes.prop_cycle"] as PropCycleValue | string[] | undefined;
+  }
+  async function ready(p: PlotpolishPanel): Promise<MockBackend> {
+    const backend = new MockBackend();
+    await attachBackend(p, backend);
+    p.sink = new MemorySink("");
+    return backend;
+  }
+
+  it("Reset Lines keeps the palette chosen under Look", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    groupReset(panel).click();
+
+    // The per-line widths are gone; the colours the other category owns are not.
+    const after = cycle(panel);
+    expect(isPropCycle(after)).toBe(false);
+    expect(after).toEqual(OKABE.colors);
+  });
+
+  it("Reset Look keeps the per-line widths, re-zipped to the palette it restores", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito"); // eight colours
+    openTab(panel, "lines");
+    setWidth(panel, 1, "3");
+
+    openTab(panel, "look");
+    groupReset(panel).click();
+
+    const after = cycle(panel);
+    expect(isPropCycle(after)).toBe(true);
+    const value = after as PropCycleValue;
+    expect(value.color).toEqual(DEFAULT_PALETTE); // ten colours
+    expect(value.linewidth![1]).toBe(3);
+    // mpl.cycler zips equal-length lists, so the widths had to follow the
+    // palette from eight entries to ten rather than be left short.
+    expect(value.linewidth!.length).toBe(value.color.length);
+  });
+
+  it("a category's reset does not light up for the other category's work", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    expect(groupReset(panel).hidden).toBe(true); // Lines owns nothing yet
+
+    setWidth(panel, 0, "8");
+    expect(groupReset(panel).hidden).toBe(false);
+  });
+
+  it("...and the same the other way round", async () => {
+    await ready(panel);
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+    openTab(panel, "look");
+    expect(groupReset(panel).hidden).toBe(true); // Look owns no colour change yet
+
+    pickPalette(panel, "okabe-ito");
+    expect(groupReset(panel).hidden).toBe(false);
+  });
+
+  it("reverting one control clears only its own parts", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    // "Line width (all)" is a master over the table: setting it drops the
+    // per-line widths and leaves the palette alone.
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    expect(cycle(panel)).toEqual(OKABE.colors);
+  });
+
+  it("Reset all still clears the whole key", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    panel.reset();
+    expect(cycle(panel)).toBeUndefined();
+    expect(panel.getBlock()).toBeNull();
+  });
+
+  it("previews the rewritten cycle, not the baseline, so the figure matches the block", async () => {
+    const backend = await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+    await panel.settle();
+    backend.calls.length = 0;
+
+    groupReset(panel).click();
+    await panel.settle();
+
+    const applied = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(applied.length).toBe(1);
+    const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
+    // Sending the baseline palette here would repaint the lines with matplotlib
+    // defaults while the block still says Okabe-Ito.
+    expect(rc["axes.prop_cycle"]).toEqual(OKABE.colors);
   });
 });

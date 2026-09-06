@@ -24,9 +24,9 @@ import {
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
 import {
-  CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, controlsInGroup, isPropCycle, rcEqual,
-  resolveFontSize,
-  type ControlSpec, type GroupSpec, type PropCycleValue, type RcValue,
+  CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, asPropCycle, controlsInGroup, isPropCycle,
+  rcEqual, resolveFontSize,
+  type ControlSpec, type GroupSpec, type KeyPart, type PropCycleValue, type RcValue,
 } from "./schema";
 import type { CodeSink } from "./sink";
 
@@ -742,18 +742,18 @@ export class PlotpolishPanel extends HTMLElement {
 
   private setKeys(spec: ControlSpec, value: RcValue | undefined): void {
     const wasDefault = isDefaultSettings(this.settings);
-    const apply: Record<string, RcValue> = {};
-    for (const key of spec.keys) {
-      if (value === undefined) {
-        delete this.settings.rc[key];
-        const base = this.baseline[key];
-        if (base !== undefined) apply[key] = base;
-      } else {
+    let apply: Record<string, RcValue> = {};
+    if (value === undefined) {
+      // Reverting one control clears only what that control owns; on a key two
+      // controls share, the other one's parts stay. See clearOwned().
+      apply = this.clearOwned([spec]).apply;
+    } else {
+      for (const key of spec.keys) {
         this.settings.rc[key] = (Array.isArray(value) ? [...value] : value) as RcValue;
         apply[key] = this.settings.rc[key]!;
       }
+      this.unifyPerLine(spec, apply);
     }
-    if (value !== undefined) this.unifyPerLine(spec, apply);
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     // Without a preview, a change cannot show until the program runs again, so
@@ -956,22 +956,86 @@ export class PlotpolishPanel extends HTMLElement {
     return out;
   }
 
+  /**
+   * Clear what `specs` own, and return the keys that changed plus the rc to
+   * send to the figure.
+   *
+   * A control owns its keys outright (the ordinary case) and its keys are
+   * deleted. Two controls share `axes.prop_cycle` -- Look's palette and Lines'
+   * per-line table -- and controls.json says which parts of that value each
+   * one owns. For a shared key the value is REWRITTEN rather than deleted:
+   * the owned parts go back to the baseline, the rest stay. Deleting it was
+   * how "Reset Lines" silently threw away the palette the user picked under
+   * Look, and "Reset Look" threw away the per-line widths.
+   */
+  private clearOwned(specs: readonly ControlSpec[]): { changed: string[]; apply: Record<string, RcValue> } {
+    // key -> the parts these specs own, or null when one of them owns the key outright.
+    const owned = new Map<string, KeyPart[] | null>();
+    for (const spec of specs) {
+      for (const key of spec.keys) {
+        if (!(key in this.settings.rc)) continue;
+        const parts = spec.owns?.[key];
+        if (!parts) { owned.set(key, null); continue; }
+        const seen = owned.get(key);
+        if (seen === null) continue;
+        owned.set(key, [...new Set([...(seen ?? []), ...parts])]);
+      }
+    }
+    const changed: string[] = [];
+    const apply: Record<string, RcValue> = {};
+    for (const [key, parts] of owned) {
+      const before = this.settings.rc[key]!;
+      const next = parts === null ? undefined : this.withoutParts(key, before, parts);
+      if (next === undefined) delete this.settings.rc[key];
+      else this.settings.rc[key] = next;
+      if (parts !== null && rcEqual(next, before)) continue;  // nothing of ours was set
+      changed.push(key);
+      const shown = next ?? this.baseline[key];
+      if (shown !== undefined) apply[key] = shown;
+    }
+    return { changed, apply };
+  }
+
+  /**
+   * `value` with `parts` put back to the baseline, or undefined when nothing
+   * of it survives (so the key should be dropped). Only prop-cycle-shaped
+   * values have parts; anything else is owned outright and yields undefined.
+   */
+  private withoutParts(key: string, value: RcValue, parts: readonly KeyPart[]): RcValue | undefined {
+    const cur = asPropCycle(value);
+    if (!cur) return undefined;
+    const base = asPropCycle(this.baseline[key]) ?? { color: [] };
+    const next: PropCycleValue = { color: parts.includes("color") ? [...base.color] : [...cur.color] };
+    for (const p of ["linewidth", "linestyle"] as const) {
+      const arr = cur[p];
+      if (!parts.includes(p) && arr) (next[p] as typeof arr) = [...arr] as never;
+    }
+    // matplotlib's cycler zips equal-length lists, so a palette that changed
+    // length takes the per-line arrays with it (padded with the all-lines value).
+    if (next.linewidth) next.linewidth = resizeArray(next.linewidth, next.color.length, this.allLinesWidth());
+    if (next.linestyle) next.linestyle = resizeArray(next.linestyle, next.color.length, this.allLinesStyle());
+    if (next.linewidth || next.linestyle) return next;
+    return rcEqual(next.color, base.color) ? undefined : [...next.color];
+  }
+
   /** Revert every control in `groupId` (and, for "look", the style preset). */
   private resetCategory(groupId: string): void {
     const specs = controlsInGroup(groupId);
-    const keys = specs.flatMap((s) => s.keys).filter((k) => k in this.settings.rc);
     const willResetStyle = groupId === "look" && this.settings.style !== "default" && this.settings.style !== "";
-    for (const key of keys) delete this.settings.rc[key];
+    const { changed, apply } = this.clearOwned(specs);
+    // applyStyle() re-applies settings.rc wholesale, so only the keys that are
+    // gone from it need their baseline restoring alongside the new style.
+    const restoreKeys = changed.filter((k) => !(k in this.settings.rc));
     if (willResetStyle) this.settings.style = "default";
     this.writeToSink();
     if (this.canPreview) {
-      if (willResetStyle) this.applyStyle("default", keys);
-      else if (keys.length) this.scheduleApply(this.baselineFor(keys));
+      if (willResetStyle) this.applyStyle("default", restoreKeys);
+      else if (Object.keys(apply).length) this.scheduleApply(apply);
     }
     if (willResetStyle) this.noteRerun(["style"]);
     // See reset(): a revert that cannot be previewed is still pending a re-run,
     // and that is true alongside a style reset, not instead of it.
-    if (!this.canPreview && keys.length) this.noteRerun(keys);
+    if (!this.canPreview && changed.length) this.noteRerun(changed);
     this.emitChange();
     this.update();
   }
@@ -1518,7 +1582,28 @@ export class PlotpolishPanel extends HTMLElement {
 
   private groupHasChanges(groupId: string): boolean {
     if (groupId === "look" && this.settings.style !== "" && this.settings.style !== "default") return true;
-    return controlsInGroup(groupId).some((c) => c.keys.some((k) => k in this.settings.rc));
+    return controlsInGroup(groupId).some((c) => this.controlIsSet(c));
+  }
+
+  /**
+   * Whether this control has something of its own set. For a key two controls
+   * share (axes.prop_cycle) "its own" means the parts controls.json gives it:
+   * a Look palette must not light up the Lines tab's dot and reset, and a
+   * per-line width must not light up Look's.
+   */
+  private controlIsSet(spec: ControlSpec): boolean {
+    return spec.keys.some((key) => {
+      const value = this.settings.rc[key];
+      if (value === undefined) return false;
+      const parts = spec.owns?.[key];
+      if (!parts) return true;
+      const cur = asPropCycle(value);
+      if (!cur) return true;
+      const base = asPropCycle(this.baseline[key]);
+      return parts.some((p) =>
+        p === "color" ? !base || !rcEqual(cur.color, base.color) : cur[p] !== undefined
+      );
+    });
   }
 
   private groupHasRerunPending(groupId: string): boolean {
@@ -2275,7 +2360,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   private updateControl(view: ControlView): void {
     const { spec, row, badges, revert } = view;
-    const isSet = spec.keys.some((k) => k in this.settings.rc);
+    const isSet = this.controlIsSet(spec);
     const userOverrides = !this.stale && spec.keys.some((k) => this.overridden.has(k));
     const relevantRerunKeys = spec.id === "style" ? ["style"] : spec.keys;
     const rerunPending =

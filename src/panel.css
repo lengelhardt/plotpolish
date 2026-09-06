@@ -377,6 +377,23 @@ select.snap { width: 120px; }
 
 /* Style preset: the note under it says the change needs a re-run; while one
    is pending (the rerunKeys set has "style") it is highlighted. */
+/* "Needs X on": shown on the row of a control that is on but has nothing to
+   act on yet, with the one click that fixes it. */
+p.needs {
+  grid-column: 1 / -1; margin: 3px 0 0; font-size: 11px; line-height: 1.4;
+  color: var(--_muted);
+}
+/* Greyed, not hidden: the control still has to be findable, and a student who
+   went looking for it needs to see why it will not move. */
+.row.blocked label { opacity: 0.55; }
+.row.blocked .control { opacity: 0.55; }
+.row.blocked input:disabled { cursor: not-allowed; }
+p.needs .needs-fix {
+  font: inherit; font-weight: 600; cursor: pointer; padding: 1px 6px;
+  color: var(--_bg); background: var(--_accent); border: 0; border-radius: 999px;
+}
+p.needs .needs-fix:hover { filter: brightness(1.1); }
+
 p.next-run { grid-column: 1 / -1; margin: 2px 0 0; color: var(--_muted); font-size: 11px; }
 p.next-run.pending { color: var(--_accent); font-weight: 700; }
 

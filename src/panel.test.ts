@@ -2264,6 +2264,72 @@ describe("minor grid lines", () => {
     expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
   });
 
+  it("is disabled, and says why, while there are no minor ticks to draw on", () => {
+    // matplotlib puts a minor grid line only where a minor tick is, so with
+    // Minor tick marks off this switch cannot do anything. It is greyed rather
+    // than left switchable-but-silent, and the row carries the reason -- the
+    // help text said it too, but a tooltip is not where anyone looks when a
+    // switch appears to do nothing.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const box = input(panel, "minor_grid") as HTMLInputElement;
+    const note = () => ctl(panel, "minor_grid").querySelector("p.needs") as HTMLElement;
+
+    expect(box.disabled).toBe(true);
+    expect(ctl(panel, "minor_grid").classList.contains("blocked")).toBe(true);
+    expect(note().hidden).toBe(false);
+    expect(note().textContent).toContain("Minor tick marks");
+
+    // One click to lift it, rather than the panel switching it on unasked.
+    (note().querySelector("button.needs-fix") as HTMLButtonElement).click();
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+    expect(panel.getSettings().rc["ytick.minor.visible"]).toBe(true);
+    expect((input(panel, "minor_grid") as HTMLInputElement).disabled).toBe(false);
+    expect(note().hidden).toBe(true);
+  });
+
+  it("keeps its own value when the ticks go away, rather than being rewritten", () => {
+    // Turning the ticks off must not reach over and clear this. Changing one
+    // setting because another moved is what this panel does not do, and on load
+    // it would mean editing the student's block with no action from them.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const ticks = input(panel, "minor_ticks") as HTMLInputElement;
+    ticks.checked = true;
+    change(ticks);
+
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    expect(grid.disabled).toBe(false);
+    grid.checked = true;
+    change(grid);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+
+    ticks.checked = false;
+    change(ticks);
+    expect((input(panel, "minor_grid") as HTMLInputElement).disabled).toBe(true);
+    // Still "both" in the block, and still checked: nothing was rewritten, so
+    // turning the ticks back on restores what the student had.
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(true);
+
+    ticks.checked = true;
+    change(ticks);
+    expect((input(panel, "minor_grid") as HTMLInputElement).disabled).toBe(false);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+  });
+
+  it("does not rewrite a block that already pairs a minor grid with no ticks", () => {
+    // A student may have hand-edited, or a style sheet may have set it. Loading
+    // that must show it, disabled, not silently correct their file.
+    const src = generateBlock({ style: "default", rc: { "axes.grid.which": "both" } })!;
+    panel.sink = new MemorySink(src);
+    openTab(panel, "axes");
+    expect((input(panel, "minor_grid") as HTMLInputElement).disabled).toBe(true);
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(true);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+    expect(panel.getBlock()).toContain('"axes.grid.which": "both"');
+  });
+
   it("reflects the enum back into the checkbox, rather than coercing it", () => {
     panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "axes.grid.which": "both" } })!);
     openTab(panel, "axes");

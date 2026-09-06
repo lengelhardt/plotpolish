@@ -478,7 +478,8 @@
       "offValue": "major",
       "category": "live",
       "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which). Needs Minor ticks on: matplotlib only draws a minor grid line where a minor tick exists.",
-      "subgroup": "grid"
+      "subgroup": "grid",
+      "requires": "minor_ticks"
     },
     {
       "id": "box",

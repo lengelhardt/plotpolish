@@ -88,6 +88,13 @@ export interface ControlSpec {
   panelDefault?: RcValue;
   category: Category;
   help?: string;
+  /**
+   * bool: the id of another control this one needs switched on before it draws
+   * anything. matplotlib only puts a minor grid line where a minor tick is, so
+   * "Minor grid lines" on its own is silent. The panel says so on the row
+   * rather than switching the other control on unasked.
+   */
+  requires?: string;
   /** bool: values written when on/off, when the key is not a plain boolean
    *  (axes.grid.which is "both"/"major", not true/false). Defaults to true/false. */
   onValue?: RcValue;

@@ -24,7 +24,8 @@ import {
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
 import {
-  CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, asPropCycle, controlsInGroup, isPropCycle,
+  CONTROL_BY_ID, CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, asPropCycle,
+  controlsInGroup, isPropCycle,
   rcEqual, resolveFontSize,
   type ControlSpec, type GroupSpec, type KeyPart, type PropCycleValue, type RcValue,
 } from "./schema";
@@ -103,6 +104,8 @@ interface ControlView {
   addLineBtn?: HTMLButtonElement;
   /** style: the "Applies on the next run." note under the preset select. */
   nextRunNote?: HTMLElement;
+  /** bool with `requires`: the "needs X on" note shown when this one is silent. */
+  needsNote?: HTMLElement;
 }
 
 interface GroupView {
@@ -1702,6 +1705,13 @@ export class PlotpolishPanel extends HTMLElement {
    * a Look palette must not light up the Lines tab's dot and reset, and a
    * per-line width must not light up Look's.
    */
+  /** Whether a bool control is currently switched on, by its effective value. */
+  private controlIsOn(spec: ControlSpec): boolean {
+    const key = spec.keys[0];
+    if (!key) return false;
+    return rcEqual(this.effective(key) as RcValue, boolOn(spec));
+  }
+
   private controlIsSet(spec: ControlSpec): boolean {
     return spec.keys.some((key) => {
       const value = this.settings.rc[key];
@@ -1938,6 +1948,7 @@ export class PlotpolishPanel extends HTMLElement {
     let lineRowsView: LineRowView[] | undefined;
     let addLineBtnView: HTMLButtonElement | undefined;
     let nextRunNote: HTMLElement | undefined;
+    let needsNote: HTMLElement | undefined;
 
     const number = (extra: Partial<HTMLInputElement> = {}) => {
       const input = el("input", { type: "number", id, ...extra });
@@ -2013,6 +2024,22 @@ export class PlotpolishPanel extends HTMLElement {
         );
         inputs.push(input);
         control.append(input);
+        // A control that needs another one on says so on the row, at the moment
+        // it is on and silent -- the help text said it too, but a tooltip is
+        // not where anyone looks when a switch appears to do nothing.
+        const needed = spec.requires ? CONTROL_BY_ID.get(spec.requires) : undefined;
+        if (needed) {
+          const fix = el("button", { type: "button", class: "needs-fix" }, `Turn on ${needed.label}`);
+          fix.addEventListener("click", () => this.setKeys(needed, boolOn(needed)));
+          const note = el(
+            "p",
+            { class: "needs", hidden: true },
+            el("span", {}, `Needs ${needed.label}: matplotlib draws a minor grid line only where a minor tick is. `),
+            fix
+          );
+          row.append(note);
+          needsNote = note;
+        }
         break;
       }
       case "number": {
@@ -2273,6 +2300,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (lineRowsView) view.lineRows = lineRowsView;
     if (addLineBtnView) view.addLineBtn = addLineBtnView;
     if (nextRunNote) view.nextRunNote = nextRunNote;
+    if (needsNote) view.needsNote = needsNote;
     this.views.set(spec.id, view);
     return row;
   }
@@ -2551,10 +2579,23 @@ export class PlotpolishPanel extends HTMLElement {
       }
       case "copycode":
         break;  // a button: no value to reflect
-      case "bool":
-        (view.inputs[0] as HTMLInputElement).checked =
-          spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
+      case "bool": {
+        const on = spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
+        const box = view.inputs[0] as HTMLInputElement;
+        box.checked = on;
+        // A control whose prerequisite is off cannot do anything, so it is
+        // disabled rather than left switchable-but-silent -- and the row says
+        // why, with the one click that lifts it. Its stored value is NOT
+        // rewritten: changing one setting because another moved is the thing
+        // this panel does not do, and on load it would mean editing the
+        // student's block without them touching anything.
+        const needed = spec.requires ? CONTROL_BY_ID.get(spec.requires) : undefined;
+        const blocked = !!needed && !this.controlIsOn(needed);
+        box.disabled = blocked;
+        row.classList.toggle("blocked", blocked);
+        if (view.needsNote) view.needsNote.hidden = !blocked;
         break;
+      }
       case "number": {
         const v = typeof value === "number" ? String(value) : "";
         const isLineMaster = spec.keys.includes("lines.linewidth");

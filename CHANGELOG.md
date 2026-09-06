@@ -3,7 +3,7 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
-## Unreleased (0.1.0 in progress)
+## 0.1.0 — 2026-09-05
 
 First working version, built and reviewed in one day (2026-09-05) against
 Pyodide 0.28.1 with matplotlib 3.8.4, and tested against matplotlib 3.10 too.

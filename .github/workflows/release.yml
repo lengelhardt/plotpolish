@@ -1,0 +1,64 @@
+name: Release
+
+# Tag-driven: `git tag v0.1.0 && git push origin v0.1.0` builds the bundle and
+# publishes it as a GitHub Release asset. Trinket vendors plotpolish by curling
+# a pinned release asset and checking it with `sha256sum -c` (see
+# docs/trinket-integration.md), so the .sha256 file is part of the contract,
+# not a nicety. dist/ is gitignored, so the release is the only place a built
+# bundle exists outside a working checkout.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The same gates CI runs on main; a tag must not ship what main would reject.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Verify the Python helper is inside the IIFE bundle
+        run: |
+          if ! grep -q "def introspect_figure" dist/plotpolish.iife.js; then
+            echo "Error: Python helper not found in IIFE bundle"
+            exit 1
+          fi
+
+      # Tag and package.json must agree, or the released asset is mislabelled.
+      - name: Verify the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Error: tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+
+      - name: Checksum
+        working-directory: dist
+        run: sha256sum plotpolish.iife.js > plotpolish.iife.js.sha256
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See CHANGELOG.md for what is in this release." \
+            dist/plotpolish.iife.js \
+            dist/plotpolish.iife.js.sha256

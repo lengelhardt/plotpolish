@@ -193,13 +193,29 @@ already covers same-origin `/components/...` paths; no policy change.
    sections below are filled and the risks list is reviewed.
 1. **Main thread behind the flag.** `getFile(name)` accessor on the editor
    widget, change fan-out, sink, main-thread backend with the `running`
-   guard, `finishRun` hook, tab UI, hand-copied bundle for local dev. Worker
+   guard, `finishRun` hook, tab UI, locally vendored bundle for dev. Worker
    programs show the panel with live preview disabled
    (`features.livePreview = false`) and the "re-run to see" path only.
+
+   **Local vendoring is not a host-side copy.** Both compose stacks mask
+   `public/components` with a volume that shadows the host tree, and
+   `docker compose up` preserves it across container recreates, so dropping
+   `plotpolish.iife.js` into `public/components/plotpolish/` on the host
+   leaves the asset 404ing with nothing in the app log to say why —
+   COMPONENTS.md records exactly this trap for KaTeX. Get the file into the
+   container instead: `docker compose cp` it into a running stack, or add the
+   sync script plus `docker compose up -d -V` (`--renew-anon-volumes`).
 2. **Worker path.** Protocol addition, worker backend, redraw pump.
 3. **Deploy.** plotpolish: a tagged-release workflow attaching
    `plotpolish.iife.js` + sha256. Trinket: Dockerfile ARGs, `sync-plotpolish.sh`,
    `setup-vendor`, `RUNNER_PATHS`, `COMPONENTS.md`, flag default.
+
+   **Blocker to settle first: plotpolish is a private repo.** The release-asset
+   pattern is an unauthenticated `curl` inside a Docker build, which 404s
+   against a private repo's assets. Before this phase, either make plotpolish
+   public, thread a token through every place Trinket images are built, or
+   vendor the bundle another way. Making it public around the classroom trial
+   is the cheapest of the three.
 
 ## Survey findings
 

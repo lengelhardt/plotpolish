@@ -1,10 +1,78 @@
 # Trinket integration plan
 
-Status: **Phase 1 starting.** plotpolish v0.1.0 is released; the Trinket
-worktree exists (`feature/plot-style`, off `origin/main`) and its stack has
-been verified running clean. No Trinket code has been written yet. The adapter
-itself will live in the Trinket repo; this plan says what it has to do and
+Status: **Phase 1 is written and verified**, on both the main-thread and the
+worker path, against a running Trinket (2026-09-05). It lives on
+`feature/plot-style` in a worktree and has **not been pushed** to
+`PICUP-Physics/trinket-oss`. plotpolish is at v0.1.4; three of those four
+releases exist because running the adapter found things reading it could not.
+
+The adapter lives in the Trinket repo; this plan says what it has to do and
 what plotpolish had to change to make that possible.
+
+### What Phase 1 actually cost, in the host
+
+Three commits, and in *existing* Trinket files 37 insertions with **no
+deletions**:
+
+| File | Change |
+| --- | --- |
+| `public/js/plugins/plotpolish-adapter.js` | new, ~230 lines: all the Trinket-specific logic |
+| `public/js/vendor/plotpolish.iife.js` | new, the vendored release asset |
+| `pyodide.js` | 3 hooks, ~28 lines, all additive |
+| `config/default.yaml`, `base.html`, `pyodide.html` | 9 lines total |
+
+`pyodide.js` is an IIFE, so `api`, `editor`, `pyodide`, `running` and
+`workerClient` are closure-private and unreachable from the adapter. Hook 1
+therefore hands over a small context object (`api`, `getPyodide`, `isBusy`)
+rather than the adapter reaching in. The flag needs **no** hook at all: the
+adapter self-gates on `window.trinket.config.plotStyle` and never defines
+`window.trinketPlotpolish` when off, so every hook is a no-op.
+
+The hooks, on `origin/main` line numbers:
+
+1. **3292**, in `TrinketAPI.initialize` — one line inside Trinket's existing
+   `editor.change` callback, plus the `init({...})` call.
+2. **after 2812**, in `finishRun()` — `afterRun(window.__trinketRuntime)`,
+   guarded by `!rerunQueued` because the queued `startRun()` below it runs
+   synchronously and would set `running = true` under the panel.
+3. **after 1882**, in `recordingDone()` — Step-through never reaches
+   `finishRun()` but does re-run the program and can leave a different figure.
+
+### Three things only running it could have found
+
+* **Anchor the pill to `#graphic-wrap`, not `#graphic`.** `#graphic` is the
+  obvious choice — `resetOutput()` empties it every run while the node
+  persists — but it is also *taller* than the wrap, which scrolls. The pill
+  landed ~74px above the scroll viewport and was invisible, with the element
+  mounted, the backend ready, and nothing wrong anywhere in the DOM. It fails
+  silently and looks correct.
+* **The worker path had no "re-run to see" indicator.** This plan said worker
+  programs get "the re-run to see path only" and assumed the panel could do
+  that. It could not: `livePreview` was only ever read to decide whether to
+  *apply*, so with no backend a change was written to the block, not applied,
+  and not marked — the student moved a slider and nothing happened, with no
+  explanation. Fixed in plotpolish v0.1.4.
+* **`session.replace` on the minimal differing range, never `setValue`.**
+  `setValue(text, -1)` moves the cursor to 0,0, drops the selection, scrolls
+  to the top and loses folds — on every slider tick, while the student may be
+  typing further down. Verified: with a ranged write, a cursor on line 6 moved
+  to line 14 when the block inserted 8 lines and kept its column, staying on
+  the same line of the student's own code.
+
+### Verified end to end against a running Trinket
+
+Main thread: panel mounts over the figure, `matplotlib 3.8.4` introspected,
+the fenced block round-trips into `main.py`, live preview applies without a
+re-run, the cursor survives a slider drag, and one drag collapses to a single
+undo entry (Ace honours `session.mergeUndoDeltas`).
+
+Worker (`features.workerRuntime: true`): runtime reports `worker`, the panel
+mounts with **no backend** and `livePreview: false`, a change writes the block
+and raises ↻ on the affected tabs, and a re-run clears them — the path
+plotpolish v0.1.1's `refresh()` fix was written for.
+
+Step-through (`stepDebugger: true`): `recordingDone()` calls `afterRun('main')`
+exactly once and the pending marks clear.
 
 The "Survey findings" section records what two read-only surveys of
 `picup-trinket-oss` established. **Those surveys were taken against a

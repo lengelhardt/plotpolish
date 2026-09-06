@@ -325,6 +325,25 @@ describe("loading from a sink", () => {
     expect(ctl(panel, "grid").classList.contains("is-set")).toBe(true);
   });
 
+  it("keeps its sink subscription when the element is re-parented", async () => {
+    const sink = new MemorySink("print('hi')\n");
+    panel.sink = sink;
+    expect(panel.getBlock()).toBeNull();
+
+    // WebAgg rebuilds the figure's whole DOM on every run, so a panel mounted
+    // in that subtree is disconnected and reconnected routinely. That runs
+    // disconnectedCallback, which drops the sink subscription.
+    const newHost = document.createElement("div");
+    document.body.append(newHost);
+    newHost.append(panel);
+
+    const settings: StyleSettings = { style: "ggplot", rc: { "font.size": 12 } };
+    sink.externalEdit(generateBlock(settings)!);
+
+    expect(panel.getSettings()).toEqual(settings);
+    newHost.remove();
+  });
+
   it("gives default settings and an empty block for a source without a fence", () => {
     panel.sink = new MemorySink("print('hi')\n");
     expect(panel.getSettings()).toEqual(defaultSettings());
@@ -670,6 +689,29 @@ describe("rerun indicators", () => {
     style.value = "ggplot";
     style.dispatchEvent(new Event("change"));
     expect(tabRerun(panel, "look").hidden).toBe(false);
+    await panel.refresh();
+    expect(tabRerun(panel, "look").hidden).toBe(true);
+  });
+
+  it("clears the ↻ marks on refresh even when no backend is attached", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+
+    // A host may hand the panel a runtime it cannot introspect -- Trinket's
+    // worker path attaches no backend at all. Dropping the backend does not
+    // refresh on its own, so the marks are still up here.
+    panel.backend = null;
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+
+    // refresh() is what the host calls after a run completes, and a completed
+    // run is exactly what makes a pending re-run no longer pending. Without a
+    // backend there is nothing to introspect, but the marks must still clear
+    // or they stay on the tab permanently.
     await panel.refresh();
     expect(tabRerun(panel, "look").hidden).toBe(true);
   });

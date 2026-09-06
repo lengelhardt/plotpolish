@@ -52,15 +52,24 @@ jobs:
             fi
           done
 
-      # Tag and package.json must agree, or the released asset is mislabelled.
-      - name: Verify the tag matches package.json
+      # The tag and every version string in the tree must agree, or the released
+      # asset is mislabelled and the panel reports a version it isn't.
+      - name: Verify the tag matches every version string
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "Error: tag $GITHUB_REF_NAME does not match package.json version $pkg"
-            exit 1
-          fi
+          fail=0
+          check() {
+            if [ "$2" != "$tag" ]; then
+              echo "Error: $1 is $2, tag is $tag"
+              fail=1
+            fi
+          }
+          check package.json          "$(node -p "require('./package.json').version")"
+          check python/pyproject.toml "$(sed -n 's/^version = "\(.*\)"/\1/p' python/pyproject.toml | head -1)"
+          check core.py               "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' python/plotpolish/core.py | head -1)"
+          check src/constants.ts      "$(sed -n 's/.*VERSION = "\(.*\)".*/\1/p' src/constants.ts | head -1)"
+          [ "$fail" -eq 0 ] || exit 1
+          echo "All version strings agree with $GITHUB_REF_NAME"
 
       - name: Checksum
         working-directory: dist

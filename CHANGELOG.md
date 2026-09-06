@@ -3,6 +3,26 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.1 — 2026-09-05
+
+Two panel fixes found by auditing the library against a real host adapter,
+before writing that adapter. Both are host-integration bugs that the demo page
+never hit; both now have regression tests that fail without the fix.
+
+- `refresh()` cleared the stale/re-run indicators only when a backend was
+  attached, so a host that runs the program somewhere the panel cannot
+  introspect — Trinket's Web Worker path attaches no backend — left the ↻
+  marks on permanently. A completed run is what makes a pending re-run no
+  longer pending, whether or not anything can be introspected afterwards.
+- `disconnectedCallback` dropped the sink subscription and `connectedCallback`
+  never restored it, so re-parenting the element silently stopped it noticing
+  edits made outside the panel. Hosts re-parent routinely: WebAgg rebuilds the
+  figure's DOM on every run. `connectedCallback` now resubscribes and re-reads
+  the source, which may have changed while the element was detached.
+- The release workflow now checks the tag against **every** version string in
+  the tree (package.json, pyproject.toml, `core.py`, `constants.ts`), not just
+  package.json.
+
 ## 0.1.0 — 2026-09-05
 
 First working version, built and reviewed in one day (2026-09-05) against

@@ -883,13 +883,20 @@ export class PlotpolishPanel extends HTMLElement {
     if (name === this.settings.style) return;
     const wasDefault = isDefaultSettings(this.settings);
     this.settings.style = name;
-    // applyStyle() re-applies every current settings.rc entry (including
-    // whatever seedPanelDefaults just added) once set_style resolves, so no
-    // separate scheduleApply is needed here.
-    this.seedPanelDefaults(wasDefault);
+    const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     this.noteRerun(["style"]);
     if (this.client) this.applyStyle(name, []);
+    // With a preview, applyStyle() re-applies every current settings.rc entry
+    // (the keys seedPanelDefaults just added included) once set_style resolves,
+    // so they need no scheduleApply here -- and one scheduled now would race
+    // set_style: on a backend slower than the debounce the batch fires first
+    // and applyStyle then re-applies the same keys, two round trips for one
+    // change. Without a preview nothing applies them at all, so -- exactly as
+    // setKeys() does -- they are pending a re-run and have to say so, or the
+    // panel silently writes savefig.dpi and figure.autolayout into the
+    // student's block with no indicator that the figure does not show them yet.
+    if (!this.canPreview) this.applySeeded(seeded);
     this.emitChange();
     this.update();
   }

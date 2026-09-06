@@ -1850,6 +1850,105 @@ describe("panelDefault seeding", () => {
     change(select);
     expect(panel.getSettings().rc).toEqual({ ...SEEDED });
   });
+
+  // A style change seeds the same keys a control change does, so it owes the
+  // user the same indicator. setKeys() decides that with `canPreview`
+  // (a client AND live preview); setStyle() used to decide it with
+  // `this.client` alone, and then threw away what seedPanelDefaults returned --
+  // so with preview off the panel wrote savefig.dpi and figure.autolayout into
+  // the student's block and said nothing about the figure not showing them.
+  describe("and the seeded keys are marked when they cannot be previewed", () => {
+    const SEEDED_KEYS = Object.keys(SEEDED);
+    const SEEDED_IDS = CONTROLS.filter((c) => c.panelDefault !== undefined).map((c) => c.id);
+
+    function rerunBadged(p: PlotpolishPanel, id: string): boolean {
+      return !!ctl(p, id).querySelector(".badge.rerun");
+    }
+    /** The style select only offers what the backend listed, so add the option first. */
+    function pickStyle(p: PlotpolishPanel, name: string): void {
+      const select = input(p, "style") as HTMLSelectElement;
+      if (!Array.from(select.options).some((o) => o.value === name)) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        select.append(opt);
+      }
+      select.value = name;
+      change(select);
+    }
+
+    it("with a backend but live preview off: pending a re-run, and no apply_live", async () => {
+      const backend = new MockBackend();
+      panel.features = { livePreview: false };
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(true);
+      expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+      // set_style still runs: the baseline follows the preset even with no preview.
+      expect(backend.calls.some((c) => c.fn === "set_style")).toBe(true);
+    });
+
+    it("with no backend at all: the same, matching what setKeys does in that state", () => {
+      panel.sink = new MemorySink("");
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+
+      for (const key of SEEDED_KEYS) expect(panel.getSettings().rc[key]).toBeDefined();
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(true);
+    });
+
+    it("with live preview on: applyStyle applies them, so no mark and exactly one apply_live", async () => {
+      const backend = new MockBackend();
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).not.toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(false);
+      const applies = backend.calls.filter((c) => c.fn === "apply_live");
+      expect(applies.length).toBe(1);
+      const rc = (applies[0]!.args as { rc: Record<string, unknown> }).rc;
+      for (const key of SEEDED_KEYS) expect(rc[key]).toBeDefined();
+    });
+
+    it("a backend slower than the debounce still gets exactly one apply_live", async () => {
+      // Guards the shape of the fix rather than the bug. Scheduling the seeded
+      // keys up front races set_style: on a real interpreter the batch fires
+      // first and applyStyle then re-applies the same keys, two round trips
+      // for one change.
+      const backend = new MockBackend();
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      backend.delay = 100; // > APPLY_DEBOUNCE_MS
+      backend.calls.length = 0;
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+      await new Promise((r) => setTimeout(r, 400));
+      await panel.settle();
+
+      expect(backend.calls.filter((c) => c.fn === "apply_live").length).toBe(1);
+    });
+  });
 });
 
 describe("colours the colour input cannot represent", () => {

@@ -292,6 +292,8 @@ export class PlotpolishPanel extends HTMLElement {
     this.setupResizeObservers();
     window.addEventListener("resize", this.onWindowReflow);
     window.addEventListener("scroll", this.onWindowReflow, true);
+    window.addEventListener("pointerup", this.onWindowPointerEnd);
+    window.addEventListener("pointercancel", this.onWindowPointerEnd);
   }
 
   disconnectedCallback(): void {
@@ -304,6 +306,8 @@ export class PlotpolishPanel extends HTMLElement {
     this.teardownResizeObservers();
     window.removeEventListener("resize", this.onWindowReflow);
     window.removeEventListener("scroll", this.onWindowReflow, true);
+    window.removeEventListener("pointerup", this.onWindowPointerEnd);
+    window.removeEventListener("pointercancel", this.onWindowPointerEnd);
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -916,6 +920,12 @@ export class PlotpolishPanel extends HTMLElement {
   private onHeaderPointerMove(e: PointerEvent): void {
     const start = this.dragStart;
     if (!start) return;
+    // See onPillGripPointerMove: a move with no button held means we missed the
+    // release, and a stale start would let a later hover resume the drag.
+    if (e.buttons === 0) {
+      this.endHeaderDrag();
+      return;
+    }
     const dx = (e.clientX ?? 0) - start.x;
     const dy = (e.clientY ?? 0) - start.y;
     if (!start.captured) {
@@ -946,11 +956,21 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onHeaderPointerUp(e: PointerEvent): void {
+    this.endHeaderDrag(e.pointerId);
+  }
+
+  /**
+   * End a popover drag from any exit path: a pointerup on the header, one that
+   * landed anywhere else, a cancelled gesture, or a move that arrives with no
+   * button held. Leaving `dragStart` set is what let a later hover silently
+   * resume the drag without a click.
+   */
+  private endHeaderDrag(pointerId?: number): void {
     const start = this.dragStart;
     if (!start) return;
     if (start.captured) {
       try {
-        this.ui.header.releasePointerCapture?.(e.pointerId);
+        this.ui.header.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
@@ -981,6 +1001,18 @@ export class PlotpolishPanel extends HTMLElement {
     this.ui.menu.style.left = `${rect.left}px`;
     this.ui.menu.style.top = `${rect.bottom + 4}px`;
   }
+
+  /**
+   * A release anywhere ends any drag in progress. The element's own pointerup
+   * handles the normal case and runs first (this is a bubble-phase listener);
+   * this catches the release that lands outside the grip or header entirely,
+   * which is the common way to finish a drag and the way the state used to be
+   * left standing.
+   */
+  private onWindowPointerEnd = (): void => {
+    this.endPillDrag();
+    this.endHeaderDrag();
+  };
 
   private onWindowReflow = (): void => {
     this.measureLayout();
@@ -1092,6 +1124,17 @@ export class PlotpolishPanel extends HTMLElement {
   private onPillGripPointerMove(e: PointerEvent): void {
     const start = this.pillDragStart;
     if (!start) return;
+    // A move with no button held means the release happened somewhere we never
+    // saw: outside the element, off the window, or a gesture the browser
+    // cancelled. Without this the stale start survives, and simply hovering the
+    // grip later resumes the drag with no click -- and because the pill then
+    // jumps away from the cursor, only the direction that chases it keeps
+    // delivering moves, so it appears to drag one way but not the other.
+    // Strict === 0: synthetic events in tests leave `buttons` undefined.
+    if (e.buttons === 0) {
+      this.endPillDrag();
+      return;
+    }
     const dx = (e.clientX ?? 0) - start.x;
     const dy = (e.clientY ?? 0) - start.y;
     if (!start.captured) {
@@ -1126,11 +1169,16 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onPillGripPointerUp(e: PointerEvent): void {
+    this.endPillDrag(e.pointerId);
+  }
+
+  /** End a pill drag from any exit path. See endHeaderDrag. */
+  private endPillDrag(pointerId?: number): void {
     const start = this.pillDragStart;
     if (!start) return;
     if (start.captured) {
       try {
-        this.ui.pillGrip.releasePointerCapture?.(e.pointerId);
+        this.ui.pillGrip.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
@@ -1233,6 +1281,9 @@ export class PlotpolishPanel extends HTMLElement {
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
+    // A cancelled gesture (touch interrupted, browser takeover) never sends
+    // pointerup, so without this the drag state would be left standing.
+    pillGrip.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
     pillGrip.addEventListener("pointercancel", (e) => this.onPillGripPointerUp(e as PointerEvent));
     pillGrip.addEventListener("dblclick", () => this.reanchorPill());
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, ...pillTabs, errMark, menuToggle);
@@ -1248,6 +1299,7 @@ export class PlotpolishPanel extends HTMLElement {
     header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
     header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
     header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
+    header.addEventListener("pointercancel", (e) => this.endHeaderDrag((e as PointerEvent).pointerId));
     header.addEventListener("pointercancel", (e) => this.onHeaderPointerUp(e as PointerEvent));
     header.addEventListener("dblclick", () => this.reanchor());
     reanchorBtn.addEventListener("click", () => this.reanchor());

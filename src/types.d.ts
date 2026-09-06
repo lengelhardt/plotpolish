@@ -19,4 +19,4 @@ declare module "node:fs" {
 declare module "node:path" {
   export function resolve(...parts: string[]): string;
 }
-declare const process: { cwd(): string };
+declare const process: { cwd(): string; env: Record<string, string | undefined> };

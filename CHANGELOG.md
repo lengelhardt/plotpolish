@@ -3,6 +3,21 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.2 — 2026-09-05
+
+- The pill could start dragging itself. `pillDragStart` was cleared only by a
+  `pointerup` on the grip, an 11px handle at the pill's left edge, so a release
+  anywhere else left it standing; the next pointer movement across the grip
+  then resumed a drag nobody started. Once that happened the pill appeared to
+  move one way but not the other -- a stale drag positions the pill from the
+  old anchor, so it jumps away from the cursor, and with no live pointer to
+  capture, only the direction chasing it kept delivering events. The drag
+  arithmetic was symmetric throughout.
+- A `pointermove` with no button held now ends a drag, `pointercancel` is
+  handled (it had no listener at all), and a window-level `pointerup` catches
+  the release that lands outside the element. Applied to the popover header as
+  well, which had the same defect.
+
 ## 0.1.1 — 2026-09-05
 
 Two panel fixes found by auditing the library against a real host adapter,

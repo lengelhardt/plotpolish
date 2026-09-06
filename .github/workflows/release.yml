@@ -27,17 +27,30 @@ jobs:
 
       - run: npm ci
 
-      # The same gates CI runs on main; a tag must not ship what main would reject.
+      # CI's `typescript` job in the same order, plus the artifact checks below.
+      # NOT run here: CI's two-version pytest matrix. That gates `main`, and a
+      # tag is expected to point at a commit that already passed it — nothing
+      # mechanically enforces that, so check the commit is green before tagging.
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
 
-      - name: Verify the Python helper is inside the IIFE bundle
+      - run: python3 -c "import json; json.load(open('src/schema/controls.json'))"
+
+      # `npm test` ran on a fresh checkout, where dist/ does not exist yet, so
+      # src/iife.test.ts skipped itself by design (see its header comment). Run
+      # it now the bundle is built: it is the only gate that actually executes
+      # the artifact this workflow publishes.
+      - run: npx vitest run src/iife.test.ts
+
+      - name: Verify the Python helper is inside both bundles
         run: |
-          if ! grep -q "def introspect_figure" dist/plotpolish.iife.js; then
-            echo "Error: Python helper not found in IIFE bundle"
-            exit 1
-          fi
+          for f in dist/plotpolish.js dist/plotpolish.iife.js; do
+            if ! grep -q "def introspect_figure" "$f"; then
+              echo "Error: Python helper not found in $f"
+              exit 1
+            fi
+          done
 
       # Tag and package.json must agree, or the released asset is mislabelled.
       - name: Verify the tag matches package.json

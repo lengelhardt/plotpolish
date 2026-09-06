@@ -197,14 +197,28 @@ already covers same-origin `/components/...` paths; no policy change.
    programs show the panel with live preview disabled
    (`features.livePreview = false`) and the "re-run to see" path only.
 
-   **Local vendoring is not a host-side copy.** Both compose stacks mask
-   `public/components` with a volume that shadows the host tree, and
-   `docker compose up` preserves it across container recreates, so dropping
-   `plotpolish.iife.js` into `public/components/plotpolish/` on the host
-   leaves the asset 404ing with nothing in the app log to say why —
-   COMPONENTS.md records exactly this trap for KaTeX. Get the file into the
-   container instead: `docker compose cp` it into a running stack, or add the
-   sync script plus `docker compose up -d -V` (`--renew-anon-volumes`).
+   **Do not vendor the dev bundle through `public/components`.** Both compose
+   stacks mask that directory with a volume that shadows the host tree and
+   survives `up`, so dropping `plotpolish.iife.js` into
+   `public/components/plotpolish/` on the host leaves it 404ing with nothing
+   in the app log to say why. The usual `-V` (`--renew-anon-volumes`) escape
+   does *not* rescue this on the self-host stack: `make mongo` declares
+   `public_components` as a **named** volume (docker-compose.yml:16 and 174),
+   which `-V` never touches, and `down -v` would take `mongodb_data` and
+   `garage_data` — the local database — with it. `-V` only helps the gcr
+   stack, whose volumes are anonymous (docker-compose.gcr.yml:43-47). The
+   trap is recorded on main in scripts/setup-glowscript.sh:2-9 and
+   GETTING_STARTED.md:218-227 (the COMPONENTS.md write-up of it is
+   sympy-branch-only).
+
+   **Use `public/js/vendor/` for local dev instead.** It sits inside the plain
+   bind mount (`.:/usr/local/node/trinket`) with no volume over it, Trinket
+   already tracks vendored files there (`marked-modern.js`, `purify.min.js`),
+   and routeParser serves `/js/...` exactly as it serves `/components/...`, so
+   `<script src="{{ '/js/vendor/plotpolish.iife.js' | cachePrefix }}">` is
+   live on save with no volume surgery at all. `docker compose cp` into the
+   running container is the fallback. Phase 3 can still move to the
+   release-asset pattern under `public/components/`.
 2. **Worker path.** Protocol addition, worker backend, redraw pump.
 3. **Deploy.** plotpolish: a tagged-release workflow attaching
    `plotpolish.iife.js` + sha256. Trinket: Dockerfile ARGs, `sync-plotpolish.sh`,

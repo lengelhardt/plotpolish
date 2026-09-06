@@ -8,8 +8,17 @@ environment for physics students), but it depends on nothing Trinket-specific:
 a JupyterLab extension or a standalone Pyodide page adopts it by writing two
 small adapters.
 
-**Status:** 0.1 — pre-release scaffold. License: BSD-3-Clause. No
-monetization, no telemetry, no nag UI.
+**Status:** v0.1.6, released and working. The panel is complete for rcParams,
+and the first host adapter — a "Plot style" panel in the PICUP Trinket fork's
+Pyodide embed — is written and verified against a running Trinket on the main
+thread, the Web Worker path and the step-through recorder. That adapter is not
+merged upstream yet. See [docs/trinket-integration.md](docs/trinket-integration.md).
+
+Every release is built by a tagged GitHub Actions workflow that attaches
+`plotpolish.iife.js` and its sha256; the published asset is byte-for-byte
+reproducible from a local `npm run build`.
+
+License: BSD-3-Clause. No monetization, no telemetry, no nag UI.
 
 ## Design rules (these are fixed)
 

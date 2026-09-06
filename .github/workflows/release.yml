@@ -9,7 +9,9 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # v[0-9]* rather than v*, which also matches a tag like `vendor`. That case
+    # failed safe on the version check, but failing at all is noise.
+    tags: ["v[0-9]*"]
 
 permissions:
   contents: write
@@ -75,12 +77,24 @@ jobs:
         working-directory: dist
         run: sha256sum plotpolish.iife.js > plotpolish.iife.js.sha256
 
+      # The bundle ends in `//# sourceMappingURL=plotpolish.iife.js.map`, so a
+      # consumer's devtools request the map whether or not it is published.
+      # Upload it rather than serving them a 404.
+      #
+      # Idempotent on purpose: if a run fails after the release exists, a
+      # re-run would otherwise die on "already exists" and leave a draft to
+      # clear up by hand.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "See CHANGELOG.md for what is in this release." \
-            dist/plotpolish.iife.js \
-            dist/plotpolish.iife.js.sha256
+          assets="dist/plotpolish.iife.js dist/plotpolish.iife.js.sha256 dist/plotpolish.iife.js.map"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; replacing its assets."
+            gh release upload "$GITHUB_REF_NAME" --clobber $assets
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "See CHANGELOG.md for what is in this release." \
+              $assets
+          fi

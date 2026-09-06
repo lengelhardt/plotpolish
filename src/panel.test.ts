@@ -17,6 +17,26 @@ import { CONTROLS, GROUPS, isPropCycle } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
+/**
+ * Every control's panelDefault, keyed by rc key: what plotpolish seeds into a
+ * block the first time it is created. Derived from the schema on purpose --
+ * these were written out longhand as `"savefig.dpi": 300`, so adding a second
+ * panelDefault broke sixteen unrelated expectations at once. Spread this into
+ * an expected `rc` instead of naming the seeded keys.
+ */
+const SEEDED: Record<string, unknown> = Object.fromEntries(
+  CONTROLS.flatMap((c) =>
+    c.panelDefault === undefined ? [] : c.keys.map((k) => [k, c.panelDefault as unknown])
+  )
+);
+
+/** What those same keys sat at before seeding — the `previous` an apply carries. */
+const SEEDED_BEFORE: Record<string, unknown> = Object.fromEntries(
+  CONTROLS.flatMap((c) =>
+    c.panelDefault === undefined ? [] : c.keys.map((k) => [k, c.default as unknown])
+  )
+);
+
 // ".row" scopes control lookups to the control's row (badges and other
 // elements never carry a bare data-control that isn't a row).
 function ctl(panel: PlotpolishPanel, id: string): HTMLElement {
@@ -438,7 +458,7 @@ describe("loading from a sink", () => {
     expect(finalSrc.split(FENCE_START).length - 1).toBe(1);
     expect(finalSrc).toContain("print('kept')");
     // The first change out of fully-default settings also seeds savefig.dpi (see "panelDefault seeding" below).
-    expect(parseBlock(finalSrc)!.settings.rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
+    expect(parseBlock(finalSrc)!.settings.rc).toEqual({ "axes.grid": true, ...SEEDED });
   });
 });
 
@@ -456,7 +476,7 @@ describe("writing", () => {
     expect(sink.writes.length).toBe(1);
     const src1 = sink.writes[0]!;
     // The first change out of fully-default settings also seeds savefig.dpi (see "panelDefault seeding" below).
-    expect(parseBlock(src1)!.settings.rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
+    expect(parseBlock(src1)!.settings.rc).toEqual({ "font.size": 14, ...SEEDED });
     expect(src1.endsWith(userSrc)).toBe(true);
     expect(ctl(panel, "font_size").querySelector(".readout")!.textContent).toBe("14");
   });
@@ -473,25 +493,27 @@ describe("writing", () => {
     expect(sink.writes.length).toBe(2);
     const src2 = sink.writes[1]!;
     expect(src2.split(FENCE_START).length - 1).toBe(1);
-    expect(parseBlock(src2)!.settings.rc).toEqual({ "font.size": 16, "savefig.dpi": 300 });
+    expect(parseBlock(src2)!.settings.rc).toEqual({ "font.size": 16, ...SEEDED });
   });
 
-  it("reverting the only user-set key leaves the seeded savefig.dpi; reverting that too empties the fence", () => {
+  it("reverting the only user-set key leaves the seeded defaults; reverting those too empties the fence", () => {
     const sink = new MemorySink(userSrc);
     panel.sink = sink;
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
     fireInput(fs);
-    expect(panel.getSettings().rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
+    expect(panel.getSettings().rc).toEqual({ "font.size": 14, ...SEEDED });
 
     const revertBtn = ctl(panel, "font_size").querySelector(".revert") as HTMLButtonElement;
     expect(revertBtn.hidden).toBe(false);
     revertBtn.click();
-    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
+    expect(panel.getSettings().rc).toEqual({ ...SEEDED });
     expect(sink.writes[sink.writes.length - 1]).toContain(FENCE_START);
 
-    const dpiRevertBtn = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
-    dpiRevertBtn.click();
+    // Every seeded default has to go before the fence can be removed.
+    for (const id of ["savefig_dpi", "autolayout"]) {
+      (ctl(panel, id).querySelector(".revert") as HTMLButtonElement).click();
+    }
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(last).not.toContain(FENCE_START);
@@ -1356,13 +1378,13 @@ describe("backend", () => {
     fireInput(lw);
     await panel.settle();
 
-    // The first change out of fully-default settings coalesces with the seeded savefig.dpi into the same call.
+    // The first change out of fully-default settings coalesces with the seeded panelDefaults into the same call.
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
     expect(calls[0]!.args).toEqual({
-      rc: { "lines.linewidth": 3, "savefig.dpi": 300 },
+      rc: { "lines.linewidth": 3, ...SEEDED },
       only_defaults: true,
-      previous: { "lines.linewidth": 1.5, "savefig.dpi": "figure" },
+      previous: { "lines.linewidth": 1.5, ...SEEDED_BEFORE },
     });
   });
 
@@ -1379,9 +1401,9 @@ describe("backend", () => {
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     expect(calls.length).toBe(1);
     expect(calls[0]!.args).toEqual({
-      rc: { "lines.linewidth": 4, "lines.markersize": 10, "savefig.dpi": 300 },
+      rc: { "lines.linewidth": 4, "lines.markersize": 10, ...SEEDED },
       only_defaults: true,
-      previous: { "lines.linewidth": 1.5, "lines.markersize": 6, "savefig.dpi": "figure" },
+      previous: { "lines.linewidth": 1.5, "lines.markersize": 6, ...SEEDED_BEFORE },
     });
   });
 
@@ -1419,7 +1441,7 @@ describe("backend", () => {
     expect(setStyleCall!.args).toEqual({ name: "ggplot", keep: ["figure.autolayout"] });
     expect((input(panel, "grid") as HTMLInputElement).checked).toBe(true);
     // The style change is itself a default -> non-default transition, so it also seeds savefig.dpi.
-    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
+    expect(panel.getSettings().rc).toEqual({ ...SEEDED });
     expect(events.some((e) => e.keys.includes("style") && e.style === "ggplot")).toBe(true);
 
     // Still stale after the style call resolves; only refresh() clears it.
@@ -1446,9 +1468,9 @@ describe("backend", () => {
     expect(calls.length).toBe(2);
     // The first apply_live already carried the seeded savefig.dpi; the style change re-applies both.
     expect(calls[1]!.args).toEqual({
-      rc: { "lines.linewidth": 5, "savefig.dpi": 300 },
+      rc: { "lines.linewidth": 5, ...SEEDED },
       only_defaults: true,
-      previous: { "lines.linewidth": 5, "savefig.dpi": 300 },
+      previous: { "lines.linewidth": 5, ...SEEDED },
     });
   });
 
@@ -1638,7 +1660,7 @@ describe("panelDefault seeding", () => {
     grid.checked = true;
     change(grid);
 
-    expect(panel.getSettings().rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
+    expect(panel.getSettings().rc).toEqual({ "axes.grid": true, ...SEEDED });
     const last = sink.writes[sink.writes.length - 1]!;
     expect(parseBlock(last)!.settings.rc["savefig.dpi"]).toBe(300);
   });
@@ -1652,12 +1674,34 @@ describe("panelDefault seeding", () => {
 
     const dpiRevert = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
     dpiRevert.click();
-    expect(panel.getSettings().rc).toEqual({ "axes.grid": true });
+    // Reverting one seeded key removes only that one; the others stay.
+    const { "savefig.dpi": _dropped, ...stillSeeded } = SEEDED;
+    expect(panel.getSettings().rc).toEqual({ "axes.grid": true, ...stillSeeded });
 
     const lw = input(panel, "linewidth") as HTMLInputElement;
     lw.value = "3";
     fireInput(lw);
     expect(panel.getSettings().rc["savefig.dpi"]).toBeUndefined();
+  });
+
+  it("turns 'Fit labels in figure' on with the first change, so enlarging text does not clip", () => {
+    const sink = new MemorySink("");
+    panel.sink = sink;
+
+    // Nothing set yet: no block, so nothing is imposed on the user's file.
+    expect(panel.getBlock()).toBeNull();
+    expect((input(panel, "autolayout") as HTMLInputElement).checked).toBe(false);
+
+    // Enlarging text is the first thing most people do, and without autolayout
+    // the labels run outside the figure. Seeding it on the first change means
+    // the plot stays inside its edges without the student finding the switch.
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+
+    expect(panel.getSettings().rc["figure.autolayout"]).toBe(true);
+    expect((input(panel, "autolayout") as HTMLInputElement).checked).toBe(true);
+    expect(panel.getBlock()).toContain("figure.autolayout");
   });
 
   it("does not seed when loading settings from an existing fence", () => {
@@ -1677,7 +1721,7 @@ describe("panelDefault seeding", () => {
     change(grid);
 
     expect(events.length).toBe(1);
-    expect(events[0]!.settings.rc).toEqual({ "axes.grid": true, "savefig.dpi": 300 });
+    expect(events[0]!.settings.rc).toEqual({ "axes.grid": true, ...SEEDED });
   });
 
   it("a style change also seeds savefig.dpi", async () => {
@@ -1686,7 +1730,7 @@ describe("panelDefault seeding", () => {
     const select = input(panel, "style") as HTMLSelectElement;
     select.value = "ggplot";
     change(select);
-    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
+    expect(panel.getSettings().rc).toEqual({ ...SEEDED });
   });
 });
 
@@ -1846,8 +1890,8 @@ describe("events", () => {
 
     // panelDefault seeding folds into the same write: exactly one event, settings already contain savefig.dpi.
     expect(events.length).toBe(1);
-    expect(events[0]!.settings.rc).toEqual({ "font.size": 14, "savefig.dpi": 300 });
-    expect(events[0]!.block).toBe(generateBlock({ style: "default", rc: { "font.size": 14, "savefig.dpi": 300 } }));
+    expect(events[0]!.settings.rc).toEqual({ "font.size": 14, ...SEEDED });
+    expect(events[0]!.block).toBe(generateBlock({ style: "default", rc: { "font.size": 14, ...SEEDED } }));
     expect(events[0]!.source).toBe(sink.getSource());
   });
 });
@@ -1870,7 +1914,7 @@ describe("write-only sink", () => {
     fireInput(fs);
 
     expect(sink.received.length).toBe(1);
-    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14, "savefig.dpi": 300 } }));
+    expect(sink.received[0]).toBe(generateBlock({ style: "default", rc: { "font.size": 14, ...SEEDED } }));
   });
 
   it("sends an empty string once settings return to default", () => {

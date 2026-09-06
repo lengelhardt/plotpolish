@@ -336,6 +336,12 @@ describe("loading from a sink", () => {
     // explicitly rather than relying on a bare re-parent: the spec says moving
     // a node runs both callbacks, but leaning on that would make this test quietly
     // stop proving anything under a DOM implementation that skips them.
+    // Assert the starting state too. Without this, a fixture change that left
+    // the panel detached would make remove() a no-op and the test would still
+    // pass -- proving nothing, which is the failure mode this test exists to
+    // avoid in the first place.
+    expect(panel.isConnected).toBe(true);
+
     const newHost = document.createElement("div");
     document.body.append(newHost);
 
@@ -357,9 +363,16 @@ describe("loading from a sink", () => {
     const sink = new MemorySink("print('hi')\n");
     panel.sink = sink;
 
+    // A move, not a first attachment: assert the panel already has a different
+    // parent, or this silently becomes a plain append and exercises nothing.
+    const oldHost = panel.parentElement;
+    expect(oldHost).not.toBeNull();
+
     const newHost = document.createElement("div");
     document.body.append(newHost);
+    expect(newHost).not.toBe(oldHost);
     newHost.append(panel);
+    expect(panel.parentElement).toBe(newHost);
 
     const settings: StyleSettings = { style: "ggplot", rc: { "font.size": 14 } };
     sink.externalEdit(generateBlock(settings)!);

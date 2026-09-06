@@ -479,7 +479,10 @@
       "category": "live",
       "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which).",
       "subgroup": "grid",
-      "turnsOn": "minor_ticks"
+      "turnsOn": [
+        "grid",
+        "minor_ticks"
+      ]
     },
     {
       "id": "box",

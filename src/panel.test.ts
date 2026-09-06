@@ -2264,7 +2264,7 @@ describe("minor grid lines", () => {
     expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
   });
 
-  it("turns the minor tick marks on with it, because it cannot draw without them", () => {
+  it("turns the Grid and the minor tick marks on with it, because it cannot draw without either", () => {
     // matplotlib puts a minor grid line only where a minor tick is, so asking
     // for the grid lines is asking for whatever it takes to see them. The ticks
     // are matplotlib's business, not a second decision for the student.
@@ -2279,9 +2279,14 @@ describe("minor grid lines", () => {
     expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
     expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
     expect(panel.getSettings().rc["ytick.minor.visible"]).toBe(true);
+    // ...and the Grid toggle, without which nothing draws at all: verified in
+    // matplotlib, axes.grid off gives major=0 minor=0 however the rest is set.
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
     expect((input(panel, "minor_ticks") as HTMLInputElement).checked).toBe(true);
-    // One write, so the student gets one undo and one re-run, not two.
+    expect((input(panel, "grid") as HTMLInputElement).checked).toBe(true);
+    // One write, so the student gets one undo and one re-run, not three.
     expect(panel.getBlock()).toContain('"xtick.minor.visible": True');
+    expect(panel.getBlock()).toContain('"axes.grid": True');
   });
 
   it("sends both in a single apply, so the figure never shows a half state", async () => {
@@ -2301,11 +2306,12 @@ describe("minor grid lines", () => {
     const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
     expect(rc["axes.grid.which"]).toBe("both");
     expect(rc["xtick.minor.visible"]).toBe(true);
+    expect(rc["axes.grid"]).toBe(true);
   });
 
-  it("leaves the tick marks alone when it is switched off again", () => {
-    // Only on the way on. A student may want the tick marks on their own, and
-    // taking them away would be a change they did not ask for.
+  it("leaves the Grid and the tick marks alone when it is switched off again", () => {
+    // Only on the way on. A student may want either on their own, and taking
+    // them away would be a change they did not ask for.
     panel.sink = new MemorySink("");
     openTab(panel, "axes");
     const grid = input(panel, "minor_grid") as HTMLInputElement;
@@ -2316,6 +2322,7 @@ describe("minor grid lines", () => {
 
     expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
     expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
   });
 
   it("reflects the enum back into the checkbox, rather than coercing it", () => {

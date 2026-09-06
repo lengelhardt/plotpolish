@@ -5,12 +5,13 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.0 — 2026-09-06
 
-- **"Minor grid lines" now turns "Minor tick marks" on with it.** matplotlib
-  draws a minor grid line only where a minor tick is, so the switch used to do
-  nothing on its own — verified: 0 tick locations gives 0 gridlines, ticks on
-  gives 29 and 29. One click now writes both keys, in one write and one apply.
-  Only on the way on: switching the grid lines off leaves the tick marks, which
-  are useful by themselves.
+- **"Minor grid lines" now turns on the two things it cannot draw without:**
+  "Grid" and "Minor tick marks". matplotlib draws a grid line only where a tick
+  is, and only when the grid is on at all, so the switch did nothing by itself
+  whichever of the two was missing — verified: from a plain figure, one click
+  goes from major=0 minor=0 to major=9 minor=29, live and on a re-run alike.
+  One click, one write, one apply. Only on the way on: switching the grid lines
+  off leaves both, since either is useful by itself.
 
 
 - **The bundle now carries the whole license, not just an identifier.** BSD-3-

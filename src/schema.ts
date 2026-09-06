@@ -89,13 +89,15 @@ export interface ControlSpec {
   category: Category;
   help?: string;
   /**
-   * bool: another control to switch on alongside this one, because this one
-   * cannot do anything without it. matplotlib puts a minor grid line only where
-   * a minor tick is, so "Minor grid lines" on its own draws nothing. Asking for
-   * the grid lines IS asking for whatever it takes to see them; the tick marks
-   * are matplotlib's business, not a second decision for the student.
+   * bool: other controls to switch on alongside this one, because this one
+   * cannot do anything without them. A minor grid line is drawn only where a
+   * minor tick is, and only when the grid is on at all, so "Minor grid lines"
+   * by itself draws nothing whichever of the two is missing. Asking for the
+   * grid lines IS asking for whatever it takes to see them; which artists
+   * matplotlib needs for that is matplotlib's business, not a second and third
+   * decision for the student.
    */
-  turnsOn?: string;
+  turnsOn?: string[];
   /** bool: values written when on/off, when the key is not a plain boolean
    *  (axes.grid.which is "both"/"major", not true/false). Defaults to true/false. */
   onValue?: RcValue;

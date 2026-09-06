@@ -775,15 +775,18 @@ export class PlotpolishPanel extends HTMLElement {
       this.unifyPerLine(spec, apply);
       // Switching this on switches on whatever it cannot work without, in the
       // same write and the same apply. Only on the way on: turning the grid
-      // lines off is no reason to take the tick marks away, since the student
-      // may want those on their own.
-      const alsoOn = spec.turnsOn ? CONTROL_BY_ID.get(spec.turnsOn) : undefined;
-      if (alsoOn && rcEqual(value, boolOn(spec))) {
-        for (const key of alsoOn.keys) {
-          this.settings.rc[key] = boolOn(alsoOn);
-          apply[key] = this.settings.rc[key]!;
+      // lines off is no reason to take the grid or the tick marks away, since
+      // the student may want either on their own.
+      if (spec.turnsOn && rcEqual(value, boolOn(spec))) {
+        for (const id of spec.turnsOn) {
+          const also = CONTROL_BY_ID.get(id);
+          if (!also) continue;
+          for (const key of also.keys) {
+            this.settings.rc[key] = boolOn(also);
+            apply[key] = this.settings.rc[key]!;
+          }
+          touched = [...touched, ...also.keys];
         }
-        touched = [...spec.keys, ...alsoOn.keys];
       }
     }
     const seeded = this.seedPanelDefaults(wasDefault);

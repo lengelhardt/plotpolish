@@ -45,6 +45,15 @@ jobs:
       # the artifact this workflow publishes.
       - run: npx vitest run src/iife.test.ts
 
+      - name: Verify the license notice survived the build
+        run: |
+          for f in dist/plotpolish.js dist/plotpolish.iife.js; do
+            if ! head -1 "$f" | grep -q "SPDX-License-Identifier: BSD-3-Clause"; then
+              echo "Error: license banner missing from $f"
+              exit 1
+            fi
+          done
+
       - name: Verify the Python helper is inside both bundles
         run: |
           for f in dist/plotpolish.js dist/plotpolish.iife.js; do
@@ -88,7 +97,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          assets="dist/plotpolish.iife.js dist/plotpolish.iife.js.sha256 dist/plotpolish.iife.js.map"
+          # LICENSE travels with the asset: BSD-3-Clause clause 2 asks binary
+          # redistributions to reproduce the notice, and a host that curls the
+          # bundle should not have to go looking for it.
+          assets="dist/plotpolish.iife.js dist/plotpolish.iife.js.sha256 dist/plotpolish.iife.js.map LICENSE"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists; replacing its assets."
             gh release upload "$GITHUB_REF_NAME" --clobber $assets

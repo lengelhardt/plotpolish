@@ -3,6 +3,20 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.8 — 2026-09-06
+
+- **The bundle now carries its own license notice.** BSD-3-Clause asks binary
+  redistributions to reproduce the notice, and hosts vendor plotpolish by
+  curling a release asset — which shipped with no license text in it at all, so
+  compliance rested on the host going to look for it. Both builds now open with
+  a `/*!` banner naming the version, copyright and SPDX identifier, CI fails the
+  release if it is missing, and `LICENSE` is attached to the release alongside
+  the bundle. This is the same thing Trinket's other vendored files
+  (DOMPurify, marked) already do.
+- Demo: the sample program plots 40 points rather than 200. Switching on
+  markers turned the curves into a solid band, which is the opposite of what a
+  marker control is for.
+
 ## 0.1.7 — 2026-09-06
 
 - **"Fit labels in figure" is on by default now.** `figure.autolayout` gets a

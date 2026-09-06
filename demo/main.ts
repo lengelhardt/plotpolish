@@ -47,7 +47,7 @@ const PYODIDE_BASE = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`
 const SAMPLE_SOURCE = `import numpy as np
 import matplotlib.pyplot as plt
 
-x = np.linspace(0, 2 * np.pi, 200)
+x = np.linspace(0, 2 * np.pi, 40)
 y1 = np.sin(x)
 y2 = np.cos(x)
 

@@ -788,6 +788,27 @@ export class PlotpolishPanel extends HTMLElement {
           touched = [...touched, ...also.keys];
         }
       }
+      // ...and off the other way. Switching off something another control
+      // cannot work without leaves that one on and dead, which is the state
+      // this whole mechanism exists to prevent -- it does not matter which of
+      // the two switches the student reached for. A worklist rather than one
+      // pass, so a chain of preconditions unwinds completely.
+      if (rcEqual(value, boolOff(spec))) {
+        const dead = [spec.id];
+        for (let i = 0; i < dead.length; i++) {
+          for (const other of CONTROLS) {
+            if (!other.turnsOn?.includes(dead[i]!)) continue;
+            if (dead.includes(other.id)) continue;
+            if (!other.keys.some((k) => rcEqual(this.effective(k) as RcValue, boolOn(other)))) continue;
+            dead.push(other.id);
+            for (const key of other.keys) {
+              this.settings.rc[key] = boolOff(other);
+              apply[key] = this.settings.rc[key]!;
+            }
+            touched = [...touched, ...other.keys];
+          }
+        }
+      }
     }
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();

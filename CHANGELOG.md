@@ -10,8 +10,12 @@ project is pre-1.0, so minor versions may change behavior.
   is, and only when the grid is on at all, so the switch did nothing by itself
   whichever of the two was missing — verified: from a plain figure, one click
   goes from major=0 minor=0 to major=9 minor=29, live and on a re-run alike.
-  One click, one write, one apply. Only on the way on: switching the grid lines
-  off leaves both, since either is useful by itself.
+  One click, one write, one apply. Switching the grid lines off leaves both,
+  since either is useful by itself — but switching off either of *them* takes
+  the grid lines with it, or the switch would be left on and drawing nothing,
+  which is the state the whole mechanism exists to prevent. A dependant that
+  was never on is left alone, so the block never gains a key the student did
+  not touch.
 
 
 - **The bundle now carries the whole license, not just an identifier.** BSD-3-

@@ -2325,6 +2325,62 @@ describe("minor grid lines", () => {
     expect(panel.getSettings().rc["axes.grid"]).toBe(true);
   });
 
+  it("goes off when the minor tick marks do, rather than staying on and dead", () => {
+    // The state this whole mechanism exists to prevent does not care which
+    // switch the student reached for: a minor grid with no minor ticks draws
+    // nothing whether they turned the grid lines on first or the ticks off after.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+
+    const ticks = input(panel, "minor_ticks") as HTMLInputElement;
+    ticks.checked = false;
+    change(ticks);
+
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(false);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(false);
+    // The Grid toggle is not a casualty: it works perfectly well on its own.
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
+  });
+
+  it("goes off when the Grid toggle does, for the same reason", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    const major = input(panel, "grid") as HTMLInputElement;
+    major.checked = false;
+    change(major);
+
+    expect(panel.getSettings().rc["axes.grid"]).toBe(false);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+    // The tick marks stay: nothing depends on them being off.
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+  });
+
+  it("does not switch off a dependant that was never on", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+
+    const ticks = input(panel, "minor_ticks") as HTMLInputElement;
+    ticks.checked = true;
+    change(ticks);
+    ticks.checked = false;
+    change(ticks);
+
+    // minor_grid was never on, so it is left unset rather than written as
+    // "major" -- the block should not gain a key the student never touched.
+    expect(panel.getSettings().rc["axes.grid.which"]).toBeUndefined();
+  });
+
   it("reflects the enum back into the checkbox, rather than coercing it", () => {
     panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "axes.grid.which": "both" } })!);
     openTab(panel, "axes");

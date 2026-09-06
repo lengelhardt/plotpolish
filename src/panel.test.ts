@@ -11,9 +11,10 @@ import {
 } from "./block";
 import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
-  PlotpolishPanel, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
+  PlotpolishPanel, shortStyleName, type AutoUpdateEventDetail, type ChangeEventDetail,
+  type PanelErrorEventDetail, type RerunNeededEventDetail, type SavedEventDetail,
 } from "./panel";
-import { CONTROLS, GROUPS, isPropCycle } from "./schema";
+import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 
@@ -69,6 +70,11 @@ function openTab(panel: PlotpolishPanel, groupId: string): void {
 
 function tabDot(panel: PlotpolishPanel, groupId: string): HTMLElement {
   return pillTab(panel, groupId).querySelector(".dot") as HTMLElement;
+}
+
+/** The popover's one reset, beside the open category's name. */
+function groupReset(panel: PlotpolishPanel): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector(".pop-head .reset-group") as HTMLButtonElement;
 }
 
 function tabRerun(panel: PlotpolishPanel, groupId: string): HTMLElement {
@@ -504,16 +510,17 @@ describe("writing", () => {
     fireInput(fs);
     expect(panel.getSettings().rc).toEqual({ "font.size": 14, ...SEEDED });
 
-    const revertBtn = ctl(panel, "font_size").querySelector(".revert") as HTMLButtonElement;
-    expect(revertBtn.hidden).toBe(false);
-    revertBtn.click();
-    expect(panel.getSettings().rc).toEqual({ ...SEEDED });
+    // One reset per category, in the popover header. Text holds font.size and
+    // the seeded figure.autolayout; savefig.dpi is the Save category's.
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(false);
+    groupReset(panel).click();
+    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
     expect(sink.writes[sink.writes.length - 1]).toContain(FENCE_START);
 
-    // Every seeded default has to go before the fence can be removed.
-    for (const id of ["savefig_dpi", "autolayout"]) {
-      (ctl(panel, id).querySelector(".revert") as HTMLButtonElement).click();
-    }
+    // The last category's keys have to go before the fence can be removed.
+    openTab(panel, "save");
+    groupReset(panel).click();
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(last).not.toContain(FENCE_START);
@@ -575,8 +582,8 @@ describe("writing", () => {
     change(dpi);
     expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
 
-    const revertBtn = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
-    revertBtn.click();
+    openTab(panel, "save");
+    groupReset(panel).click();
 
     expect(panel.getSettings().rc["savefig.dpi"]).toBeUndefined();
   });
@@ -1125,11 +1132,104 @@ describe("draggable pill", () => {
     return p.shadowRoot!.querySelector(".pill .grip") as HTMLElement;
   }
 
-  it("shows a grip glyph at the left of the pill with a 'Drag to move' title", () => {
+  it("shows a grip glyph at the left of the pill, whose title names both of its jobs", () => {
     const grip = pillGrip(panel);
     expect(grip).not.toBeNull();
-    expect(grip.title).toBe("Drag to move");
+    // The grip drags the pill and, on a click that never becomes a drag,
+    // collapses it. A title naming only one of those hides the other.
+    expect(grip.title).toBe("Drag to move, click to tuck away");
     expect(pill(panel).firstElementChild).toBe(grip);
+  });
+
+  it("a click on the grip collapses the pill to the grip alone, and again expands it", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "text");
+    const grip = pillGrip(panel);
+    const popover = panel.shadowRoot!.querySelector(".popover") as HTMLElement;
+    expect(popover.hidden).toBe(false);
+
+    // Press and release without clearing the drag threshold: a click.
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // The open window stays open. Tucking the strip away is for reclaiming the
+    // figure's corner, not for putting your work away -- closing it lost the
+    // student's place every time. The caret goes, because the tab it pointed
+    // at has folded up.
+    expect(popover.hidden).toBe(false);
+    expect(panel.category).toBe("text");
+    expect((panel.shadowRoot!.querySelector(".caret") as HTMLElement).hidden).toBe(true);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(popover.hidden).toBe(false);
+    expect((panel.shadowRoot!.querySelector(".caret") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("folds the strip to a measured width rather than hiding it outright", async () => {
+    // The fold animates an inline max-width, because the width to animate to is
+    // a number CSS cannot know (and an inline value outranks any rule, so the
+    // stylesheet could not own the other end either).
+    //
+    // What this does NOT cover, because happy-dom has no compositor: that the
+    // end state is reached without a frame ever being painted. Staging the
+    // second write on requestAnimationFrame passes this test and still leaves a
+    // collapse begun just before the student switched tabs stuck half open, so
+    // foldPillBody() writes both values synchronously on purpose. Its comment
+    // is the guard there, not this test.
+    const body = panel.shadowRoot!.querySelector(".pill-body") as HTMLElement;
+    const grip = pillGrip(panel);
+    const click = () => {
+      grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+      grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+    };
+    expect(body).not.toBeNull();
+
+    click();
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    expect(body.style.maxWidth).toBe("0px");
+
+    // ...and once the fold has finished, the strip is out of layout entirely,
+    // so a folded tab is not merely invisible but unfocusable and unread.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(body.hidden).toBe(true);
+
+    click();
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(body.hidden).toBe(false);
+    // Back to a width, not to zero and not to "none": a measured target.
+    expect(body.style.maxWidth).toMatch(/^\d+px$/);
+  });
+
+  it("a drag of the grip moves the pill without collapsing it", () => {
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(pill(panel).style.left).not.toBe("");
+  });
+
+  it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", () => {
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    const dragged = pill(panel).style.left;
+    expect(dragged).not.toBe("");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).style.left).toBe(dragged);
   });
 
   it("a pointerdown on a tab button does not start a drag", () => {
@@ -1173,7 +1273,7 @@ describe("draggable pill", () => {
     expect(pill(panel).classList.contains("dragging")).toBe(true);
     const moved = pill(panel).style.left;
 
-    // A cancelled gesture never sends pointerup.
+    // A canceled gesture never sends pointerup.
     grip.dispatchEvent(Object.assign(new Event("pointercancel"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("dragging")).toBe(false);
 
@@ -1482,13 +1582,15 @@ describe("backend", () => {
     fireInput(lw);
     await panel.settle();
 
-    const revertBtn = ctl(panel, "linewidth").querySelector(".revert") as HTMLButtonElement;
-    revertBtn.click();
+    openTab(panel, "lines");
+    groupReset(panel).click();
     await panel.settle();
 
+    // Resetting the category puts the figure back to the baseline value the
+    // student's own code established (3), not to the schema default.
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     const last = calls[calls.length - 1]!;
-    expect(last.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true, previous: { "lines.linewidth": 7 } });
+    expect((last.args as { rc: Record<string, unknown> }).rc["lines.linewidth"]).toBe(3);
     expect(panel.getSettings().rc["lines.linewidth"]).toBeUndefined();
   });
 
@@ -1604,17 +1706,75 @@ describe("commit as you type", () => {
     expect(ctl(panel, "savefig_dpi").querySelector(".readout")!.textContent).toBe("150");
   });
 
-  it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", () => {
-    const sink = new MemorySink("");
-    panel.sink = sink;
+  // update() rewrites every control from state on each change, so it has to
+  // leave alone whatever the user is in the middle of. `isEditing` is what
+  // stops it, and it guards nine places: the fontsize and dpi sliders, the
+  // figure-size pair, the per-line color swatch and width cell, and the
+  // legend x/y sliders. These three cover the three shapes -- a typed field, a
+  // dragged slider, and a slider moved by a sibling control -- and each one
+  // fails with the guard removed. The test they replace drove `title_size`
+  // with the string "6.0", which no browser can produce: that control is an
+  // <input type="range">, so the value is sanitized to a step boundary on
+  // assignment and cannot be typed into at all.
+  it("does not clobber a focused field's in-progress text (e.g. a trailing decimal point)", async () => {
+    await attachBackend(panel, new MockBackend());
+    panel.sink = new MemorySink("");
+    openTab(panel, "lines");
+
+    // The per-line width cell is the panel's one free-text field.
+    const cell = panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width")[0]!;
+    expect(cell.type).toBe("number");
+    cell.focus();
+    cell.value = "3.0";
+    fireInput(cell);
+
+    const cycle = panel.getSettings().rc["axes.prop_cycle"];
+    expect(isPropCycle(cycle) && cycle.linewidth?.[0]).toBe(3);
+    // update() ran and would write String(3) -- "3" -- over the trailing zero
+    // the user has not finished typing past.
+    expect(cell.value).toBe("3.0");
+    cell.blur();
+  });
+
+  it("leaves a focused slider where the user is holding it, while the readout still follows", () => {
+    panel.sink = new MemorySink("");
     const titleInput = input(panel, "title_size") as HTMLInputElement;
+    expect(titleInput.value).toBe("12"); // "large" at base 10
+
     titleInput.focus();
-    titleInput.value = "6.0";
-    fireInput(titleInput);
-    expect(panel.getSettings().rc["axes.titlesize"]).toBe(6);
-    // update() ran (setKeys always calls it) but must not reformat the field while it is focused.
-    expect(titleInput.value).toBe("6.0");
+    const fontSizeInput = input(panel, "font_size") as HTMLInputElement;
+    fontSizeInput.value = "20";
+    fireInput(fontSizeInput);
+
+    // "large" now resolves to 24. The unfocused case (asserted by the test
+    // above this describe block) moves the slider; the focused one must not,
+    // or the thumb jumps out from under the pointer mid-drag.
+    expect(titleInput.value).toBe("12");
+    // But the guard skips the slider position ONLY. Everything that tells the
+    // user what the value actually is has to keep up.
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("24");
+    expect(titleInput.title).toContain("24");
     titleInput.blur();
+  });
+
+  it("leaves a focused legend x slider alone when the named location moves it", async () => {
+    await attachBackend(panel, new MockBackend());
+    panel.sink = new MemorySink("");
+    openTab(panel, "legend");
+
+    const xRange = input(panel, "legend_loc") as HTMLInputElement;
+    const snap = ctl(panel, "legend_loc").querySelector("select.snap") as HTMLSelectElement;
+    const xOut = ctl(panel, "legend_loc").querySelector(".readout") as HTMLElement;
+    const before = xRange.value;
+
+    xRange.focus();
+    snap.value = "lower left";
+    change(snap);
+
+    expect(panel.getSettings().rc["legend.loc"]).toBe("lower left");
+    expect(xRange.value).toBe(before); // held by the user, so left where it is
+    expect(xOut.textContent).not.toBe(before); // the readout still reports the truth
+    xRange.blur();
   });
 });
 
@@ -1672,8 +1832,8 @@ describe("panelDefault seeding", () => {
     grid.checked = true;
     change(grid);
 
-    const dpiRevert = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
-    dpiRevert.click();
+    openTab(panel, "save");
+    groupReset(panel).click();
     // Reverting one seeded key removes only that one; the others stay.
     const { "savefig.dpi": _dropped, ...stillSeeded } = SEEDED;
     expect(panel.getSettings().rc).toEqual({ "axes.grid": true, ...stillSeeded });
@@ -1731,6 +1891,315 @@ describe("panelDefault seeding", () => {
     select.value = "ggplot";
     change(select);
     expect(panel.getSettings().rc).toEqual({ ...SEEDED });
+  });
+
+  // A style change seeds the same keys a control change does, so it owes the
+  // user the same indicator. setKeys() decides that with `canPreview`
+  // (a client AND live preview); setStyle() used to decide it with
+  // `this.client` alone, and then threw away what seedPanelDefaults returned --
+  // so with preview off the panel wrote savefig.dpi and figure.autolayout into
+  // the student's block and said nothing about the figure not showing them.
+  describe("and the seeded keys are marked when they cannot be previewed", () => {
+    const SEEDED_KEYS = Object.keys(SEEDED);
+    const SEEDED_IDS = CONTROLS.filter((c) => c.panelDefault !== undefined).map((c) => c.id);
+
+    function rerunBadged(p: PlotpolishPanel, id: string): boolean {
+      return !!ctl(p, id).querySelector(".badge.rerun");
+    }
+    /** The style select only offers what the backend listed, so add the option first. */
+    function pickStyle(p: PlotpolishPanel, name: string): void {
+      const select = input(p, "style") as HTMLSelectElement;
+      if (!Array.from(select.options).some((o) => o.value === name)) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        select.append(opt);
+      }
+      select.value = name;
+      change(select);
+    }
+
+    it("with a backend but live preview off: pending a re-run, and no apply_live", async () => {
+      const backend = new MockBackend();
+      panel.features = { livePreview: false };
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(true);
+      expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+      // set_style still runs: the baseline follows the preset even with no preview.
+      expect(backend.calls.some((c) => c.fn === "set_style")).toBe(true);
+    });
+
+    it("with no backend at all: the same, matching what setKeys does in that state", () => {
+      panel.sink = new MemorySink("");
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+
+      for (const key of SEEDED_KEYS) expect(panel.getSettings().rc[key]).toBeDefined();
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(true);
+    });
+
+    it("with live preview on: applyStyle applies them, so no mark and exactly one apply_live", async () => {
+      const backend = new MockBackend();
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      const events: RerunNeededEventDetail[] = [];
+      panel.addEventListener("plotpolish-rerun-needed", (e) =>
+        events.push((e as CustomEvent<RerunNeededEventDetail>).detail)
+      );
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+
+      for (const key of SEEDED_KEYS) expect(events[events.length - 1]!.keys).not.toContain(key);
+      for (const id of SEEDED_IDS) expect(rerunBadged(panel, id)).toBe(false);
+      const applies = backend.calls.filter((c) => c.fn === "apply_live");
+      expect(applies.length).toBe(1);
+      const rc = (applies[0]!.args as { rc: Record<string, unknown> }).rc;
+      for (const key of SEEDED_KEYS) expect(rc[key]).toBeDefined();
+    });
+
+    it("a backend slower than the debounce still gets exactly one apply_live", async () => {
+      // Guards the shape of the fix rather than the bug. Scheduling the seeded
+      // keys up front races set_style: on a real interpreter the batch fires
+      // first and applyStyle then re-applies the same keys, two round trips
+      // for one change.
+      const backend = new MockBackend();
+      panel.sink = new MemorySink("");
+      await attachBackend(panel, backend);
+      backend.delay = 100; // > APPLY_DEBOUNCE_MS
+      backend.calls.length = 0;
+
+      pickStyle(panel, "ggplot");
+      await panel.settle();
+      await new Promise((r) => setTimeout(r, 400));
+      await panel.settle();
+
+      expect(backend.calls.filter((c) => c.fn === "apply_live").length).toBe(1);
+    });
+  });
+});
+
+describe("colors the color input cannot represent", () => {
+  it("does not rewrite a named palette to black when an unrelated cell is edited", async () => {
+    // The classic style's palette is named colors; <input type="color"> turns
+    // every one of them into #000000. Editing a width must not drag the whole
+    // palette to black in the student's file.
+    const backend = new MockBackend();
+    backend.rc["axes.prop_cycle"] = ["b", "g", "r", "c"];
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const widths = Array.from(
+      panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width")
+    );
+    widths[0]!.value = "4";
+    fireInput(widths[0]!);
+
+    const cycle = panel.getSettings().rc["axes.prop_cycle"] as { color: string[] };
+    expect(cycle.color.slice(0, 4)).toEqual(["b", "g", "r", "c"]);
+    expect(panel.getBlock()).not.toContain("#000000");
+  });
+
+  it("still takes a color the student actually picks", async () => {
+    const backend = new MockBackend();
+    backend.rc["axes.prop_cycle"] = ["b", "g", "r", "c"];
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const colors = Array.from(
+      panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-color")
+    );
+    colors[1]!.value = "#ff8800";
+    fireInput(colors[1]!);
+
+    // With only colors set, the cycle is written as a plain color array;
+    // once widths or styles join it becomes the dict form.
+    const value = panel.getSettings().rc["axes.prop_cycle"];
+    const written = Array.isArray(value) ? (value as string[]) : (value as { color: string[] }).color;
+    expect(written[0]).toBe("b");
+    expect(written[1]).toBe("#ff8800");
+  });
+});
+
+describe("one reset per category", () => {
+  it("is hidden until the open category has something to reset, and names it", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(true);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+
+    expect(groupReset(panel).hidden).toBe(false);
+    expect(groupReset(panel).title).toBe("Reset Text");
+  });
+
+  it("resets only the open category, leaving the others alone", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+
+    openTab(panel, "axes");
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    // Reset Axes: the grid goes, the font size stays.
+    expect(groupReset(panel).title).toBe("Reset Axes");
+    groupReset(panel).click();
+    expect(panel.getSettings().rc["axes.grid"]).toBeUndefined();
+    expect(panel.getSettings().rc["font.size"]).toBe(18);
+
+    // And with nothing left in Axes, its reset goes away again.
+    expect(groupReset(panel).hidden).toBe(true);
+  });
+
+  it("follows the category as you switch tabs", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+    expect(groupReset(panel).hidden).toBe(false);
+
+    // Lines has no changes, so the reset is not offered there.
+    openTab(panel, "lines");
+    expect(groupReset(panel).hidden).toBe(true);
+
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(false);
+  });
+});
+
+describe("style thumbnails", () => {
+  it("draws one thumbnail per style once the backend supplies previews", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    const buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"));
+    expect(host.hidden).toBe(false);
+    // Curated by default: the seaborn variant is behind "Show all".
+    expect(buttons.map((b) => b.dataset.style)).toEqual(["default", "dark_background", "ggplot"]);
+
+    const showAll = panel.shadowRoot!.querySelector(".show-all-styles") as HTMLButtonElement;
+    expect(showAll.hidden).toBe(false);
+    expect(showAll.textContent).toBe("Show all 4");
+    showAll.click();
+    expect(
+      Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb")).map((b) => b.dataset.style)
+    ).toEqual(backend.styles);
+    // The current style is marked, so the strip says which one is in force.
+    expect(buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.style))
+      .toEqual(["default"]);
+  });
+
+  it("draws each style from its own colors, so they are distinguishable", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    const dark = host.querySelector('button[data-style="dark_background"] rect') as SVGRectElement;
+    const ggplot = host.querySelector('button[data-style="ggplot"] rect') as SVGRectElement;
+    expect(dark.getAttribute("fill")).toBe("#000000");
+    expect(ggplot.getAttribute("fill")).toBe("#E5E5E5");
+    // ggplot has a grid; dark_background does not.
+    expect(host.querySelectorAll('button[data-style="ggplot"] line').length).toBeGreaterThan(0);
+    expect(host.querySelectorAll('button[data-style="dark_background"] line').length).toBe(0);
+  });
+
+  it("carries the full name on the thumbnail rather than a caption under it", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+
+    const dark = host.querySelector('button[data-style="dark_background"]') as HTMLElement;
+    // The captions are gone: they did not fit the cell. The tooltip and the
+    // accessible name carry the real name instead, and so does the menu.
+    expect(dark.querySelector(".style-name")).toBeNull();
+    expect(dark.title).toBe("dark_background");
+    expect(dark.getAttribute("aria-label")).toBe("dark_background");
+
+    (dark as HTMLButtonElement).click();
+    expect(panel.getSettings().style).toBe("dark_background");
+    expect(panel.getBlock()).toContain('mpl.style.use("dark_background")');
+  });
+
+  it("offers every style in a menu beside the label, abbreviated but titled in full", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "look");
+    const select = input(panel, "style") as HTMLSelectElement;
+    expect(select.hidden).toBe(false);
+
+    const byValue = new Map(Array.from(select.options).map((o) => [o.value, o]));
+    expect(byValue.get("seaborn-v0_8-whitegrid")!.textContent).toBe("- whitegrid");
+    expect(byValue.get("seaborn-v0_8-whitegrid")!.title).toBe("seaborn-v0_8-whitegrid");
+    expect(byValue.get("dark_background")!.textContent).toBe("dark bg");
+
+    select.value = "ggplot";
+    change(select);
+    expect(panel.getSettings().style).toBe("ggplot");
+  });
+
+  it("indents the seaborn variants under seaborn rather than repeating the prefix", () => {
+    // Sixteen of matplotlib's twenty-six styles begin "seaborn-v0_8-", which is
+    // two thirds of the menu and none of the information. Display only: the
+    // block still carries the name matplotlib knows.
+    expect(shortStyleName("seaborn-v0_8")).toBe("seaborn");
+    expect(shortStyleName("seaborn-v0_8-bright")).toBe("- bright");
+    expect(shortStyleName("seaborn-v0_8-dark")).toBe("- dark");
+    expect(shortStyleName("seaborn-v0_8-dark-palette")).toBe("- dark-palette");
+    expect(shortStyleName("seaborn-v0_8-colorblind")).toBe("- colorblind");
+    expect(shortStyleName("dark_background")).toBe("dark bg");
+    expect(shortStyleName("fivethirtyeight")).toBe("538");
+    expect(shortStyleName("Solarize_Light2")).toBe("Solarize");
+    expect(shortStyleName("tableau-colorblind10")).toBe("tableau");
+    // Anything unrecognized is left exactly as matplotlib names it.
+    expect(shortStyleName("ggplot")).toBe("ggplot");
+  });
+
+  it("clicking a thumbnail selects that style", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    await panel.settle();
+    openTab(panel, "look");
+
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    (host.querySelector('button[data-style="ggplot"]') as HTMLButtonElement).click();
+    expect(panel.getSettings().style).toBe("ggplot");
+    expect((input(panel, "style") as HTMLSelectElement).value).toBe("ggplot");
+  });
+
+  it("stays hidden when the host supplies no previews", () => {
+    // No backend at all: the select still works, the strip simply is not there.
+    panel.sink = new MemorySink("");
+    openTab(panel, "look");
+    const host = panel.shadowRoot!.querySelector(".style-thumbs") as HTMLElement;
+    expect(host.hidden).toBe(true);
   });
 });
 
@@ -1795,6 +2264,123 @@ describe("minor grid lines", () => {
     expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
   });
 
+  it("turns the Grid and the minor tick marks on with it, because it cannot draw without either", () => {
+    // matplotlib puts a minor grid line only where a minor tick is, so asking
+    // for the grid lines is asking for whatever it takes to see them. The ticks
+    // are matplotlib's business, not a second decision for the student.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBeUndefined();
+
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+    expect(panel.getSettings().rc["ytick.minor.visible"]).toBe(true);
+    // ...and the Grid toggle, without which nothing draws at all: verified in
+    // matplotlib, axes.grid off gives major=0 minor=0 however the rest is set.
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
+    expect((input(panel, "minor_ticks") as HTMLInputElement).checked).toBe(true);
+    expect((input(panel, "grid") as HTMLInputElement).checked).toBe(true);
+    // One write, so the student gets one undo and one re-run, not three.
+    expect(panel.getBlock()).toContain('"xtick.minor.visible": True');
+    expect(panel.getBlock()).toContain('"axes.grid": True');
+  });
+
+  it("sends both in a single apply, so the figure never shows a half state", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    backend.calls.length = 0;
+
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    await panel.settle();
+
+    const applied = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(applied.length).toBe(1);
+    const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
+    expect(rc["axes.grid.which"]).toBe("both");
+    expect(rc["xtick.minor.visible"]).toBe(true);
+    expect(rc["axes.grid"]).toBe(true);
+  });
+
+  it("leaves the Grid and the tick marks alone when it is switched off again", () => {
+    // Only on the way on. A student may want either on their own, and taking
+    // them away would be a change they did not ask for.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    grid.checked = false;
+    change(grid);
+
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
+  });
+
+  it("goes off when the minor tick marks do, rather than staying on and dead", () => {
+    // The state this whole mechanism exists to prevent does not care which
+    // switch the student reached for: a minor grid with no minor ticks draws
+    // nothing whether they turned the grid lines on first or the ticks off after.
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+
+    const ticks = input(panel, "minor_ticks") as HTMLInputElement;
+    ticks.checked = false;
+    change(ticks);
+
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(false);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(false);
+    // The Grid toggle is not a casualty: it works perfectly well on its own.
+    expect(panel.getSettings().rc["axes.grid"]).toBe(true);
+  });
+
+  it("goes off when the Grid toggle does, for the same reason", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const grid = input(panel, "minor_grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    const major = input(panel, "grid") as HTMLInputElement;
+    major.checked = false;
+    change(major);
+
+    expect(panel.getSettings().rc["axes.grid"]).toBe(false);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+    // The tick marks stay: nothing depends on them being off.
+    expect(panel.getSettings().rc["xtick.minor.visible"]).toBe(true);
+  });
+
+  it("does not switch off a dependant that was never on", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+
+    const ticks = input(panel, "minor_ticks") as HTMLInputElement;
+    ticks.checked = true;
+    change(ticks);
+    ticks.checked = false;
+    change(ticks);
+
+    // minor_grid was never on, so it is left unset rather than written as
+    // "major" -- the block should not gain a key the student never touched.
+    expect(panel.getSettings().rc["axes.grid.which"]).toBeUndefined();
+  });
+
   it("reflects the enum back into the checkbox, rather than coercing it", () => {
     panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "axes.grid.which": "both" } })!);
     openTab(panel, "axes");
@@ -1817,14 +2403,14 @@ describe("linecycle (Per line)", () => {
     expect(label.getAttribute("title")).toBe(CONTROLS.find((c) => c.id === "line_cycle")!.help);
   });
 
-  it("the label row (label, badges and revert) sits on one line, separate from the table", () => {
+  it("the label row (label and badges) sits on one line, separate from the table", () => {
     const row = ctl(panel, "line_cycle");
     const labelRow = row.querySelector(".control-label-row")!;
     expect(labelRow.querySelector("label")).not.toBeNull();
     expect(labelRow.querySelector(".badges")).not.toBeNull();
-    expect(labelRow.querySelector(".revert")).not.toBeNull();
-    // Not stranded below the table/+line button, inside .control.
-    expect(row.querySelector(".control .revert")).toBeNull();
+    // No per-row revert anywhere: one reset per category lives in the popover
+    // header instead, so a row carries only what describes the control.
+    expect(row.querySelector(".revert")).toBeNull();
   });
 
   it("the header row has no 'COLOR' heading, and has 'Width' and 'Style' over their columns", () => {
@@ -2034,17 +2620,115 @@ describe("sink subscribe", () => {
     expect(panel.currentFenceError).toBeInstanceOf(FenceError);
   });
 
+  /**
+   * A sink that behaves like the editors the panel actually runs against (Ace,
+   * in Trinket): replacing the document notifies subscribers, and the document
+   * is momentarily EMPTY partway through, because setValue() drops every line
+   * and then inserts the new ones, firing a change at each step.
+   *
+   * MemorySink cannot stand in here. Its setSource() never notifies
+   * subscribers (see sink.test.ts, "does not call subscribed listeners on
+   * setSource, only on externalEdit"), and externalEdit() publishes the whole
+   * new document before notifying -- so re-parsing round-trips to the settings
+   * the panel just wrote, and nothing the `writing` guard prevents is visible.
+   */
+  class EditorSink implements CodeSink {
+    private source: string;
+    private listeners = new Set<() => void>();
+    private inWrite = false;
+    readonly writes: string[] = [];
+    /** getSource() calls made from inside the panel's own setSource(). */
+    readonly readsDuringWrite: string[] = [];
+    /** Panel state sampled at each notification the panel's own write raised. */
+    readonly snapshotsDuringWrite: unknown[] = [];
+
+    constructor(initial: string, private readonly sample: () => unknown = () => null) {
+      this.source = initial;
+    }
+
+    getSource(): string {
+      if (this.inWrite) this.readsDuringWrite.push(this.source);
+      return this.source;
+    }
+
+    setSource(source: string): void {
+      this.writes.push(source);
+      // Stop an unbounded write -> notify -> write cascade, so a regression
+      // fails these assertions instead of hanging the suite.
+      if (this.writes.length > 10) throw new Error("runaway write loop");
+      const outer = this.inWrite;
+      this.inWrite = true;
+      try {
+        this.source = "";      // Ace: remove every line, fire a change
+        this.notify();
+        this.source = source;  // Ace: insert the new lines, fire a change
+        this.notify();
+      } finally {
+        this.inWrite = outer;
+      }
+    }
+
+    /** An edit made outside the panel (the user typing in the editor). */
+    externalEdit(source: string): void {
+      this.source = source;
+      this.notify();
+    }
+
+    subscribe(listener: () => void): () => void {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+
+    private notify(): void {
+      // Sample BEFORE the listeners run, so a listener that clobbers panel
+      // state against the half-applied document shows up in the NEXT snapshot.
+      if (this.inWrite) this.snapshotsDuringWrite.push(this.sample());
+      for (const l of [...this.listeners]) l();
+    }
+  }
+
   it("does not re-trigger a reload loop from the panel's own writes", () => {
-    const userSrc = "x = 1\n";
-    let sink!: MemorySink;
-    sink = new MemorySink(userSrc, (s) => sink.externalEdit(s));
+    const sink = new EditorSink("x = 1\n", () => panel.getSettings().rc["font.size"]);
     panel.sink = sink;
 
     const fs = input(panel, "font_size") as HTMLInputElement;
     fs.value = "14";
     fireInput(fs);
 
+    // The panel's own state is never replaced by the editor's half-applied
+    // document: it holds font.size 14 across both of the write's changes.
+    expect(sink.snapshotsDuringWrite).toEqual([14, 14]);
+    expect(sink.readsDuringWrite).toEqual([]); // it never re-read mid-write
+    expect(sink.writes.length).toBe(1);        // one write, no cascade
+    expect(panel.getSettings().rc["font.size"]).toBe(14);
+
+    // An edit from outside is still picked up: the guard is only about the
+    // panel's own writes, not about ignoring the sink.
+    sink.externalEdit(generateBlock({ style: "default", rc: { "font.size": 20 } })!);
+    expect(panel.getSettings().rc["font.size"]).toBe(20);
+  });
+
+  it("does not re-trigger a reload loop from Replace block", () => {
+    const src = [
+      FENCE_START, FENCE_START, "import matplotlib as mpl",
+      "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
+      "print('kept')",
+    ].join("\n");
+    const sink = new EditorSink(src, () => panel.currentFenceError !== null);
+    panel.sink = sink;
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+    openTab(panel, "text");
+
+    const banner = panel.shadowRoot!.querySelector(".banner.error") as HTMLElement;
+    (banner.querySelector("button") as HTMLButtonElement).click();
+
+    // replaceBlock() clears the fence error from its own reload afterwards --
+    // never from a reload triggered against its own half-written document.
+    expect(sink.snapshotsDuringWrite).toEqual([true, true]);
+    expect(sink.readsDuringWrite).toEqual([]);
     expect(sink.writes.length).toBe(1);
+    expect(panel.currentFenceError).toBeNull();
+    expect(sink.writes[0]).toContain("print('kept')");
   });
 });
 
@@ -2164,5 +2848,483 @@ describe("every slider keeps its readout in sync while being dragged", () => {
     }
     expect(checked).toBeGreaterThanOrEqual(10);
     p.remove();
+  });
+});
+
+describe("two controls, one key: axes.prop_cycle", () => {
+  // "Colors" (Look) and the per-line table (Lines) both write axes.prop_cycle.
+  // Each declares in controls.json which parts of the value it owns, so a
+  // category reset rewrites the key rather than deleting it and throwing the
+  // other category's work away.
+  const OKABE = CONTROLS.find((c) => c.id === "prop_cycle")!.presets!.find((p) => p.id === "okabe-ito")!;
+  const DEFAULT_PALETTE = CONTROLS.find((c) => c.id === "prop_cycle")!.default as string[];
+
+  function widthCells(p: PlotpolishPanel): HTMLInputElement[] {
+    return Array.from(p.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width"));
+  }
+  function setWidth(p: PlotpolishPanel, i: number, value: string): void {
+    const cell = widthCells(p)[i]!;
+    cell.value = value;
+    fireInput(cell);
+  }
+  function pickPalette(p: PlotpolishPanel, id: string): void {
+    (ctl(p, "prop_cycle").querySelector(`button.preset[data-preset="${id}"]`) as HTMLButtonElement).click();
+  }
+  function cycle(p: PlotpolishPanel): PropCycleValue | string[] | undefined {
+    return p.getSettings().rc["axes.prop_cycle"] as PropCycleValue | string[] | undefined;
+  }
+  async function ready(p: PlotpolishPanel): Promise<MockBackend> {
+    const backend = new MockBackend();
+    await attachBackend(p, backend);
+    p.sink = new MemorySink("");
+    return backend;
+  }
+
+  it("Reset Lines keeps the palette chosen under Look", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    groupReset(panel).click();
+
+    // The per-line widths are gone; the colors the other category owns are not.
+    const after = cycle(panel);
+    expect(isPropCycle(after)).toBe(false);
+    expect(after).toEqual(OKABE.colors);
+  });
+
+  it("Reset Look keeps the per-line widths, re-zipped to the palette it restores", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito"); // eight colors
+    openTab(panel, "lines");
+    setWidth(panel, 1, "3");
+
+    openTab(panel, "look");
+    groupReset(panel).click();
+
+    const after = cycle(panel);
+    expect(isPropCycle(after)).toBe(true);
+    const value = after as PropCycleValue;
+    expect(value.color).toEqual(DEFAULT_PALETTE); // ten colors
+    expect(value.linewidth![1]).toBe(3);
+    // mpl.cycler zips equal-length lists, so the widths had to follow the
+    // palette from eight entries to ten rather than be left short.
+    expect(value.linewidth!.length).toBe(value.color.length);
+  });
+
+  it("a category's reset does not light up for the other category's work", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    expect(groupReset(panel).hidden).toBe(true); // Lines owns nothing yet
+
+    setWidth(panel, 0, "8");
+    expect(groupReset(panel).hidden).toBe(false);
+  });
+
+  it("...and the same the other way round", async () => {
+    await ready(panel);
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+    openTab(panel, "look");
+    expect(groupReset(panel).hidden).toBe(true); // Look owns no color change yet
+
+    pickPalette(panel, "okabe-ito");
+    expect(groupReset(panel).hidden).toBe(false);
+  });
+
+  it("reverting one control clears only its own parts", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    // "Line width (all)" is a master over the table: setting it drops the
+    // per-line widths and leaves the palette alone.
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    expect(cycle(panel)).toEqual(OKABE.colors);
+  });
+
+  it("Reset all still clears the whole key", async () => {
+    await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+
+    panel.reset();
+    expect(cycle(panel)).toBeUndefined();
+    expect(panel.getBlock()).toBeNull();
+  });
+
+  it("previews the rewritten cycle, not the baseline, so the figure matches the block", async () => {
+    const backend = await ready(panel);
+    openTab(panel, "look");
+    pickPalette(panel, "okabe-ito");
+    openTab(panel, "lines");
+    setWidth(panel, 0, "8");
+    await panel.settle();
+    backend.calls.length = 0;
+
+    groupReset(panel).click();
+    await panel.settle();
+
+    const applied = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(applied.length).toBe(1);
+    const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
+    // Sending the baseline palette here would repaint the lines with matplotlib
+    // defaults while the block still says Okabe-Ito.
+    expect(rc["axes.prop_cycle"]).toEqual(OKABE.colors);
+  });
+});
+
+describe("the widgets agree with the schema that describes them", () => {
+  // controls.json calls itself the single source of truth. It only is if the
+  // rendering reads it: savefig_dpi carried min 36 / max 1200 for three
+  // releases while the panel hardcoded 72-600, so the schema's numbers were
+  // decoration and nothing noticed.
+  it("renders every control's own min, max and step", () => {
+    for (const spec of CONTROLS) {
+      if (spec.min === undefined && spec.max === undefined) continue;
+      const el = input(panel, spec.id) as HTMLInputElement;
+      expect(el, spec.id).not.toBeNull();
+      if (spec.min !== undefined) expect(`${spec.id}.min=${el.min}`).toBe(`${spec.id}.min=${spec.min}`);
+      if (spec.max !== undefined) expect(`${spec.id}.max=${el.max}`).toBe(`${spec.id}.max=${spec.max}`);
+      if (spec.step !== undefined) expect(`${spec.id}.step=${el.step}`).toBe(`${spec.id}.step=${spec.step}`);
+    }
+  });
+
+  it("gives every slider its bounds in the schema rather than in the code", () => {
+    const hardcoded = CONTROLS.filter((spec) => {
+      const el = input(panel, spec.id) as HTMLInputElement | null;
+      return el?.type === "range" && (spec.min === undefined || spec.max === undefined);
+    });
+    expect(hardcoded.map((c) => c.id)).toEqual([]);
+  });
+
+  // The row loop emits a subheading when spec.subgroup changes, so a control
+  // with no subgroup lands under whichever heading came last -- "Minor grid
+  // lines" spent a release under "Tick marks" -- and a subgroup interrupted by
+  // another one would get a second heading.
+  it("gives every control in a subgrouped group a subgroup, listed contiguously", () => {
+    for (const g of GROUPS) {
+      if (!g.subgroups) continue;
+      const inGroup = CONTROLS.filter((c) => c.group === g.id);
+      expect(inGroup.filter((c) => !c.subgroup).map((c) => c.id)).toEqual([]);
+
+      const order = inGroup.map((c) => c.subgroup!);
+      const runs = order.filter((sg, i) => i === 0 || sg !== order[i - 1]);
+      expect(runs).toEqual([...new Set(order)]); // no subgroup appears twice
+      expect(inGroup.map((c) => c.subgroup)).toEqual(
+        inGroup.map((c) => g.subgroups!.find((sg) => sg.id === c.subgroup)?.id)
+      ); // and every one names a subgroup the group declares
+    }
+  });
+
+  it("renders each subgroup's rows under its own heading", () => {
+    const seen: Record<string, string> = {};
+    for (const g of GROUPS) {
+      if (!g.subgroups) continue;
+      const container = group(panel, g.id);
+      let head = "";
+      const walk = (node: HTMLElement): void => {
+        for (const child of Array.from(node.children) as HTMLElement[]) {
+          if (child.classList.contains("subhead")) head = child.textContent ?? "";
+          else if (child.classList.contains("row") && child.dataset.control) seen[child.dataset.control] = head;
+          else walk(child);
+        }
+      };
+      walk(container);
+    }
+    // Primary-tier rows sit above the headings, so only the "More" rows carry one.
+    expect(seen["minor_grid"]).toBe("Grid");
+    expect(seen["grid_alpha"]).toBe("Grid");
+    expect(seen["axes_linewidth"]).toBe("Box and axes lines");
+    expect(seen["minor_ticks"]).toBe("Tick marks");
+  });
+
+  it("puts the fontsize thumb on a step the slider can hold, and the exact size beside it", () => {
+    panel.sink = new MemorySink("");
+    const fontSize = input(panel, "font_size") as HTMLInputElement;
+    fontSize.value = "12";
+    fireInput(fontSize);
+
+    // "large" is 1.2 x base = 14.4, which a step-0.5 range cannot hold: a
+    // browser stores 14.5. Say 14.5 ourselves rather than letting the element
+    // silently disagree with the readout.
+    const title = input(panel, "title_size") as HTMLInputElement;
+    expect(title.value).toBe("14.5");
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("14.4");
+    expect(title.title).toContain("14.4");
+    // And the block gets the exact size, not the snapped one.
+    expect(panel.getSettings().rc["axes.titlesize"]).toBeUndefined();
+    expect(panel.getBlock()).not.toContain("14.5");
+  });
+});
+
+describe("auto-update: the student's own pause switch", () => {
+  function autoBtn(p: PlotpolishPanel): HTMLButtonElement {
+    return p.shadowRoot!.querySelector(".pill button.auto-update") as HTMLButtonElement;
+  }
+
+  it("sits in the pill, on by default, and says which way it is", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    // In the pill, not inside a category: a student reaches for it when a
+    // change is about to be expensive, which is before they open anything.
+    expect(autoBtn(panel)).not.toBeNull();
+    expect(autoBtn(panel).hidden).toBe(false);
+    expect(panel.autoUpdate).toBe(true);
+    expect(autoBtn(panel).getAttribute("aria-pressed")).toBe("true");
+    expect(autoBtn(panel).title).toContain("on");
+
+    autoBtn(panel).click();
+    expect(panel.autoUpdate).toBe(false);
+    expect(autoBtn(panel).getAttribute("aria-pressed")).toBe("false");
+    expect(autoBtn(panel).title).toContain("off");
+  });
+
+  it("is there before the interpreter is, and hidden only when the host says never", async () => {
+    // The backend arrives when the student first runs, so keying this to the
+    // backend hid it for exactly as long as it was useful: someone about to
+    // start a long computation reaches for this BEFORE running, not after.
+    expect(autoBtn(panel).hidden).toBe(false);
+    expect(panel.autoUpdate).toBe(true);
+
+    panel.features = { livePreview: false };
+    expect(autoBtn(panel).hidden).toBe(true); // the host declared it cannot preview
+    await attachBackend(panel, new MockBackend());
+    expect(autoBtn(panel).hidden).toBe(true); // ...and a backend does not change that
+  });
+
+  it("announces the change, so a host can stop its own auto-re-run too", async () => {
+    // The demo (and Trinket) re-run the program when the panel reports keys
+    // pending a re-run. A paused panel marks EVERY change that way, so without
+    // this event pausing made the host re-run more, not less -- the opposite of
+    // what the student asked for, on the host where it matters most.
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const seen: boolean[] = [];
+    panel.addEventListener("plotpolish-auto-update", (e) =>
+      seen.push((e as CustomEvent<AutoUpdateEventDetail>).detail.autoUpdate)
+    );
+
+    autoBtn(panel).click();
+    expect(seen).toEqual([false]);
+    autoBtn(panel).click();
+    expect(seen).toEqual([false, true]);
+  });
+
+  it("shows a word, not just a glyph, and shouts when it is off", async () => {
+    await attachBackend(panel, new MockBackend());
+    const btn = autoBtn(panel);
+    expect(btn.textContent).toContain("Auto");
+    expect(btn.querySelector(".glyph")).not.toBeNull();
+    expect(btn.querySelector(".glyph")!.getAttribute("aria-hidden")).toBe("true");
+
+    expect(btn.classList.contains("off")).toBe(false);
+    btn.click();
+    // "off" is the state a student needs to notice: it is why the figure
+    // stopped following them.
+    expect(btn.classList.contains("off")).toBe(true);
+  });
+
+  it("remembers a pause made before the interpreter arrived", async () => {
+    // Pausing on a blank page has to still be in force once Pyodide finishes
+    // loading, or the setting is lost at precisely the moment it starts to matter.
+    autoBtn(panel).click();
+    expect(panel.autoUpdate).toBe(false);
+
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    backend.calls.length = 0;
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    await panel.settle();
+
+    expect(panel.autoUpdate).toBe(false);
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
+  it("stops applying and marks the changes instead", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+    backend.calls.length = 0;
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    await panel.settle();
+
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+    // The block still gets it -- pausing the preview is not pausing the tool.
+    expect(panel.getSettings().rc["lines.linewidth"]).toBe(5);
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
+  it("catches the figure up when it is switched back on", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = "5";
+    fireInput(lw);
+    (input(panel, "grid") as HTMLInputElement).checked = true;
+    change(input(panel, "grid"));
+    await panel.settle();
+    backend.calls.length = 0;
+
+    autoBtn(panel).click();
+    await panel.settle();
+
+    const applied = backend.calls.filter((c) => c.fn === "apply_live");
+    expect(applied.length).toBe(1);
+    const rc = (applied[0]!.args as { rc: Record<string, unknown> }).rc;
+    expect(rc["lines.linewidth"]).toBe(5);
+    expect(rc["axes.grid"]).toBe(true);
+    // ...and the marks go, because the figure is no longer behind.
+    expect(ctl(panel, "linewidth").querySelector(".badge.rerun")).toBeNull();
+  });
+
+  it("still reports a style as pending after catching up, because a style needs the run", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    await panel.settle();
+
+    autoBtn(panel).click();
+    autoBtn(panel).click();
+    await panel.settle();
+    expect(ctl(panel, "style").querySelector(".badge.rerun")).not.toBeNull();
+  });
+
+  it("does not re-apply the overrides a style change would, while paused", async () => {
+    // applyStyle used to read features.livePreview directly rather than
+    // canPreview. With only a host-level flag those were the same condition;
+    // with a switch the student can throw, they are not.
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    panel.sink = new MemorySink("");
+    autoBtn(panel).click();
+    backend.calls.length = 0;
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    await panel.settle();
+
+    // set_style still runs: it moves the baseline and never redraws.
+    expect(backend.calls.some((c) => c.fn === "set_style")).toBe(true);
+    expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+  });
+});
+
+describe("Save PNG", () => {
+  function saveBtn(p: PlotpolishPanel): HTMLButtonElement {
+    return input(p, "save_png") as HTMLButtonElement;
+  }
+  function said(p: PlotpolishPanel): string {
+    return (ctl(p, "save_png").querySelector(".copy-said") as HTMLElement).textContent ?? "";
+  }
+
+  it("saves through matplotlib's savefig, not the on-screen canvas", async () => {
+    // The Save category's three keys change what comes out of a FILE. Nothing
+    // in the tool produced one, so they had no observable effect at all -- and
+    // a host that grabs the canvas instead (Trinket's worker figure does) gets
+    // a screen-resolution PNG and none of them.
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(2);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+    backend.calls.length = 0;
+
+    const saved: SavedEventDetail[] = [];
+    panel.addEventListener("plotpolish-saved", (e) =>
+      saved.push((e as CustomEvent<SavedEventDetail>).detail)
+    );
+
+    saveBtn(panel).click();
+    await flush();
+
+    expect(backend.calls.map((c) => c.fn)).toContain("save_figure");
+    expect(saved.length).toBe(1);
+    expect(saved[0]!.format).toBe("png");
+    expect(saved[0]!.filename).toBe("plot.png");
+    expect(saved[0]!.bytes).toBeGreaterThan(0);
+  });
+
+  it("lets a host take the bytes instead, for an iframe that blocks downloads", async () => {
+    // Trinket runs the embed in an iframe, which is exactly where a page-driven
+    // download gets refused -- the trap Copy code already fell into. The event
+    // is cancelable so the host can deliver the file its own way.
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(1);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+
+    let handled = false;
+    panel.addEventListener("plotpolish-saved", (e) => {
+      handled = true;
+      e.preventDefault();
+    });
+
+    saveBtn(panel).click();
+    await flush();
+    expect(handled).toBe(true);
+    expect(said(panel)).toBe("Saved");
+  });
+
+  it("says what to do when there is no interpreter, rather than failing quietly", () => {
+    openTab(panel, "save");
+    saveBtn(panel).click();
+    expect(said(panel)).toBe("Run your code first");
+  });
+
+  it("says so when the interpreter has no figure", async () => {
+    const backend = new MockBackend();
+    backend.figure = null;
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+
+    saveBtn(panel).click();
+    await flush();
+    expect(said(panel)).toBe("No figure to save");
+  });
+
+  it("reports a backend failure instead of swallowing it", async () => {
+    const backend = new MockBackend();
+    backend.figure = figureWithLines(1);
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+    const errors: PanelErrorEventDetail[] = [];
+    panel.addEventListener("plotpolish-error", (e) =>
+      errors.push((e as CustomEvent<PanelErrorEventDetail>).detail)
+    );
+
+    backend.failNext = "no space left on device";
+    saveBtn(panel).click();
+    await flush();
+
+    expect(said(panel)).toBe("Save failed");
+    expect(errors.map((e) => e.context)).toContain("save_figure");
+    expect(saveBtn(panel).disabled).toBe(false); // usable again
   });
 });

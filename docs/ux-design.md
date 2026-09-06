@@ -81,7 +81,7 @@ Axes with More open: about 320 × 220 px.
 
 ## The search tree
 
-Organised by the question a student asks, not by rcParams group. At most six
+Organized by the question a student asks, not by rcParams group. At most six
 items on level one. Labels in student words; the rc key appears only in a
 tooltip and in the generated block.
 
@@ -99,7 +99,7 @@ size lives under Look because students think of size as part of the overall
 look. "Box around the plot" toggles the top and right spines together; the
 individual spines are gone from the UI, which is the point. Axes has three
 sub-sections, grid, box and tick marks, because it is the only category with
-three distinct ideas. Save is last and labelled as applying when saving.
+three distinct ideas. Save is last and labeled as applying when saving.
 
 **Legend is hidden when the live figure has no legend**, unless the block
 already sets legend keys, in which case it stays with a note. Before the
@@ -114,7 +114,7 @@ So the Legend category's position control offers the named locations plus
 "Custom position", which reveals two sliders from 0 to 1. The block then
 contains `"legend.loc": (0.6, 0.2)`; matplotlib rejects a list there, so it
 must be a tuple, and the literal reader gains one grammar rule for a
-parenthesised pair of numbers.
+parenthesized pair of numbers.
 
 Follow-up, not yet built: matplotlib legends are draggable on the WebAgg
 canvas. When the Legend category is open the panel can make the legend
@@ -135,7 +135,63 @@ which hold in Trinket.
 
 Decision: 0.1 stays rcParams-only and can *show* the current strings
 read-only in the Text category; the next phase adds a finishing block with
-exactly four things: title, x label, y label, legend labels.
+exactly four things: title, x label, y label, legend labels — plus, if the
+section below is taken up, minor grid styling as a fifth.
+
+## Minor grid styling: the same phase, a different reason (2026-09-06)
+
+Asked for: separate opacity and line style for the minor gridlines, apart
+from the major ones.
+
+The blocker is not ordering, as it is for the text strings. It is that
+**matplotlib has no minor-specific grid rcParam at all.** The complete set is
+`grid.color`, `grid.linestyle`, `grid.linewidth`, `grid.alpha`, and every one
+of them drives major and minor gridlines together — verified on 3.8.4 and
+3.10.9, which agree. (`keymap.grid_minor` is a keyboard shortcut, not
+styling.) So the two can differ on the figure but not in the block:
+
+    artist level  major/minor: ((0.9, '-'), (0.2, ':'))   <- they CAN differ
+    rcParams only major/minor: ((0.2, ':'), (0.2, ':'))   <- one set drives both
+
+Live preview would be easy: `ax.grid(which="minor", ...)` is an ordinary
+artist call and slots into `_LIVE_HANDLERS` like any other. That is exactly
+what makes it dangerous. The control would move the figure and spring back on
+the next run, which is the failure the whole project is organized against —
+and `python/tests/test_live_matches_rerun.py` would fail it on sight, naming
+`xaxis.gridlines[...].alpha`. This is the first *new* feature the harness has
+ruled out rather than an old bug it found.
+
+Two ways around it were considered and rejected. Installing a hook from
+inside the block, so axes created later get styled, needs monkeypatching
+`Axes.grid` — matplotlib exposes no axes-creation callback — which is neither
+readable as "ordinary matplotlib code" nor robust. Shipping it live-only with
+a "cannot be saved" badge would mean the panel holds a setting the block
+cannot carry, which inverts the promise rather than qualifying it.
+
+There is no cheap partial version. Because all four grid rcParams are shared,
+nothing distinguishes a minor gridline from a major one except whether it is
+drawn — which `axes.grid.which` already controls.
+
+A separate question, settled the other way (2026-09-06): "Minor grid lines"
+needs "Minor tick marks" on, because matplotlib puts a grid line only where a
+tick is. That was first left to the help text, then tried as disabling the
+switch until its prerequisite was met — which was worse, since the control was
+disabled by default and so the feature could not be reached at all. It now
+simply turns on what it cannot draw without (`turnsOn` in controls.json, a
+list): the Grid toggle and the minor tick marks both, since with `axes.grid`
+off nothing draws whatever else is set. Asking for
+the grid lines IS asking for whatever it takes to see them; the ticks are
+matplotlib's business, not a second decision for the student. Only on the way
+on — switching the grid lines off leaves the ticks, which a student may want by
+themselves. This does not contradict the "no second change unasked" rule: the
+second key is not a separate setting, it is the first one's precondition.
+
+Decision: not in 0.1, and not as a bolt-on. It wants the finishing block —
+per-artist calls after the plot exists — so it should be built *with* the
+text-string phase, paying the second-block cost once. Note that its
+consequences are milder than the text strings': styling a gridline does not
+override anything the student wrote, so "your code wins" does not invert
+here, and it needs no addressing-by-position.
 
 ## Later: pointing at the plot
 

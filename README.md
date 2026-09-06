@@ -8,7 +8,9 @@ environment for physics students), but it depends on nothing Trinket-specific:
 a JupyterLab extension or a standalone Pyodide page adopts it by writing two
 small adapters.
 
-**Status:** v0.1.6, released and working. The panel is complete for rcParams,
+![The Lines category open over a matplotlib figure: choosing a per-line color, width, dash pattern and marker, with the figure redrawing on every change](docs/img/panel.gif)
+
+**Status:** v0.3.0, released and working. The panel is complete for rcParams,
 and the first host adapter — a "Plot style" panel in the PICUP Trinket fork's
 Pyodide embed — is written and verified against a running Trinket on the main
 thread, the Web Worker path and the step-through recorder. That adapter is not
@@ -27,7 +29,7 @@ License: BSD-3-Clause. No monetization, no telemetry, no nag UI.
    artist-to-source mapping and no AST round-trip. (pylustrator uses the same
    idea; it is GPL and Qt-only, so we read it for design and never copy code.)
 
-2. **0.1 is a panel over rcParams only.** Per-artist editing is a later
+2. **The panel is over rcParams only.** Per-artist editing is a later
    phase. The block looks like this and goes at the top of the file, after
    any `from __future__` line, because rcParams are read when artists are
    created:
@@ -61,25 +63,41 @@ License: BSD-3-Clause. No monetization, no telemetry, no nag UI.
      Reference sinks: in-memory (tests) and clipboard (copies the block and
      shows it in a selectable textarea, because the clipboard API can fail).
 
-4. **Live preview is split honestly.** Controls with artist-level
-   equivalents (grid, ticks, spines, legend position and frame, text sizes) apply
-   instantly to the retained figure. The style sheet is rcParams-only, needs a host re-run, and says so.
-   The panel header says, in one line, that the user's own code always wins
-   over these defaults.
+4. **Live preview is split honestly.** Of the thirty controls, twenty-four
+   have artist-level equivalents and apply to the retained figure the moment
+   they change. The style sheet is rcParams-only, needs a host re-run, and
+   says so. The five under Save act on what leaves the tool — the PNG you
+   save, the code you copy — not on what is on screen. The panel header says,
+   in one line, that the user's own code always wins over these defaults.
+
+   That live preview shows what a re-run would draw is not a claim, it is a
+   test. `python/tests/test_live_matches_rerun.py` runs the student's program
+   with the settings applied the way the panel applies them, then runs the
+   generated block plus the same program in a clean interpreter, and compares
+   the two renders pixel for pixel. The reference is computed rather than
+   stored, so there are no golden images to refresh and no cross-version
+   tolerance to tune. The 58 cases are generated from `controls.json`, so a
+   new control arrives with a case; a case that changes no pixel is rejected
+   as proving nothing.
 
 5. **Framework-free.** A custom element, no React/Vue. Scoped styles; light
    and dark theme via CSS custom properties the host can override. Nothing
    fetches remote assets at runtime — the Python helper ships as a string
    inside the bundle — so it works under a strict CSP.
 
-6. **Curated controls for 0.1** (about twenty, not the whole of rcParams):
-   style preset; savefig dpi/transparent/bbox; font size and family,
-   title/label/tick/legend sizes, fit-labels; line width/style, marker
-   style/size, per-line color/width/style, and a
-   color cycle with a colorblind-safe option; grid, spines, axes line
-   width, tick direction, minor ticks; legend frame/location/alpha; reset.
+6. **Curated controls** (thirty, not the whole of rcParams), in six
+   categories. **Look:** the color cycle, with colorblind-safe presets
+   (Okabe-Ito, Tol bright); style preset. **Text:** font size and family,
+   title/label/tick/legend sizes, fit-labels. **Lines:** width, style, marker
+   style and size, and a per-line table of color, width and style. **Axes:**
+   grid with its opacity and line style, minor grid, box, axes line width,
+   tick direction, minor ticks. **Legend:** position, frame, opacity.
+   **Save:** save PNG, dpi, transparent background, crop to content, copy
+   code. Plus a reset for each category and one for everything.
    **Never reachable from this panel:** axis labels, titles, limits, scale,
-   annotations, per-series color. Those are the user's code.
+   annotations, and the color of a series the student named in their own code
+   — the per-line table addresses cycle positions (the 1st line drawn, the
+   2nd), not series. Those are the user's code.
 
 See [docs/design.md](docs/design.md) for the reasoning behind the
 implementation choices (why the generator is in TypeScript, how live preview
@@ -103,6 +121,8 @@ python/plotpolish/  Python helper (importable module; core.py is inlined
 python/tests/       pytest, run against matplotlib 3.8 and 3.10 in CI
 demo/               Standalone page using the Pyodide reference adapter
 docs/               Design notes
+.github/            CI (pytest on both matplotlib versions, typecheck,
+                    vitest, build) and the tagged release workflow
 ```
 
 ## Development
@@ -151,6 +171,14 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
 * **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
   figure transport needs pumping (a worker with Agg plus a hand-rolled
   webagg_core bridge, say) should trigger their redraw on `plotpolish-change`.
+* **Events.** Five, all bubbling and composed so a host can listen on an
+  ancestor: `plotpolish-change` (`detail.block` is the fenced block,
+  `detail.source` the whole file after the write), `plotpolish-rerun-needed`,
+  `plotpolish-auto-update` (the student switched the figure's auto-update on
+  or off), `plotpolish-error`, and `plotpolish-saved`. **`plotpolish-saved` is
+  cancelable:** a host that cannot let a page trigger a download — a sandboxed
+  iframe, which is where this actually runs — calls `preventDefault()` and
+  delivers `detail.data` (base64 PNG) its own way.
 * **`panel.features`**: `{ livePreview, showCode, groups }`. Set
   `livePreview: false` to disable backend calls on control changes.
 * **Theme:** `theme="light"|"dark"` attribute, or leave unset to follow
@@ -195,6 +223,9 @@ The real mode has been exercised end to end against Pyodide 0.28.1 with
 matplotlib 3.8.4: introspection, live apply on the WebAgg canvas, style
 changes via `set_style`, override detection, and reset.
 
+Set `PORT` to serve the demo somewhere other than 5173, so two checkouts can
+run it at once.
+
 ## Environment facts for the first host
 
 - Pyodide 0.28.1 with matplotlib 3.8.4 (Pyodide's WebAgg patch); 3.10.x
@@ -202,5 +233,7 @@ changes via `set_style`, override detection, and reset.
 - `mpl-data/stylelib` ships in Pyodide's wheel, so `plt.style.available`
   works there.
 - The host retains the live figure after a run, so introspection and live
-  apply target `plt.gcf()`. The library does not assume which matplotlib
+  apply target the most recently created open figure, via `plt.get_fignums()`
+  — never `plt.gcf()`, which would fabricate an empty figure when the
+  student's program drew none. The library does not assume which matplotlib
   integration it is talking to.

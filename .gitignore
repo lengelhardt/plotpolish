@@ -17,3 +17,7 @@ python/*.egg-info/
 .DS_Store
 .idea/
 .vscode/
+
+# Screen recordings. The shipped animation lives in docs/img/ as a GIF;
+# the full-length .mov is hosted on GitHub, not committed.
+*.mov

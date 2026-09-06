@@ -66,7 +66,7 @@ behind it is worse than no number):
 Main thread: panel mounts over the figure, `matplotlib 3.8.4` introspected,
 the fenced block round-trips into `main.py`, live preview applies without a
 re-run, the cursor survives a slider drag, and one drag collapses to a single
-undo entry (Ace honours `session.mergeUndoDeltas`).
+undo entry (Ace honors `session.mergeUndoDeltas`).
 
 Worker (`features.workerRuntime: true`): runtime reports `worker`, the panel
 mounts with **no backend** and `livePreview: false`, a change writes the block
@@ -190,7 +190,7 @@ would interleave with the student's program.
 
 ### Backend, worker
 
-One request/response pair, modelled on `snapshot` → `snapshot-result`:
+One request/response pair, modeled on `snapshot` → `snapshot-result`:
 
 * page → worker `{ type: "plotpolish-run", id, code }`
 * worker → page `{ type: "plotpolish-result", id, json }`, or the existing
@@ -253,6 +253,16 @@ the VPython worker assets, is: Dockerfile `ARG <NAME>_VERSION` +
 `npm run setup-vendor`; a section in `COMPONENTS.md`. Nothing in
 `public/components/` is npm-sourced today, so an npm-dependency copy step
 would be a new pattern. Use the release-asset pattern.
+
+**Licensing, for whoever writes `sync-plotpolish.sh`:** the bundle opens with
+the whole BSD-3-Clause notice -- copyright, conditions and disclaimer, not just
+an SPDX identifier -- so serving `plotpolish.iife.js` is by itself a compliant
+redistribution and the sync script has nothing it must remember to do. Copy
+`LICENSE` alongside it anyway (it is a release asset too): the notice is then
+where a human looks for it rather than only at the top of a 200 KB file, and
+Trinket's `COMPONENTS.md` entry has something to point at. Deliberately belt
+and braces -- the sync script is the piece most likely to be rewritten by
+someone who never reads this document.
 
 Consequences for plotpolish: **publish GitHub releases with
 `plotpolish.iife.js` and its sha256 as assets** (a release workflow in this

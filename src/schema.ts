@@ -19,6 +19,22 @@ export function isPropCycle(v: RcValue | undefined): v is PropCycleValue {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Array.isArray((v as PropCycleValue).color);
 }
 
+/** The parts an rc value can be split into, for keys two controls share. Today only axes.prop_cycle has any. */
+export type KeyPart = "color" | "linewidth" | "linestyle";
+
+export const KEY_PARTS: readonly KeyPart[] = ["color", "linewidth", "linestyle"];
+
+/**
+ * A prop-cycle value in its full form: a bare `string[]` is colors only, so it
+ * reads as `{color}`. Anything else (a number, a bool) has no parts and yields
+ * null -- callers then treat the key as owned outright.
+ */
+export function asPropCycle(v: RcValue | undefined): PropCycleValue | null {
+  if (isPropCycle(v)) return v;
+  if (Array.isArray(v) && v.every((x) => typeof x === "string")) return { color: v as string[] };
+  return null;
+}
+
 export type Category = "live" | "save" | "rerun";
 
 export type ControlType =
@@ -32,8 +48,9 @@ export type ControlType =
   | "colorcycle"
   | "legendloc"
   | "linecycle"
-  /** A button, not a setting: writes no rc key. */
-  | "copycode";
+  /** Buttons, not settings: they write no rc key. */
+  | "copycode"
+  | "savefig";
 
 /** primary = visible as soon as the category opens; more = under the "More" expander. */
 export type Tier = "primary" | "more";
@@ -59,11 +76,29 @@ export interface ControlSpec {
   type: ControlType;
   /** rc keys this control writes. Empty for the style control. */
   keys: string[];
+  /**
+   * For a key two controls share (axes.prop_cycle): the parts of that key's
+   * value this control is responsible for. A key with no entry here is owned
+   * outright, which is the ordinary case. Reset logic reads this so that
+   * clearing one category rewrites only its own parts of a shared value
+   * instead of deleting the key and taking the other category's work with it.
+   */
+  owns?: Record<string, KeyPart[]>;
   default: RcValue;
   /** Applied when the block is first created (settings go from empty to non-empty) if the key is unset. */
   panelDefault?: RcValue;
   category: Category;
   help?: string;
+  /**
+   * bool: other controls to switch on alongside this one, because this one
+   * cannot do anything without them. A minor grid line is drawn only where a
+   * minor tick is, and only when the grid is on at all, so "Minor grid lines"
+   * by itself draws nothing whichever of the two is missing. Asking for the
+   * grid lines IS asking for whatever it takes to see them; which artists
+   * matplotlib needs for that is matplotlib's business, not a second and third
+   * decision for the student.
+   */
+  turnsOn?: string[];
   /** bool: values written when on/off, when the key is not a plain boolean
    *  (axes.grid.which is "both"/"major", not true/false). Defaults to true/false. */
   onValue?: RcValue;
@@ -106,10 +141,22 @@ export const CONTROL_BY_ID: ReadonlyMap<string, ControlSpec> = new Map(
   CONTROLS.map((c) => [c.id, c]),
 );
 
-/** rc key → the control that owns it. */
+/**
+ * rc key → a control that writes it, for the key's category, default and
+ * "is this key ours at all" checks. Where two controls share a key
+ * (axes.prop_cycle) the later one in schema order wins, so do NOT use this to
+ * decide which control a value belongs to: read `owns` (or CONTROLS_FOR_KEY).
+ */
 export const CONTROL_FOR_KEY: ReadonlyMap<string, ControlSpec> = new Map(
   CONTROLS.flatMap((c) => c.keys.map((k) => [k, c] as [string, ControlSpec])),
 );
+
+/** rc key → every control that writes it, in schema order. */
+export const CONTROLS_FOR_KEY: ReadonlyMap<string, readonly ControlSpec[]> = (() => {
+  const m = new Map<string, ControlSpec[]>();
+  for (const c of CONTROLS) for (const k of c.keys) (m.get(k) ?? m.set(k, []).get(k)!).push(c);
+  return m;
+})();
 
 /** All rc keys the panel knows, in schema order, each once (two controls may share a key). Generated blocks use this order. */
 export const RC_KEYS: readonly string[] = [...new Set(CONTROLS.flatMap((c) => c.keys))];

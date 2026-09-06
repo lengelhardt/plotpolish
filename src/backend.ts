@@ -47,6 +47,17 @@ export interface AxesDescription {
   };
 }
 
+/** What a style looks like, without rendering it: enough for a thumbnail. */
+export interface StylePreview {
+  name: string;
+  figure: string;
+  axes: string;
+  grid: boolean;
+  grid_color: string;
+  edge: string;
+  colors: string[];
+}
+
 export interface FigureDescription {
   figsize: [number, number];
   dpi: number;
@@ -60,6 +71,16 @@ export interface IntrospectResult {
   defaults: Record<string, RcValue>;
   figure: FigureDescription | null;
   overridden: string[];
+}
+
+/** A figure saved through `fig.savefig`, so the savefig.* rc keys apply. */
+export interface SaveResult {
+  has_figure: boolean;
+  format: string;
+  /** base64, because the transport is a JSON string. */
+  data: string;
+  bytes: number;
+  dpi?: number | string;
 }
 
 export interface ApplyResult {
@@ -116,9 +137,23 @@ export class HelperClient {
     return this.call<string[]>("list_styles");
   }
 
+  /** Enough of each style to draw a thumbnail. Same order as `listStyles()`. */
+  stylePreviews(): Promise<StylePreview[]> {
+    return this.call<StylePreview[]>("style_previews");
+  }
+
   /** Reset the session's rcParams and apply `name`; returns the new effective curated values. */
   setStyle(name: string, keep: string[] = []): Promise<Record<string, RcValue>> {
     return this.call<Record<string, RcValue>>("set_style", { name, keep });
+  }
+
+  /**
+   * Save the figure the way the student's own savefig would, so the Save
+   * category's keys actually apply. A host that grabs the on-screen canvas
+   * instead gets a screen-resolution PNG and none of them.
+   */
+  saveFigure(format = "png"): Promise<SaveResult> {
+    return this.call<SaveResult>("save_figure", { format });
   }
 
   introspect(keys?: string[]): Promise<IntrospectResult> {

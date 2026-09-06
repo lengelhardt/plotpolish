@@ -1,5 +1,5 @@
 {
-  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md. Two controls may share a key (prop_cycle presets and line_cycle both write axes.prop_cycle). panelDefault: a value plotpolish applies when the block is first created if the key is not set.",
+  "$comment": "Single source of truth for the controls. TypeScript imports this; pytest reads it only for contract tests. groups = level-one categories in display order; tier primary = visible at once, more = under the 'More' expander; category: live = artist-level equivalent applied instantly, save = read by savefig, rerun = rcParams-only, needs a host re-run. See docs/ux-design.md. Two controls may share a key (prop_cycle presets and line_cycle both write axes.prop_cycle); each such control declares an owns map (rc key -> the parts of that key's value it is responsible for), so a category reset clears only its own parts instead of deleting the whole key and throwing away the other category's work. panelDefault: a value plotpolish applies when the block is first created if the key is not set.",
   "groups": [
     {
       "id": "look",
@@ -49,17 +49,6 @@
   ],
   "controls": [
     {
-      "id": "style",
-      "group": "look",
-      "tier": "primary",
-      "label": "Style preset",
-      "type": "style",
-      "keys": [],
-      "default": "default",
-      "category": "rerun",
-      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; the other controls override it. Applies on the next run."
-    },
-    {
       "id": "prop_cycle",
       "group": "look",
       "tier": "primary",
@@ -68,8 +57,13 @@
       "keys": [
         "axes.prop_cycle"
       ],
+      "owns": {
+        "axes.prop_cycle": [
+          "color"
+        ]
+      },
       "category": "live",
-      "help": "The color given to the 1st, 2nd, … line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
+      "help": "The color given to the 1st, 2nd, \u2026 line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
       "default": [
         "#1f77b4",
         "#ff7f0e",
@@ -101,7 +95,7 @@
         },
         {
           "id": "okabe-ito",
-          "label": "Colorblind-safe (Okabe–Ito)",
+          "label": "Colorblind-safe (Okabe\u2013Ito)",
           "colors": [
             "#E69F00",
             "#56B4E9",
@@ -127,6 +121,17 @@
           ]
         }
       ]
+    },
+    {
+      "id": "style",
+      "group": "look",
+      "tier": "primary",
+      "label": "Styles",
+      "type": "style",
+      "keys": [],
+      "default": "default",
+      "category": "rerun",
+      "help": "One of matplotlib's style sheets (plt.style.available). Sets many defaults at once; the other controls override it. Applies on the next run."
     },
     {
       "id": "font_size",
@@ -169,7 +174,10 @@
       ],
       "default": "large",
       "category": "live",
-      "help": "axes.titlesize"
+      "help": "axes.titlesize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "label_size",
@@ -182,7 +190,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "axes.labelsize"
+      "help": "axes.labelsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "tick_label_size",
@@ -196,7 +207,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "xtick.labelsize and ytick.labelsize"
+      "help": "xtick.labelsize and ytick.labelsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "legend_fontsize",
@@ -209,7 +223,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "legend.fontsize"
+      "help": "legend.fontsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "font_family",
@@ -247,6 +264,12 @@
       "keys": [
         "axes.prop_cycle"
       ],
+      "owns": {
+        "axes.prop_cycle": [
+          "linewidth",
+          "linestyle"
+        ]
+      },
       "category": "live",
       "default": [
         "#1f77b4",
@@ -260,7 +283,7 @@
         "#bcbd22",
         "#17becf"
       ],
-      "help": "Color, width and style for the 1st, 2nd, … line in the order they are drawn (axes.prop_cycle). A line whose code sets its own color or width keeps it.",
+      "help": "Color, width and style for the 1st, 2nd, \u2026 line in the order they are drawn (axes.prop_cycle). A line whose code sets its own color or width keeps it.",
       "minLines": 2,
       "maxLines": 8
     },
@@ -330,23 +353,23 @@
         },
         {
           "value": "o",
-          "label": "● Circle"
+          "label": "\u25cf Circle"
         },
         {
           "value": "s",
-          "label": "■ Square"
+          "label": "\u25a0 Square"
         },
         {
           "value": "^",
-          "label": "▲ Triangle"
+          "label": "\u25b2 Triangle"
         },
         {
           "value": "D",
-          "label": "◆ Diamond"
+          "label": "\u25c6 Diamond"
         },
         {
           "value": "x",
-          "label": "✕ X"
+          "label": "\u2715 X"
         },
         {
           "value": "+",
@@ -354,11 +377,11 @@
         },
         {
           "value": "*",
-          "label": "★ Star"
+          "label": "\u2605 Star"
         },
         {
           "value": ".",
-          "label": "· Point"
+          "label": "\u00b7 Point"
         }
       ]
     },
@@ -442,6 +465,26 @@
       ]
     },
     {
+      "id": "minor_grid",
+      "group": "axes",
+      "tier": "more",
+      "label": "Minor grid lines",
+      "type": "bool",
+      "keys": [
+        "axes.grid.which"
+      ],
+      "default": "major",
+      "onValue": "both",
+      "offValue": "major",
+      "category": "live",
+      "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which).",
+      "subgroup": "grid",
+      "turnsOn": [
+        "grid",
+        "minor_ticks"
+      ]
+    },
+    {
       "id": "box",
       "group": "axes",
       "subgroup": "box",
@@ -515,22 +558,7 @@
       ],
       "default": false,
       "category": "live",
-      "help": "xtick.minor.visible and ytick.minor.visible"
-    },
-    {
-      "id": "minor_grid",
-      "group": "axes",
-      "tier": "more",
-      "label": "Minor grid lines",
-      "type": "bool",
-      "keys": [
-        "axes.grid.which"
-      ],
-      "default": "major",
-      "onValue": "both",
-      "offValue": "major",
-      "category": "live",
-      "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which). Needs Minor ticks on: matplotlib only draws a minor grid line where a minor tick exists."
+      "help": "Small unlabeled tick marks between the numbered ones (xtick.minor.visible, ytick.minor.visible)."
     },
     {
       "id": "legend_loc",
@@ -589,7 +617,10 @@
           "value": "center",
           "label": "Center"
         }
-      ]
+      ],
+      "min": 0,
+      "max": 1,
+      "step": 0.01
     },
     {
       "id": "legend_frameon",
@@ -608,7 +639,7 @@
       "id": "legend_framealpha",
       "group": "legend",
       "tier": "more",
-      "label": "Frame opacity",
+      "label": "Legend opacity",
       "type": "number",
       "keys": [
         "legend.framealpha"
@@ -618,7 +649,18 @@
       "min": 0,
       "max": 1,
       "step": 0.05,
-      "help": "legend.framealpha"
+      "help": "legend.framealpha. Fades the legend background box and its border together; the labels themselves stay solid."
+    },
+    {
+      "id": "save_png",
+      "group": "save",
+      "tier": "primary",
+      "label": "Save PNG",
+      "type": "savefig",
+      "keys": [],
+      "default": "",
+      "category": "save",
+      "help": "Write the figure to a PNG file, through matplotlib's own savefig, so the three settings below apply to it."
     },
     {
       "id": "savefig_dpi",
@@ -631,8 +673,8 @@
       ],
       "default": "figure",
       "category": "save",
-      "min": 36,
-      "max": 1200,
+      "min": 72,
+      "max": 600,
       "step": 1,
       "help": "savefig.dpi for plt.savefig(). plotpolish sets 300 as soon as you change anything; matplotlib's own default is the figure's screen dpi.",
       "panelDefault": 300

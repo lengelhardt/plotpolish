@@ -15,6 +15,8 @@ Design constraints (see docs/design.md):
   left alone under ``only_defaults``.
 """
 
+import base64
+import io
 import json
 import math
 import traceback
@@ -22,10 +24,10 @@ import traceback
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib import ticker as _ticker
-from matplotlib.colors import to_rgba as _to_rgba
+from matplotlib.colors import to_hex as _to_hex, to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 TOOL_NAME = "plotpolish"
 
@@ -79,8 +81,10 @@ _REL_TOL = 1e-6
 # --------------------------------------------------------------------------
 
 def _plain(value):
-    """Turn numpy scalars / tuples into plain JSON-serializable Python."""
+    """Turn numpy scalars / arrays / tuples into plain JSON-serializable Python."""
     if hasattr(value, "item") and not isinstance(value, (str, bytes)):
+        if getattr(value, "ndim", 0):
+            return value.tolist()  # an ndarray: item() only works on scalars
         try:
             return value.item()
         except (TypeError, ValueError):
@@ -88,6 +92,22 @@ def _plain(value):
     if isinstance(value, (list, tuple)):
         return [_plain(v) for v in value]
     return value
+
+
+def _color_json(color):
+    """One prop_cycle color as the panel expects it: a string.
+
+    Strings pass through verbatim. Anything else -- an RGB(A) tuple, or a numpy
+    row from ``plt.cm.viridis(np.linspace(0, 1, n))``, which is an ordinary way
+    to build a cycler -- becomes hex, keeping alpha only when it is not 1.
+    """
+    if isinstance(color, str):
+        return color
+    try:
+        rgba = _to_rgba(color)
+    except (ValueError, TypeError):
+        return _plain(color)
+    return _to_hex(rgba, keep_alpha=rgba[3] != 1)
 
 
 def rc_to_json(key, value):
@@ -103,8 +123,8 @@ def rc_to_json(key, value):
         items = list(value)
         keys = set(value.keys)
         if keys == {"color"}:
-            return [c["color"] for c in items]
-        result = {"color": [c["color"] for c in items]} if "color" in keys else {"color": []}
+            return [_color_json(c["color"]) for c in items]
+        result = {"color": [_color_json(c["color"]) for c in items]} if "color" in keys else {"color": []}
         if "linewidth" in keys:
             result["linewidth"] = [float(c["linewidth"]) for c in items]
         if "linestyle" in keys:
@@ -181,6 +201,42 @@ def list_styles():
     return ["default"] + names
 
 
+def style_previews():
+    """Enough of each style to draw a thumbnail, without rendering anything.
+
+    ``plt.style.library[name]`` is only the style's *overrides*, so a value it
+    omits has to fall back to matplotlib's defaults -- seaborn-v0_8-darkgrid,
+    for instance, sets no prop_cycle at all and would otherwise preview with no
+    lines. Returns one entry per name from ``list_styles()``, in the same order,
+    so the panel can pair them up positionally.
+    """
+    defaults = mpl.rcParamsDefault
+    library = plt.style.library
+
+    def resolve(overrides, key):
+        value = overrides.get(key)
+        return defaults.get(key) if value is None else value
+
+    out = []
+    for name in list_styles():
+        overrides = {} if name == "default" else dict(library.get(name, {}))
+        cycle = resolve(overrides, "axes.prop_cycle")
+        try:
+            colors = list(cycle.by_key().get("color", []))[:4]
+        except Exception:  # pragma: no cover - a cycle without colors
+            colors = []
+        out.append({
+            "name": name,
+            "figure": _plain(resolve(overrides, "figure.facecolor")),
+            "axes": _plain(resolve(overrides, "axes.facecolor")),
+            "grid": bool(resolve(overrides, "axes.grid")),
+            "grid_color": _plain(resolve(overrides, "grid.color")),
+            "edge": _plain(resolve(overrides, "axes.edgecolor")),
+            "colors": [_plain(c) for c in colors],
+        })
+    return out
+
+
 def set_style(name, keep=None):
     """Reset the session's rcParams to library defaults, then apply style ``name``.
 
@@ -225,6 +281,30 @@ def _grid_on(axis):
         pass
     lines = axis.get_gridlines()
     return bool(lines and lines[0].get_visible())
+
+
+def _minor_grid_on(axis):
+    try:
+        params = axis.get_tick_params(which="minor")
+        if "gridOn" in params:
+            return bool(params["gridOn"])
+    except Exception:  # pragma: no cover - very old/odd backends
+        pass
+    ticks = axis.get_minor_ticks(numticks=1)
+    return bool(ticks and ticks[0].gridline.get_visible())
+
+
+def _grid_which(ax):
+    """``axes.grid.which`` as the live figure shows it, or ``None`` when no grid is drawn."""
+    major = _grid_on(ax.xaxis) or _grid_on(ax.yaxis)
+    minor = _minor_grid_on(ax.xaxis) or _minor_grid_on(ax.yaxis)
+    if major and minor:
+        return "both"
+    if major:
+        return "major"
+    if minor:
+        return "minor"
+    return None
 
 
 def _gridline(axis):
@@ -283,6 +363,7 @@ def _describe_axes(ax, fig):
     gx = _gridline(ax.xaxis)
     return {
         "grid": _grid_on(ax.xaxis) or _grid_on(ax.yaxis),
+        "grid_which": _grid_which(ax),
         "grid_alpha": None if gx is None else _plain(gx.get_alpha()),
         "grid_linestyle": None if gx is None else gx.get_linestyle(),
         "spines": {name: bool(sp.get_visible()) for name, sp in ax.spines.items()},
@@ -354,6 +435,7 @@ def _find_overrides(fig, rc):
 
     for ax in fig.axes:
         differs("axes.grid", _grid_on(ax.xaxis) or _grid_on(ax.yaxis))
+        differs("axes.grid.which", _grid_which(ax))
         gx = _gridline(ax.xaxis)
         if gx is not None:
             differs("grid.alpha", gx.get_alpha() if gx.get_alpha() is not None else 1.0)
@@ -500,33 +582,43 @@ def _apply_font_family(fig, new, old, only):
 
 
 def _apply_grid(fig, new, old, only):
+    """axes.grid, with the same truth table as a fresh axes.
+
+    A re-run draws the major grid when ``axes.grid`` is on and
+    ``axes.grid.which`` includes it, the minor grid likewise; off is off for
+    both. ``ax.grid(new)`` alone would only touch the major grid (matplotlib's
+    default ``which``), leaving minor grid lines behind on the way off and
+    never drawing them on the way on.
+    """
+    which = str(mpl.rcParams["axes.grid.which"])
+    major = bool(new) and which in ("major", "both")
+    minor = bool(new) and which in ("minor", "both")
     for ax in fig.axes:
         current = _grid_on(ax.xaxis) or _grid_on(ax.yaxis)
         if only and current != bool(old):
             continue
-        ax.grid(bool(new))
+        ax.grid(major, which="major")
+        ax.grid(minor, which="minor")
 
 
 def _apply_grid_which(fig, new, old, only):
     """Draw grid lines at the minor ticks as well as the major ones.
 
-    matplotlib only draws a minor grid line where a minor tick exists, so this
-    does nothing visible unless xtick/ytick.minor.visible are on -- the panel
-    says so in the control's help rather than silently turning them on, which
-    would be a second change the user did not ask for.
+    On a re-run matplotlib draws the minor grid only when ``axes.grid`` is on
+    *and* ``axes.grid.which`` asks for it, and only where a minor tick exists,
+    so this does nothing visible unless xtick/ytick.minor.visible are on -- the
+    panel says so in the control's help rather than silently turning them on,
+    which would be a second change the user did not ask for. Live, an axis's
+    major grid stands in for ``axes.grid``: no major grid, no minor grid.
     """
-    which = str(new)
-    minor_on = which in ("minor", "both")
+    minor_new = str(new) in ("minor", "both")
+    minor_old = str(old) in ("minor", "both")
     for ax in fig.axes:
         for axis in (ax.xaxis, ax.yaxis):
-            if only:
-                current = _grid_on(axis)
-                if not current:
-                    continue
-            for tick in axis.get_minor_ticks():
-                tick.gridline.set_visible(minor_on)
-        # Keep the major grid as it was; ax.grid(which=...) would toggle it.
-        ax.tick_params(axis="both", which="minor", gridOn=minor_on)
+            grid_on = _grid_on(axis)
+            if only and _minor_grid_on(axis) != (grid_on and minor_old):
+                continue  # the user's code set the minor grid itself
+            axis.grid(grid_on and minor_new, which="minor")
 
 
 def _apply_grid_kw(kw):
@@ -612,6 +704,12 @@ def _apply_tick_label_size(axis_name):
             if only and current is not None and not _close(current, old_pts):
                 continue
             ax.tick_params(axis=axis_name, which="both", labelsize=new_pts)
+            # The exponent/offset label ("1e6", "+3.5") takes its size from the
+            # same rcParam but not from tick_params, so it stayed behind while
+            # the tick labels around it grew.
+            offset = axis.get_offset_text()
+            if not only or _close(offset.get_fontsize(), old_pts):
+                offset.set_fontsize(new_pts)
     return apply
 
 
@@ -620,12 +718,41 @@ def _legend_texts(ax):
     return leg.get_texts() if leg is not None else []
 
 
+def _apply_legend_title_size(fig, base_old, base_new, only):
+    """The legend's title follows font.size, not legend.fontsize.
+
+    rcParams["legend.title_fontsize"] is None by default, and a None title font
+    falls back to the general font size -- so a re-run draws the title at
+    font.size while the labels beside it follow legend.fontsize. The panel has
+    no control for the title, so it has no handler of its own; it rides along
+    with the base size like any other text that never asked for a size.
+    """
+    for ax in fig.axes:
+        leg = ax.get_legend()
+        if leg is None:
+            continue
+        title = leg.get_title()
+        if not only or _close(title.get_fontsize(), base_old):
+            title.set_fontsize(base_new)
+
+
+# to_hex rounds each channel to 8 bits, so a color that went through the
+# panel's JSON can sit up to half a step away from the float the artist holds.
+_HEX_TOL = 0.5 / 255 + 1e-9
+
+
 def _colors_equal(a, b):
-    """Color equality that treats equivalent spellings (e.g. case) as equal."""
+    """Color equality that treats equivalent spellings (e.g. case) as equal.
+
+    Tolerates the rounding of a hex round trip: a line drawn from a colormap
+    holds floats such as 0.267004 while the panel's ``previous`` (JSON from
+    :func:`introspect_figure`) says ``#440154``; both name the same color.
+    """
     try:
-        return _to_rgba(a) == _to_rgba(b)
+        ra, rb = _to_rgba(a), _to_rgba(b)
     except (ValueError, TypeError):
         return a == b
+    return all(abs(x - y) <= _HEX_TOL for x, y in zip(ra, rb))
 
 
 # Scalar rc key -> the axes.prop_cycle property that overrides it on a draw.
@@ -654,7 +781,7 @@ def _cycle_props(value):
     return {k: list(v) for k, v in value.items() if k in _PROP_CYCLE_ATTRS and v}
 
 
-def _apply_prop_cycle(fig, new, old, only):
+def _apply_prop_cycle(fig, new, old, only, fallback=None, rc=None):
     """Apply per-line color/linewidth/linestyle through the property cycle.
 
     For each axes and each line at index ``i``, the new value for a
@@ -662,15 +789,18 @@ def _apply_prop_cycle(fig, new, old, only):
     (what the line would already show if it followed the previous cycle)
     comes the same way from ``old``. When ``old`` carries no entry for a
     property — no old cycle at all, or an old cycle that never mentioned
-    linewidth/linestyle — the fallback is ``mpl.rcParams``'s current value
-    for linewidth/linestyle, and the line's own current color for color
+    linewidth/linestyle — the fallback comes from ``fallback``: what the
+    caller believes the lines were last drawn against, read before this call
+    began writing to ``mpl.rcParams``. For color the fallback is the line's
+    own current color
     (which trivially "matches", so a first per-line color change is never
     blocked by ``only_defaults``).
     """
     new_props = _cycle_props(new)
-    if not new_props:
-        return
     old_props = _cycle_props(old)
+    if not new_props:
+        _uncycle(fig, new_props, old_props, only, rc)
+        return
 
     for ax in fig.axes:
         for i, line in enumerate(ax.lines):
@@ -682,6 +812,8 @@ def _apply_prop_cycle(fig, new, old, only):
                     old_val = old_list[i % len(old_list)]
                 elif prop == "color":
                     old_val = line.get_color()
+                elif fallback is not None and prop in fallback:
+                    old_val = fallback[prop]
                 else:
                     old_val = mpl.rcParams["lines." + prop]
                 if only:
@@ -693,6 +825,94 @@ def _apply_prop_cycle(fig, new, old, only):
                     if not matches:
                         continue
                 getattr(line, setter_name)(caster(new_val))
+
+    _uncycle(fig, new_props, old_props, only, rc)
+
+
+def _uncycle(fig, new_props, old_props, only, rc=None):
+    """Walk lines back to the scalar rcParam for properties the cycle has DROPPED.
+
+    Applying a cycle only ever set the properties the new cycle carried, so when
+    one went away -- reverting the per-line table, resetting the category, or the
+    "(all)" master taking over -- the lines kept wearing it. A re-run draws them
+    at ``lines.linewidth``/``lines.linestyle`` instead, so the preview was simply
+    wrong.
+
+    It also locked the control. Once a line sits at a width the panel no longer
+    believes it has, ``only_defaults`` reads it as one the student set by hand
+    and refuses to touch it again, so every later change to that row did nothing
+    at all. That is the shape of the bug as it was reported: a line stuck huge,
+    then stuck small, and never moving again.
+    """
+    for prop in set(old_props) - set(new_props):
+        if prop == "color":
+            continue  # every cycle carries color; there is no scalar to fall back to
+        getter_name, setter_name, caster = _PROP_CYCLE_ATTRS[prop]
+        key = "lines." + prop
+        # What a re-run would draw: this call's own scalar if it carries one,
+        # else whatever the session already has.
+        target = (rc or {}).get(key, mpl.rcParams[key])
+        old_list = old_props[prop]
+        for ax in fig.axes:
+            for i, line in enumerate(ax.lines):
+                old_val = old_list[i % len(old_list)]
+                if only and not _close_or_equal(getattr(line, getter_name)(), old_val):
+                    continue  # the student styled this one themselves
+                getattr(line, setter_name)(caster(target))
+
+
+# Line properties the panel can move, and how to copy one between Line2Ds.
+_LINE_SYNC_ATTRS = {
+    "color": ("get_color", "set_color"),
+    "linewidth": ("get_linewidth", "set_linewidth"),
+    "linestyle": ("get_linestyle", "set_linestyle"),
+    "marker": ("get_marker", "set_marker"),
+    "markersize": ("get_markersize", "set_markersize"),
+}
+
+# rc key -> the line properties applying it can move.
+_LINE_PROPS_FOR_KEY = {
+    "lines.linewidth": ("linewidth",),
+    "lines.linestyle": ("linestyle",),
+    "lines.marker": ("marker",),
+    "lines.markersize": ("markersize",),
+}
+
+
+def _sync_legend_handles(fig, props):
+    """Copy ``props`` from each plotted line onto the legend's sample of it.
+
+    A legend's sample lines are COPIES taken when the legend was built, not the
+    lines themselves, so walking ``ax.lines`` leaves them showing the old style
+    while a re-run -- which builds the legend from lines that already carry the
+    new one -- shows the new. That is a live-preview-versus-re-run divergence in
+    five of the panel's controls at once, and the only one the eye is likely to
+    miss, because the swatches are small.
+
+    Copying from the source line rather than from rcParams is what keeps the
+    ``only_defaults`` promise: a line the student drew with ``lw=3`` was left
+    alone above, so its sample is left at 3 too.
+
+    Samples are matched to lines by label, which is how the legend chose them.
+    An entry with no matching line -- a handle the student passed explicitly, a
+    proxy artist -- is left alone, as a re-run would leave it.
+    """
+    if not props:
+        return
+    for ax in fig.axes:
+        legend = ax.get_legend()
+        if legend is None:
+            continue
+        by_label = {}
+        for line in ax.lines:
+            by_label.setdefault(line.get_label(), line)
+        for sample, text in zip(legend.get_lines(), legend.get_texts()):
+            source = by_label.get(text.get_text())
+            if source is None:
+                continue
+            for prop in props:
+                getter_name, setter_name = _LINE_SYNC_ATTRS[prop]
+                getattr(sample, setter_name)(getattr(source, getter_name)())
 
 
 def _apply_line_prop(getter_name, setter_name, caster):
@@ -816,12 +1036,35 @@ def apply_live(rc, only_defaults=True, previous=None):
     # marches over every line and undoes the per-line values the cycler just
     # applied, and because each applier carries its own only_defaults guard it
     # undoes them for some lines and not others.
-    cycled = set(_cycle_props(rc.get("axes.prop_cycle"))) if "axes.prop_cycle" in rc else set()
+    # The cycle that will be in force on the next run: the payload's if it
+    # carries one, else the session's. Reading only the payload was not enough.
+    # The panel sends deltas -- drag "Line width (all)" and only
+    # "lines.linewidth" arrives -- and with no cycle in that batch the scalar
+    # walked the artists even though the block still carries a cycler that
+    # would beat it on a re-run. only_defaults hides that most of the time,
+    # because a line sitting at a cycled width does not look untouched; it
+    # stops hiding it the moment one of the cycle's entries happens to equal
+    # the scalar rc value, and then that one line moves live and springs back
+    # on the next run.
+    if "axes.prop_cycle" in rc:
+        cycle_now = rc["axes.prop_cycle"]
+    else:
+        cycle_now = rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"])
+    cycled = set(_cycle_props(cycle_now))
 
     def old_value(key):
         if isinstance(previous, dict) and key in previous:
             return previous[key]
         return rc_to_json(key, mpl.rcParams[key])
+
+    # What the lines were last drawn against, for the cycler's own
+    # only_defaults test. Read BEFORE the loop below starts writing to
+    # mpl.rcParams: "lines.linewidth" and "axes.prop_cycle" usually arrive in
+    # the same batch, and if the scalar was written first the cycler compared
+    # each line against the value it was about to be given, concluded every
+    # line had been styled by hand, and applied nothing -- so whether the
+    # per-line widths appeared at all depended on dict order.
+    cycle_fallback = {prop: old_value("lines." + prop) for prop in ("linewidth", "linestyle")}
 
     # font.size first: relative sizes ("large") resolve against it.
     base_old = float(old_value("font.size"))
@@ -834,6 +1077,7 @@ def apply_live(rc, only_defaults=True, previous=None):
                 current = old_value(key)
                 if isinstance(current, str):  # relative: follows font.size
                     handler(fig, current, current, only_defaults, base_old=base_old, base_new=base_new)
+            _apply_legend_title_size(fig, base_old, base_new, only_defaults)
         mpl.rcParams["font.size"] = base_new
         result["applied"].append("font.size")
 
@@ -848,7 +1092,11 @@ def apply_live(rc, only_defaults=True, previous=None):
             result["applied"].append(key)
         elif key in _LIVE_HANDLERS:
             if fig is not None and _CYCLE_MASTERS.get(key) not in cycled:
-                _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
+                if key == "axes.prop_cycle":
+                    _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults,
+                                        fallback=cycle_fallback, rc=rc)
+                else:
+                    _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
             mpl.rcParams[key] = json_to_rc(key, value)
             result["applied"].append(key)
         elif key in SAVE_KEYS:
@@ -860,6 +1108,18 @@ def apply_live(rc, only_defaults=True, previous=None):
             result["unknown"].append(key)
 
     if fig is not None and result["applied"]:
+        # The legend's sample lines are copies of the plotted ones; bring them
+        # along, or the swatches keep the style the figure no longer has.
+        touched = set()
+        for key in result["applied"]:
+            touched.update(_LINE_PROPS_FOR_KEY.get(key, ()))
+        if "axes.prop_cycle" in result["applied"]:
+            # The properties the cycle DROPPED count too: _uncycle walked the
+            # lines back to the scalar for those, and the legend's copies have
+            # to follow, exactly as they follow a property the cycle gained.
+            touched.update(_cycle_props(rc["axes.prop_cycle"]))
+            touched.update(_cycle_props(old_value("axes.prop_cycle")))
+        _sync_legend_handles(fig, touched & set(_LINE_SYNC_ATTRS))
         try:
             fig.canvas.draw_idle()
         except Exception:  # pragma: no cover - headless canvases without draw_idle
@@ -867,12 +1127,42 @@ def apply_live(rc, only_defaults=True, previous=None):
     return result
 
 
+def save_figure(format="png"):
+    """Save the current figure exactly as the student's own ``savefig`` would.
+
+    This is the only thing in the tool that exercises the Save category. Every
+    other control changes what is on screen; ``savefig.dpi``,
+    ``savefig.transparent`` and ``savefig.bbox`` change what comes out of a
+    file, and nothing was producing a file. It goes through ``fig.savefig``
+    rather than the canvas, so the three of them actually apply -- a host that
+    grabs the on-screen canvas instead gets a screen-resolution PNG and none of
+    them.
+
+    Returns the bytes base64-encoded, because the transport is a JSON string.
+    """
+    fig = current_figure()
+    if fig is None:
+        return {"has_figure": False, "format": format, "data": "", "bytes": 0}
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format=format)
+    raw = buffer.getvalue()
+    return {
+        "has_figure": True,
+        "format": format,
+        "data": base64.b64encode(raw).decode("ascii"),
+        "bytes": len(raw),
+        "dpi": rc_to_json("savefig.dpi", mpl.rcParams["savefig.dpi"]),
+    }
+
+
 # --------------------------------------------------------------------------
 # JSON entry point used by the JS side
 # --------------------------------------------------------------------------
 
 _DISPATCH = {
+    "save_figure": lambda args: save_figure(**args),
     "list_styles": lambda args: list_styles(),
+    "style_previews": lambda args: style_previews(),
     "set_style": lambda args: set_style(**args),
     "introspect_figure": lambda args: introspect_figure(**args),
     "apply_live": lambda args: apply_live(**args),

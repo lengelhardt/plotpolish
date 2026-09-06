@@ -41,3 +41,38 @@ def test_set_style_default_resets_everything_but_keep():
     assert mpl.rcParams["figure.autolayout"] is True
     set_style("default")
     assert mpl.rcParams["figure.autolayout"] is False
+
+
+def test_style_previews_pairs_with_list_styles():
+    from plotpolish import list_styles, style_previews
+
+    previews = style_previews()
+    assert [p["name"] for p in previews] == list_styles()
+
+
+def test_style_previews_fall_back_to_defaults_for_keys_a_style_omits():
+    """A style's library entry holds only its overrides.
+
+    seaborn-v0_8-darkgrid sets no prop_cycle at all, so reading the entry
+    directly would preview it with no lines; dark_background sets no axes.grid,
+    which must resolve to matplotlib's default rather than to None.
+    """
+    import matplotlib.pyplot as plt
+
+    from plotpolish import style_previews
+
+    by_name = {p["name"]: p for p in style_previews()}
+
+    for name, preview in by_name.items():
+        assert preview["colors"], "%s previewed with no colors" % name
+        assert isinstance(preview["grid"], bool), "%s grid is %r" % (name, preview["grid"])
+        assert preview["axes"], "%s has no axes color" % name
+
+    if "dark_background" in plt.style.library:
+        dark = by_name["dark_background"]
+        assert dark["axes"] in ("black", "#000000")
+        assert dark["edge"] in ("white", "#ffffff")
+
+    # "default" is not in the library at all; it must still describe matplotlib.
+    assert by_name["default"]["colors"][0] == "#1f77b4"
+    assert by_name["default"]["grid"] is False

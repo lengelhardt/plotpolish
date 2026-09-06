@@ -3,6 +3,143 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.0 — 2026-09-06
+
+- **Fixed: a per-line width could stick, and then stop responding entirely.**
+  Applying a property cycle only ever set the properties the *new* cycle
+  carried, so when one went away — reverting the per-line table, resetting the
+  category, the "(all)" master taking over — the lines kept wearing it, while a
+  re-run of the same block drew them at `lines.linewidth`. The line then sat at
+  a width the panel did not believe it had, and `only_defaults` read that as
+  student-set and refused to touch the row ever again. Reported as a line stuck
+  huge, then stuck small, then never moving. The legend's copies of those lines
+  are walked back too.
+
+
+- **New: "Save PNG" (Save).** The Save category had three settings and no way
+  to save, so `savefig.dpi`, `savefig.transparent` and `savefig.bbox` had no
+  observable effect anywhere in the tool — the live-vs-re-run harness rejects
+  all three as cases that prove nothing, because it compares on-screen renders
+  and those keys change what comes out of a file. The button goes through
+  matplotlib's own `savefig`, so they apply: at dpi 200 the file really is
+  1280x960 rather than the 640x480 a canvas grab would give.
+
+  The `plotpolish-saved` event is cancelable, so a host that cannot let a page
+  trigger a download — a sandboxed iframe, which is where this runs — takes the
+  bytes and delivers them its own way. That is the trap "Copy code" already
+  fell into.
+
+  Button rows no longer repeat their own name in the label column.
+
+
+- **"Minor grid lines" now turns on the two things it cannot draw without:**
+  "Grid" and "Minor tick marks". matplotlib draws a grid line only where a tick
+  is, and only when the grid is on at all, so the switch did nothing by itself
+  whichever of the two was missing — verified: from a plain figure, one click
+  goes from major=0 minor=0 to major=9 minor=29, live and on a re-run alike.
+  One click, one write, one apply. Switching the grid lines off leaves both,
+  since either is useful by itself — but switching off either of *them* takes
+  the grid lines with it, or the switch would be left on and drawing nothing,
+  which is the state the whole mechanism exists to prevent. A dependant that
+  was never on is left alone, so the block never gains a key the student did
+  not touch.
+
+
+- **The bundle now carries the whole license, not just an identifier.** BSD-3-
+  Clause asks a redistribution to reproduce the copyright notice, the list of
+  conditions *and* the disclaimer; the banner had only the first of the three.
+  It costs 1,746 bytes of a 200 KB bundle (916 gzipped) and means a host that
+  vendors plotpolish by curling one file is compliant by serving it, with
+  nothing its sync script has to remember. The text is read from `LICENSE` at
+  build time rather than retyped, so the two cannot drift, and the SPDX
+  identifier stays on the first line. Raised by Copilot on PR #13.
+
+  The release gate that was supposed to protect this could not: it grepped for
+  the SPDX line, which vite writes from the same repo two lines earlier, so it
+  proved a banner existed and nothing about what was in it. `src/iife.test.ts`
+  now compares each bundle's banner against `LICENSE` verbatim.
+
+
+- **New: an auto-update switch, in the tab pill ("⟳ Auto").** The figure follows every
+  change by default; the switch pauses that, and the changes go on being
+  written to the block with the "re-run to see" mark the worker path already
+  used. It sits in the pill rather than inside a category because a student
+  reaches for it when a change is about to be expensive, which is before they
+  have opened anything. Turning it back on catches the figure up in one apply.
+  It also fires a `plotpolish-auto-update` event, because a host that re-runs
+  the program by itself has to stop doing that too — the demo did not, and a
+  paused panel marks every change as pending a re-run, which was exactly what
+  its auto-re-run was listening for. Pausing made it re-run *more*.
+
+- **The Look category reads top down again.** "Colors" is above "Styles" (it is
+  one row; the style grid is five), "Style preset" is just "Styles", and the
+  style menu is back beside the label with the names shortened — the sixteen
+  seaborn variants read as an indented list under "seaborn" rather than
+  repeating the prefix sixteen times. The thumbnails lost their captions, which
+  never fitted the 46px cell; the full name is on the tooltip, the accessible
+  name and the menu.
+
+- **The tab pill folds rather than cutting.** Collapsing it now animates, and it
+  leaves an open category window open — tucking the strip away is for
+  reclaiming the figure's corner, not for putting your work away, and closing
+  the window lost the student's place every time.
+
+
+- **New: a regression harness that runs the block and diffs it against the live
+  preview** (`python/tests/test_live_matches_rerun.py`). Live preview must show
+  what a re-run of the block would draw; that promise had broken in five
+  separate places, every one found by eye. The harness runs the student's
+  program and applies the settings the way the panel does, then runs the block
+  plus the same program from a clean interpreter, and requires the two renders
+  to be identical. The reference is computed rather than stored, so there are no
+  golden images to refresh and nothing to re-tune when matplotlib moves. Cases
+  are built from `controls.json` by the real block generator, so a new control
+  arrives with a case; each one has to change at least one pixel or it is
+  rejected as proving nothing.
+
+- **Fixed: the legend's swatches never followed the lines.** A legend's sample
+  lines are copies taken when it was built, so changing color, width, style,
+  marker or the per-line cycle updated the plot and left the swatches behind —
+  five controls with one cause. Found by the harness.
+
+- **Fixed: per-line widths applied or not depending on the order keys arrived
+  in.** The property cycle's "is this line still where I left it?" test read
+  `mpl.rcParams` for its fallback, which the same call had usually already
+  overwritten, so it concluded the student had styled every line by hand and
+  applied nothing. Found by the harness.
+
+- **Fixed: the axis offset label ("1e6") and the legend title kept their old
+  size.** The first is sized by the tick-label rcParam but not by
+  `tick_params`; the second follows `font.size`, not `legend.fontsize`.
+
+- **Fixed: resetting one category threw away another's work.** "Colors" (Look)
+  and the per-line table (Lines) both write `axes.prop_cycle`, and a reset
+  deleted the key outright. Each control now declares in `controls.json` which
+  parts of the value it owns, so a reset rewrites the value instead — and the
+  reset button no longer offers to undo work the other category did. Restoring
+  the palette changes its length, so the surviving per-line arrays are re-zipped
+  to match; without that the block would carry a cycler matplotlib refuses.
+
+- **Fixed: a style change did not mark the settings it seeds.** Picking a style
+  out of fully-default settings writes `savefig.dpi` and `figure.autolayout`
+  into the block. With a backend attached but live preview off — Trinket's
+  worker path — nothing applied them and nothing said so.
+
+- **Fixed: sliders ignored their own bounds.** `savefig.dpi` declared 36–1200
+  in the schema while the panel hardcoded 72–600; the fontsize and legend x/y
+  sliders hardcoded theirs too. They all read the schema now, and a test fails
+  if a slider gets its bounds anywhere else. A relative font size that lands
+  between steps ("large" at base 12 is 14.4) now puts the thumb on a step the
+  slider can hold while the readout keeps the exact value.
+
+- **Fixed: "Minor grid lines" rendered under "Tick marks."** It had no subgroup,
+  and the row loop only starts a new heading when the subgroup changes.
+
+- Four tests that passed for the wrong reason were replaced, each verified by
+  breaking the behavior and watching the test go red. One of them had been the
+  only cover for all nine `isEditing` call sites, and another for the `writing`
+  guard — both of which the whole suite passed without.
+
 ## 0.2.0 — 2026-09-06
 
 - **New: "Minor grid lines" (Axes → More).** Draws grid lines at the minor
@@ -119,7 +256,7 @@ project is pre-1.0, so minor versions may change behavior.
 
 Two corrections to the 0.1.2 drag fix.
 
-- **A second pointer ending cancelled a drag in progress.** The window-level
+- **A second pointer ending canceled a drag in progress.** The window-level
   safety net added in 0.1.2 ended *any* live drag on *any* `pointerup`,
   without checking which pointer it belonged to. Lifting a second finger, or a
   stylus ending while a mouse drag was live, dropped the drag out from under

@@ -14,6 +14,14 @@ export interface MockCall {
 }
 
 /** A few fake style sheets, enough to exercise set_style. */
+/** Thumbnail data per style. Deliberately distinct so a test can tell them apart. */
+const MOCK_PREVIEWS: Record<string, { axes: string; grid: boolean; colors: string[] }> = {
+  default: { axes: "#ffffff", grid: false, colors: ["#1f77b4", "#ff7f0e", "#2ca02c"] },
+  ggplot: { axes: "#E5E5E5", grid: true, colors: ["#E24A33", "#348ABD", "#988ED5"] },
+  "seaborn-v0_8-whitegrid": { axes: "#ffffff", grid: true, colors: ["#4C72B0", "#DD8452", "#55A868"] },
+  dark_background: { axes: "#000000", grid: false, colors: ["#8dd3c7", "#feffb3", "#bfbbd9"] },
+};
+
 const MOCK_STYLES: Record<string, Record<string, RcValue>> = {
   ggplot: { "axes.grid": true, "axes.linewidth": 1, "font.size": 10 },
   "seaborn-v0_8-whitegrid": { "axes.grid": true, "axes.spines.top": false, "axes.spines.right": false },
@@ -64,6 +72,19 @@ export class MockBackend implements FigureBackend {
     switch (fn) {
       case "list_styles":
         return [...this.styles];
+      case "style_previews":
+        return this.styles.map((name) => {
+          const p = MOCK_PREVIEWS[name] ?? { axes: "#ffffff", grid: false, colors: ["#1f77b4"] };
+          return {
+            name,
+            figure: "#ffffff",
+            axes: p.axes,
+            grid: p.grid,
+            grid_color: "#b0b0b0",
+            edge: p.axes === "#000000" ? "#ffffff" : "#333333",
+            colors: [...p.colors],
+          };
+        });
       case "set_style": {
         const keep = (args.keep as string[] | undefined) ?? [];
         const saved = Object.fromEntries(keep.map((k) => [k, this.rc[k]]));
@@ -76,6 +97,20 @@ export class MockBackend implements FigureBackend {
         }
         Object.assign(this.rc, saved);
         return { ...this.rc };
+      }
+      case "save_figure": {
+        // A one-pixel PNG: the panel only forwards the bytes, so their content
+        // does not matter here, but the shape and the savefig.dpi that produced
+        // them do.
+        const format = (args.format as string | undefined) ?? "png";
+        if (!this.figure) return { has_figure: false, format, data: "", bytes: 0 };
+        return {
+          has_figure: true,
+          format,
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+          bytes: 70,
+          dpi: this.rc["savefig.dpi"],
+        };
       }
       case "introspect_figure": {
         const keys = (args.keys as string[] | undefined) ?? RC_KEYS;

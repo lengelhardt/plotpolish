@@ -375,7 +375,7 @@ describe("insertionIndex", () => {
     expect(insertionIndex(["from __future__ import annotations", "import os"])).toBe(1);
   });
 
-  it("lands after a parenthesised multi-line __future__ import", () => {
+  it("lands after a parenthesized multi-line __future__ import", () => {
     expect(
       insertionIndex(["from __future__ import (", "    annotations,", ")", "import os"]),
     ).toBe(3);

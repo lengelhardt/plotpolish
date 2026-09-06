@@ -14,7 +14,7 @@
  */
 
 import { PlotpolishPanel, MemorySink, PyodideBackend } from "plotpolish";
-import type { PanelErrorEventDetail, RerunNeededEventDetail } from "plotpolish";
+import type { AutoUpdateEventDetail, PanelErrorEventDetail, RerunNeededEventDetail } from "plotpolish";
 import { MockBackend } from "../src/testing/mock-backend";
 
 // ---------------------------------------------------------------------------
@@ -136,14 +136,34 @@ textarea.addEventListener("keydown", (event) => {
 // ---------------------------------------------------------------------------
 
 let autoRerunTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelAutoRerun(): void {
+  if (autoRerunTimer) clearTimeout(autoRerunTimer);
+  autoRerunTimer = null;
+}
+
+// The panel's switch means "stop updating the figure", and on this host that
+// has to cover the re-run as well as the preview -- otherwise pausing makes
+// things WORSE, not better: a paused panel marks every change as pending a
+// re-run, and those marks are exactly what this handler re-runs on. A student
+// who paused because their program is slow would have set it re-running on
+// every keystroke. Any host with an auto-re-run needs this check.
+panel.addEventListener("plotpolish-auto-update", (event) => {
+  const { autoUpdate } = (event as CustomEvent<AutoUpdateEventDetail>).detail;
+  if (!autoUpdate) {
+    cancelAutoRerun();  // one may already be in flight
+    setStatus("Auto-update is off. Changes go into the block; click Run to see them.");
+  }
+});
+
 panel.addEventListener("plotpolish-rerun-needed", (event) => {
   const detail = (event as CustomEvent<RerunNeededEventDetail>).detail;
   setStatus(`Re-run to see: ${detail.keys.join(", ")}`);
   // Demo convenience: once Python is loaded, re-run automatically so a style
   // sheet change shows within a second. Hosts decide this for themselves
   // (a program that reads input() or prints a lot may not want it).
-  if (backendMode === "pyodide" && pyodide && !runButton.disabled) {
-    if (autoRerunTimer) clearTimeout(autoRerunTimer);
+  if (panel.autoUpdate && backendMode === "pyodide" && pyodide && !runButton.disabled) {
+    cancelAutoRerun();
     autoRerunTimer = setTimeout(() => {
       autoRerunTimer = null;
       void run();
@@ -237,7 +257,7 @@ function ensurePyodide(): Promise<PyodideInterface> {
     "This demo will download Pyodide and matplotlib from jsDelivr (tens of MB, cached by " +
       "the browser after the first time). Continue?",
   );
-  if (!proceed) return Promise.reject(new Error("cancelled"));
+  if (!proceed) return Promise.reject(new Error("canceled"));
 
   pyodideLoading = (async () => {
     setStatus("Downloading Pyodide...");
@@ -290,8 +310,8 @@ async function run(): Promise<void> {
     const py = await ensurePyodide();
     await runProgram(py);
   } catch (err) {
-    if (err instanceof Error && err.message === "cancelled") {
-      setStatus("Cancelled.");
+    if (err instanceof Error && err.message === "canceled") {
+      setStatus("Canceled.");
     } else {
       setStatus(err instanceof Error ? err.message : String(err), true);
     }

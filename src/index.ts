@@ -11,10 +11,15 @@ export {
 export type { StyleSettings, FenceRange, ParsedBlock, FenceErrorKind } from "./block";
 export { PyLitError, parsePyDict, parsePyString, formatPyValue } from "./pylit";
 export { HELPER_SOURCE, HelperClient, BackendError, buildSnippet } from "./backend";
-export type { FigureBackend, IntrospectResult, ApplyResult, FigureDescription, AxesDescription } from "./backend";
+export type {
+  FigureBackend, IntrospectResult, ApplyResult, SaveResult, FigureDescription, AxesDescription,
+} from "./backend";
 export { MemorySink, ClipboardSink } from "./sink";
 export type { CodeSink, ClipboardSinkOptions } from "./sink";
 export { PlotpolishPanel, registerPanel } from "./panel";
-export type { PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail } from "./panel";
+export type {
+  PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail,
+  AutoUpdateEventDetail, SavedEventDetail,
+} from "./panel";
 export { PyodideBackend } from "./adapters/pyodide";
 export type { PyodideLike } from "./adapters/pyodide";

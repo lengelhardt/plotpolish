@@ -17,16 +17,17 @@
  */
 
 import css from "./panel.css?inline";
-import { BackendError, HelperClient, type FigureBackend, type FigureDescription } from "./backend";
+import { BackendError, HelperClient, type FigureBackend, type FigureDescription, type StylePreview } from "./backend";
 import {
   FenceError, defaultSettings, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
   type StyleSettings,
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
 import {
-  CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, controlsInGroup, isPropCycle, rcEqual,
-  resolveFontSize,
-  type ControlSpec, type GroupSpec, type PropCycleValue, type RcValue,
+  CONTROL_BY_ID, CONTROL_FOR_KEY, CONTROLS, GROUPS, GROUP_BY_ID, RELATIVE_SIZES, asPropCycle,
+  controlsInGroup, isPropCycle,
+  rcEqual, resolveFontSize,
+  type ControlSpec, type GroupSpec, type KeyPart, type PropCycleValue, type RcValue,
 } from "./schema";
 import type { CodeSink } from "./sink";
 
@@ -47,6 +48,25 @@ export interface ChangeEventDetail {
   /** The full source after the write, or null for write-only sinks. */
   source: string | null;
 }
+/**
+ * Fired when the student asks for the figure to be saved. Cancelable: a host
+ * that cannot let a page trigger a download -- a sandboxed iframe, which is
+ * where this tool actually runs -- calls preventDefault() and delivers the
+ * bytes its own way.
+ */
+export interface SavedEventDetail {
+  format: string;
+  /** base64, as it came back from savefig. */
+  data: string;
+  bytes: number;
+  filename: string;
+}
+
+/** Fired when the student turns the figure's auto-update on or off. */
+export interface AutoUpdateEventDetail {
+  autoUpdate: boolean;
+}
+
 export interface RerunNeededEventDetail {
   /** rc keys (or "style") whose change needs a re-run to be visible. */
   keys: string[];
@@ -87,6 +107,8 @@ interface ControlView {
   revert: HTMLButtonElement;
   segmented?: HTMLElement;
   swatchList?: HTMLElement;
+  styleThumbs?: HTMLElement;
+  styleShowAll?: HTMLButtonElement;
   legendLoc?: LegendLocView;
   rangeInput?: HTMLInputElement;
   readout?: HTMLElement;
@@ -126,6 +148,9 @@ interface DragStart {
 const APPLY_DEBOUNCE_MS = 60;
 const RAIL_WIDTH = 50;
 const FLOAT_INSET_PX = 8;
+
+/** How long the tab strip takes to fold away or come back. Matches panel.css. */
+const FOLD_MS = 140;
 /** Pixels the pointer must move before a header pointerdown becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
 
@@ -182,6 +207,86 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return node;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Styles shown before "Show all": a spread of the range, not the first eight. */
+const CURATED_STYLES: readonly string[] = [
+  "default", "ggplot", "seaborn-v0_8", "seaborn-v0_8-colorblind",
+  "bmh", "fivethirtyeight", "dark_background", "grayscale",
+];
+
+const SHORT_STYLE_NAMES: Readonly<Record<string, string>> = {
+  dark_background: "dark bg",
+  fivethirtyeight: "538",
+  Solarize_Light2: "Solarize",
+  "tableau-colorblind10": "tableau",
+  "seaborn-v0_8": "seaborn",
+};
+
+/**
+ * What a style is *called* in the panel. Sixteen of matplotlib's twenty-six
+ * styles begin "seaborn-v0_8-", so the shared prefix is two thirds of the menu
+ * and none of the information: the variants read as a list under "seaborn"
+ * instead. Display only -- `mpl.style.use("seaborn-v0_8-bright")` is what goes
+ * into the student's file.
+ */
+export function shortStyleName(name: string): string {
+  const known = SHORT_STYLE_NAMES[name];
+  if (known) return known;
+  if (name.startsWith("seaborn-v0_8-")) {
+    // A leading dash, so the sixteen variants read as an indented list under
+    // "seaborn" in the menu rather than repeating the prefix sixteen times.
+    return `- ${name.slice("seaborn-v0_8-".length)}`;
+  }
+  return name;
+}
+
+/**
+ * A small preview of a style, drawn from its own rc values rather than by
+ * rendering matplotlib: background, frame, grid and the first three cycle
+ * colors are all the eye needs to tell ggplot from dark_background, and
+ * asking Python for 26 rendered PNGs to fill a dropdown would not be.
+ */
+function styleThumb(preview: StylePreview): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
+  svg.setAttribute("viewBox", "0 0 44 30");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("thumb");
+
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", "1.5");
+  rect.setAttribute("y", "1.5");
+  rect.setAttribute("width", "41");
+  rect.setAttribute("height", "27");
+  rect.setAttribute("fill", preview.axes || "#ffffff");
+  rect.setAttribute("stroke", preview.edge || "#888888");
+  svg.append(rect);
+
+  if (preview.grid) {
+    for (const y of [9, 15, 21]) {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", "1.5");
+      line.setAttribute("x2", "42.5");
+      line.setAttribute("y1", String(y));
+      line.setAttribute("y2", String(y));
+      line.setAttribute("stroke", preview.grid_color || "#b0b0b0");
+      line.setAttribute("stroke-width", "0.8");
+      svg.append(line);
+    }
+  }
+
+  const shapes = ["M4,23 L15,15 L26,18 L40,7", "M4,17 L15,21 L26,9 L40,13", "M4,10 L15,6 L26,23 L40,19"];
+  preview.colors.slice(0, shapes.length).forEach((color, i) => {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", shapes[i]!);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", "1.6");
+    svg.append(path);
+  });
+  return svg;
+}
+
 /** The value a bool control writes when switched on: true unless it says otherwise. */
 function boolOn(spec: ControlSpec): RcValue {
   return spec.onValue === undefined ? true : spec.onValue;
@@ -204,6 +309,12 @@ export class PlotpolishPanel extends HTMLElement {
   private _sink: CodeSink | null = null;
   private unsubscribeSink: (() => void) | null = null;
   private _features: PanelFeatures = { ...DEFAULT_FEATURES };
+  /**
+   * Whether the figure follows every change, or waits for the next run. The
+   * student's switch, not the host's: `features.livePreview` says whether this
+   * host CAN preview at all, and this says whether they want it to right now.
+   */
+  private _autoUpdate = true;
 
   private settings: StyleSettings = defaultSettings();
   private baseline: Record<string, RcValue> = schemaDefaults();
@@ -217,6 +328,8 @@ export class PlotpolishPanel extends HTMLElement {
   /** Last-introspected figure description, or null before any refresh / with no figure. */
   private figure: FigureDescription | null = null;
   private styles: string[] = ["default"];
+  /** Thumbnail data per style, keyed by name. Empty until a backend supplies it. */
+  private stylePreviews = new Map<string, StylePreview>();
   private overridden = new Set<string>();
   private unknownKeys: string[] = [];
   private fenceError: FenceError | null = null;
@@ -232,6 +345,15 @@ export class PlotpolishPanel extends HTMLElement {
   private applyChain: Promise<void> = Promise.resolve();
 
   private _open = false;
+  /** Collapsed: the pill shows only its grip, tucked into the figure's corner. */
+  private popResetBtn: HTMLButtonElement | null = null;
+  /** "Show all" expands the style strip past the curated eight. */
+  private allStylesShown = false;
+  private pillCollapsed = false;
+  /** Where the pill was dragged to before collapsing, restored on expand. */
+  /** Pending "take the folded strip out of layout" timer, if any. */
+  private foldTimer: number | null = null;
+  private pillPosBeforeCollapse: { x: number; y: number } | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
   private _codeOpen = false;
@@ -255,6 +377,10 @@ export class PlotpolishPanel extends HTMLElement {
     pill: HTMLElement;
     pillGrip: HTMLElement;
     errMark: HTMLElement;
+    /** Everything in the pill but the grip; folded away when collapsed. */
+    pillBody: HTMLElement;
+    /** The pill's auto-update switch. */
+    autoBtn: HTMLButtonElement;
     menuToggle: HTMLButtonElement;
     rail: HTMLElement;
     popover: HTMLElement;
@@ -498,7 +624,36 @@ export class PlotpolishPanel extends HTMLElement {
       try {
         const [styles, intro] = await Promise.all([this.client.listStyles(), this.client.introspect()]);
         this.styles = styles.length ? styles : ["default"];
-        this.baseline = { ...schemaDefaults(), ...intro.rc };
+        // Fire and forget, and never fail refresh over it: a host whose helper
+        // predates style_previews just gets the plain list, and the styles a
+        // session offers do not change, so this runs once rather than per run.
+        if (!this.stylePreviews.size && this.client) {
+          void this.client
+            .stylePreviews()
+            .then((previews) => {
+              for (const p of previews) this.stylePreviews.set(p.name, p);
+              this.update();
+            })
+            .catch(() => {
+              /* no thumbnails; the select still works */
+            });
+        }
+        // intro.rc is the interpreter *after the block ran*, so for every key
+        // the block sets it holds the block's own value. Adopting it wholesale
+        // made "baseline" mean "what you just chose", and reverting a control
+        // then applied that same value back: the block lost the key, the figure
+        // and the slider did not move, and the revert looked broken.
+        //
+        // Keep the baseline we already hold for keys the block sets -- from
+        // schemaDefaults() for the default style, or from set_style()'s
+        // effective values for a preset -- and take intro.rc only for keys the
+        // block leaves alone, where it really does describe the environment.
+        const defaults = schemaDefaults();
+        const fromFigure = { ...defaults, ...intro.rc };
+        for (const key of Object.keys(this.settings.rc)) {
+          fromFigure[key] = this.baseline[key] ?? defaults[key]!;
+        }
+        this.baseline = fromFigure;
         this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
         this.figure = intro.figure;
@@ -620,23 +775,60 @@ export class PlotpolishPanel extends HTMLElement {
 
   private setKeys(spec: ControlSpec, value: RcValue | undefined): void {
     const wasDefault = isDefaultSettings(this.settings);
-    const apply: Record<string, RcValue> = {};
-    for (const key of spec.keys) {
-      if (value === undefined) {
-        delete this.settings.rc[key];
-        const base = this.baseline[key];
-        if (base !== undefined) apply[key] = base;
-      } else {
+    let apply: Record<string, RcValue> = {};
+    let touched: string[] = spec.keys;
+    if (value === undefined) {
+      // Reverting one control clears only what that control owns; on a key two
+      // controls share, the other one's parts stay. See clearOwned().
+      apply = this.clearOwned([spec]).apply;
+    } else {
+      for (const key of spec.keys) {
         this.settings.rc[key] = (Array.isArray(value) ? [...value] : value) as RcValue;
         apply[key] = this.settings.rc[key]!;
       }
+      this.unifyPerLine(spec, apply);
+      // Switching this on switches on whatever it cannot work without, in the
+      // same write and the same apply. Only on the way on: turning the grid
+      // lines off is no reason to take the grid or the tick marks away, since
+      // the student may want either on their own.
+      if (spec.turnsOn && rcEqual(value, boolOn(spec))) {
+        for (const id of spec.turnsOn) {
+          const also = CONTROL_BY_ID.get(id);
+          if (!also) continue;
+          for (const key of also.keys) {
+            this.settings.rc[key] = boolOn(also);
+            apply[key] = this.settings.rc[key]!;
+          }
+          touched = [...touched, ...also.keys];
+        }
+      }
+      // ...and off the other way. Switching off something another control
+      // cannot work without leaves that one on and dead, which is the state
+      // this whole mechanism exists to prevent -- it does not matter which of
+      // the two switches the student reached for. A worklist rather than one
+      // pass, so a chain of preconditions unwinds completely.
+      if (rcEqual(value, boolOff(spec))) {
+        const dead = [spec.id];
+        for (let i = 0; i < dead.length; i++) {
+          for (const other of CONTROLS) {
+            if (!other.turnsOn?.includes(dead[i]!)) continue;
+            if (dead.includes(other.id)) continue;
+            if (!other.keys.some((k) => rcEqual(this.effective(k) as RcValue, boolOn(other)))) continue;
+            dead.push(other.id);
+            for (const key of other.keys) {
+              this.settings.rc[key] = boolOff(other);
+              apply[key] = this.settings.rc[key]!;
+            }
+            touched = [...touched, ...other.keys];
+          }
+        }
+      }
     }
-    if (value !== undefined) this.unifyPerLine(spec, apply);
     const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     // Without a preview, a change cannot show until the program runs again, so
     // it is pending a re-run for the same reason a style preset always is.
-    if (spec.category === "rerun" || !this.canPreview) this.noteRerun(spec.keys);
+    if (spec.category === "rerun" || !this.canPreview) this.noteRerun(touched);
     else this.scheduleApply(apply);
     this.applySeeded(seeded);
     this.emitChange();
@@ -688,6 +880,58 @@ export class PlotpolishPanel extends HTMLElement {
     return arr.slice(0, Math.min(arr.length, Math.max(1, visible)));
   }
 
+  /**
+   * Fill the style thumbnail strip. Rebuilt only when the set of names changes,
+   * not on every update: this runs on every keystroke that touches the panel.
+   */
+  private updateStyleThumbs(view: ControlView, names: string[]): void {
+    const host = view.styleThumbs;
+    if (!host) return;
+    const drawable = names.filter((n) => this.stylePreviews.has(n));
+    const showAll = view.styleShowAll;
+    if (!drawable.length) {
+      host.hidden = true;
+      if (showAll) showAll.hidden = true;
+      return;
+    }
+    host.hidden = false;
+
+    // Sixteen of matplotlib's twenty-six styles are seaborn variants that
+    // differ subtly, so showing every one by default costs six wrapped rows to
+    // little effect. The curated set spans the range. The current style is
+    // always included, or picking one from the expanded list would make it
+    // disappear the moment the list collapsed.
+    const curated = drawable.filter(
+      (n) => CURATED_STYLES.includes(n) || n === this.settings.style
+    );
+    const shown = this.allStylesShown || curated.length >= drawable.length ? drawable : curated;
+
+    if (showAll) {
+      showAll.hidden = curated.length >= drawable.length;
+      showAll.textContent = this.allStylesShown ? "Show fewer" : `Show all ${drawable.length}`;
+    }
+
+    if (host.dataset.names !== shown.join("\n")) {
+      host.dataset.names = shown.join("\n");
+      host.replaceChildren(
+        ...shown.map((name) => {
+          const btn = el("button", { type: "button", class: "style-thumb", title: name });
+          btn.dataset.style = name;
+          btn.setAttribute("aria-label", name);
+          // No caption: the names did not fit the cell, and the button's
+          // title and aria-label already carry the full one.
+          btn.append(styleThumb(this.stylePreviews.get(name)!));
+          btn.addEventListener("click", () => this.setStyle(name));
+          return btn;
+        })
+      );
+      if (showAll) host.append(showAll);
+    }
+    for (const btn of Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"))) {
+      btn.setAttribute("aria-pressed", String(btn.dataset.style === this.settings.style));
+    }
+  }
+
   /** True when the rows the table shows carry per-line values that differ. */
   private perLineMixed(prop: "linewidth" | "linestyle"): boolean {
     const shown = this.perLineVisible(prop);
@@ -710,13 +954,20 @@ export class PlotpolishPanel extends HTMLElement {
     if (name === this.settings.style) return;
     const wasDefault = isDefaultSettings(this.settings);
     this.settings.style = name;
-    // applyStyle() re-applies every current settings.rc entry (including
-    // whatever seedPanelDefaults just added) once set_style resolves, so no
-    // separate scheduleApply is needed here.
-    this.seedPanelDefaults(wasDefault);
+    const seeded = this.seedPanelDefaults(wasDefault);
     this.writeToSink();
     this.noteRerun(["style"]);
     if (this.client) this.applyStyle(name, []);
+    // With a preview, applyStyle() re-applies every current settings.rc entry
+    // (the keys seedPanelDefaults just added included) once set_style resolves,
+    // so they need no scheduleApply here -- and one scheduled now would race
+    // set_style: on a backend slower than the debounce the batch fires first
+    // and applyStyle then re-applies the same keys, two round trips for one
+    // change. Without a preview nothing applies them at all, so -- exactly as
+    // setKeys() does -- they are pending a re-run and have to say so, or the
+    // panel silently writes savefig.dpi and figure.autolayout into the
+    // student's block with no indicator that the figure does not show them yet.
+    if (!this.canPreview) this.applySeeded(seeded);
     this.emitChange();
     this.update();
   }
@@ -763,7 +1014,33 @@ export class PlotpolishPanel extends HTMLElement {
    * against -- or when the host turned live preview off explicitly.
    */
   private get canPreview(): boolean {
-    return !!this.client && this._features.livePreview;
+    return !!this.client && this._features.livePreview && this._autoUpdate;
+  }
+
+  /** Whether the figure follows every change. Off: changes wait for the next run. */
+  get autoUpdate(): boolean {
+    return this._autoUpdate;
+  }
+
+  set autoUpdate(on: boolean) {
+    if (this._autoUpdate === on) return;
+    this._autoUpdate = on;
+    if (on) {
+      // Catch the figure up on everything that was marked while it was off,
+      // rather than leaving it showing a state the block no longer describes.
+      this.rerunKeys.clear();
+      if (this.settings.style !== "default" && this.settings.style !== "") {
+        this.noteRerun(["style"]);  // a style still only lands on a re-run
+      }
+      if (this.canPreview && Object.keys(this.settings.rc).length) {
+        this.scheduleApply({ ...this.settings.rc });
+      }
+    } else if (Object.keys(this.settings.rc).length) {
+      // Whatever is in the block is now ahead of the figure, and says so.
+      this.noteRerun(Object.keys(this.settings.rc));
+    }
+    this.emit<AutoUpdateEventDetail>("auto-update", { autoUpdate: on });
+    this.update();
   }
 
   /** Baseline values for `keys` (what the figure should return to when an override is cleared). */
@@ -776,22 +1053,86 @@ export class PlotpolishPanel extends HTMLElement {
     return out;
   }
 
+  /**
+   * Clear what `specs` own, and return the keys that changed plus the rc to
+   * send to the figure.
+   *
+   * A control owns its keys outright (the ordinary case) and its keys are
+   * deleted. Two controls share `axes.prop_cycle` -- Look's palette and Lines'
+   * per-line table -- and controls.json says which parts of that value each
+   * one owns. For a shared key the value is REWRITTEN rather than deleted:
+   * the owned parts go back to the baseline, the rest stay. Deleting it was
+   * how "Reset Lines" silently threw away the palette the user picked under
+   * Look, and "Reset Look" threw away the per-line widths.
+   */
+  private clearOwned(specs: readonly ControlSpec[]): { changed: string[]; apply: Record<string, RcValue> } {
+    // key -> the parts these specs own, or null when one of them owns the key outright.
+    const owned = new Map<string, KeyPart[] | null>();
+    for (const spec of specs) {
+      for (const key of spec.keys) {
+        if (!(key in this.settings.rc)) continue;
+        const parts = spec.owns?.[key];
+        if (!parts) { owned.set(key, null); continue; }
+        const seen = owned.get(key);
+        if (seen === null) continue;
+        owned.set(key, [...new Set([...(seen ?? []), ...parts])]);
+      }
+    }
+    const changed: string[] = [];
+    const apply: Record<string, RcValue> = {};
+    for (const [key, parts] of owned) {
+      const before = this.settings.rc[key]!;
+      const next = parts === null ? undefined : this.withoutParts(key, before, parts);
+      if (next === undefined) delete this.settings.rc[key];
+      else this.settings.rc[key] = next;
+      if (parts !== null && rcEqual(next, before)) continue;  // nothing of ours was set
+      changed.push(key);
+      const shown = next ?? this.baseline[key];
+      if (shown !== undefined) apply[key] = shown;
+    }
+    return { changed, apply };
+  }
+
+  /**
+   * `value` with `parts` put back to the baseline, or undefined when nothing
+   * of it survives (so the key should be dropped). Only prop-cycle-shaped
+   * values have parts; anything else is owned outright and yields undefined.
+   */
+  private withoutParts(key: string, value: RcValue, parts: readonly KeyPart[]): RcValue | undefined {
+    const cur = asPropCycle(value);
+    if (!cur) return undefined;
+    const base = asPropCycle(this.baseline[key]) ?? { color: [] };
+    const next: PropCycleValue = { color: parts.includes("color") ? [...base.color] : [...cur.color] };
+    for (const p of ["linewidth", "linestyle"] as const) {
+      const arr = cur[p];
+      if (!parts.includes(p) && arr) (next[p] as typeof arr) = [...arr] as never;
+    }
+    // matplotlib's cycler zips equal-length lists, so a palette that changed
+    // length takes the per-line arrays with it (padded with the all-lines value).
+    if (next.linewidth) next.linewidth = resizeArray(next.linewidth, next.color.length, this.allLinesWidth());
+    if (next.linestyle) next.linestyle = resizeArray(next.linestyle, next.color.length, this.allLinesStyle());
+    if (next.linewidth || next.linestyle) return next;
+    return rcEqual(next.color, base.color) ? undefined : [...next.color];
+  }
+
   /** Revert every control in `groupId` (and, for "look", the style preset). */
   private resetCategory(groupId: string): void {
     const specs = controlsInGroup(groupId);
-    const keys = specs.flatMap((s) => s.keys).filter((k) => k in this.settings.rc);
     const willResetStyle = groupId === "look" && this.settings.style !== "default" && this.settings.style !== "";
-    for (const key of keys) delete this.settings.rc[key];
+    const { changed, apply } = this.clearOwned(specs);
+    // applyStyle() re-applies settings.rc wholesale, so only the keys that are
+    // gone from it need their baseline restoring alongside the new style.
+    const restoreKeys = changed.filter((k) => !(k in this.settings.rc));
     if (willResetStyle) this.settings.style = "default";
     this.writeToSink();
     if (this.canPreview) {
-      if (willResetStyle) this.applyStyle("default", keys);
-      else if (keys.length) this.scheduleApply(this.baselineFor(keys));
+      if (willResetStyle) this.applyStyle("default", restoreKeys);
+      else if (Object.keys(apply).length) this.scheduleApply(apply);
     }
     if (willResetStyle) this.noteRerun(["style"]);
     // See reset(): a revert that cannot be previewed is still pending a re-run,
     // and that is true alongside a style reset, not instead of it.
-    if (!this.canPreview && keys.length) this.noteRerun(keys);
+    if (!this.canPreview && changed.length) this.noteRerun(changed);
     this.emitChange();
     this.update();
   }
@@ -809,7 +1150,10 @@ export class PlotpolishPanel extends HTMLElement {
       .then(() => client.setStyle(name, this.hostRcKeys))
       .then((rc) => {
         this.baseline = { ...schemaDefaults(), ...rc };
-        if (this._features.livePreview) {
+        // canPreview, not _features.livePreview: set_style itself is worth
+        // doing either way (it moves the baseline and never redraws), but
+        // re-applying the overrides on top is a live preview like any other.
+        if (this.canPreview) {
           const again = { ...this.baselineFor(restoreKeys), ...this.settings.rc };
           if (Object.keys(again).length) this.scheduleApply(again);
         }
@@ -887,8 +1231,11 @@ export class PlotpolishPanel extends HTMLElement {
     this.emit<PanelErrorEventDetail>("error", { error: err, context });
   }
 
-  private emit<T>(name: string, detail: T): void {
-    this.dispatchEvent(new CustomEvent(`${EVENT_PREFIX}-${name}`, { detail, bubbles: true, composed: true }));
+  /** Returns false when a listener canceled it (cancelable events only). */
+  private emit<T>(name: string, detail: T, cancelable = false): boolean {
+    return this.dispatchEvent(
+      new CustomEvent(`${EVENT_PREFIX}-${name}`, { detail, bubbles: true, composed: true, cancelable })
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -928,7 +1275,10 @@ export class PlotpolishPanel extends HTMLElement {
     const tab = tabView && this.activeTabButton(tabView);
     if (!tab) return;
     const { popover, caret } = this.ui;
-    const rect = tab.getBoundingClientRect();
+    // Collapsed, the tabs are folded to nothing, so the window hangs off the
+    // grip instead -- with no caret, because there is no tab left to point at.
+    const collapsed = this.pillCollapsed && this._layoutMode !== "rail";
+    const rect = (collapsed ? this.ui.pillGrip : tab).getBoundingClientRect();
     const popRect = popover.getBoundingClientRect();
     const width = popRect.width || 260;
     const height = popRect.height || 96;
@@ -945,7 +1295,8 @@ export class PlotpolishPanel extends HTMLElement {
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
     popover.classList.toggle("below", below);
-    caret.hidden = false;
+    caret.hidden = collapsed;
+    if (collapsed) return;
     const center = rect.left + rect.width / 2 - left;
     caret.style.left = `${Math.max(8, Math.min(center, Math.max(8, width - 16)))}px`;
   }
@@ -1019,7 +1370,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   /**
    * End a popover drag from any exit path: a pointerup on the header, one that
-   * landed anywhere else, a cancelled gesture, or a move that arrives with no
+   * landed anywhere else, a canceled gesture, or a move that arrives with no
    * button held. Leaving `dragStart` set is what let a later hover silently
    * resume the drag without a click.
    */
@@ -1191,7 +1542,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (!start) return;
     // A move with no button held means the release happened somewhere we never
     // saw: outside the element, off the window, or a gesture the browser
-    // cancelled. Without this the stale start survives, and simply hovering the
+    // canceled. Without this the stale start survives, and simply hovering the
     // grip later resumes the drag with no click -- and because the pill then
     // jumps away from the cursor, only the direction that chases it keeps
     // delivering moves, so it appears to drag one way but not the other.
@@ -1234,7 +1585,95 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   private onPillGripPointerUp(e: PointerEvent): void {
+    // A press and release that never cleared the drag threshold is a click,
+    // not a drag, so the grip doubles as the collapse toggle.
+    const wasClick = !!this.pillDragStart && !this.pillDragStart.captured;
     this.endPillDrag(e.pointerId);
+    if (wasClick) this.togglePillCollapsed();
+  }
+
+  /**
+   * Collapse the pill to its grip, tucked into the figure's top-right corner,
+   * or expand it again. Collapsing drops any dragged position so it really is
+   * in the corner rather than wherever it was left; expanding puts it back.
+   */
+  private togglePillCollapsed(): void {
+    this.pillCollapsed = !this.pillCollapsed;
+    if (this.pillCollapsed) {
+      this.pillPosBeforeCollapse = this.pillPos;
+      this.pillPos = null;
+      // The open category stays open. Tucking the strip away is for reclaiming
+      // the figure's corner, not for putting your work away, and closing the
+      // window lost the student's place every time. Its caret points at a tab
+      // that is no longer there, so it is hidden while collapsed.
+      if (this._menuOpen) this.closeMenu();
+    } else {
+      this.pillPos = this.pillPosBeforeCollapse;
+      this.pillPosBeforeCollapse = null;
+    }
+    this.ui.pill.classList.toggle("collapsed", this.pillCollapsed);
+    this.ui.pillGrip.title = this.pillCollapsed
+      ? "Show the plot style controls"
+      : "Drag to move, click to tuck away";
+    this.update();
+    // After update(), not before: update() re-renders the strip, which would
+    // discard an inline width set ahead of it and leave the fold a click behind.
+    this.foldPillBody();
+    this.measureLayout();
+    this.positionFloatPill();
+    // The window it left open was anchored to a tab that has just folded away
+    // (or come back), so it needs re-hanging either way.
+    if (this._open && !this.dragPos) this.positionPopover();
+  }
+
+  /**
+   * Fold the tab strip away, or unfold it, over FOLD_MS.
+   *
+   * Both ends are set here rather than in the stylesheet, because the width to
+   * animate to is a number CSS cannot know -- and because an inline max-width
+   * outranks any rule, so a stylesheet `max-width: 0` could never win against
+   * the measured value anyway. A guessed constant is worse than useless: it
+   * spends most of the duration above the strip's real width, doing nothing.
+   */
+  private foldPillBody(): void {
+    const body = this.ui.pillBody;
+    // Both values are written synchronously, with a forced reflow between them
+    // so the transition has a start to interpolate from. Deliberately NOT
+    // staged on requestAnimationFrame: rAF does not tick in a backgrounded tab,
+    // so a collapse begun just before the student switched tabs would never
+    // reach its end state and the strip would be stuck half open. This way the
+    // state is always right and the easing is what the browser skips.
+    if (this.foldTimer !== null) {
+      clearTimeout(this.foldTimer);
+      this.foldTimer = null;
+    }
+    if (this.pillCollapsed) {
+      body.style.maxWidth = `${body.scrollWidth}px`;  // measured while open
+      void body.offsetWidth;
+      body.style.maxWidth = "0px";
+      // Then take it out of layout for real. The CSS says visibility: hidden
+      // for the fold, but a folded tab that is merely invisible is still
+      // focusable and still read out, and this must be true whether or not the
+      // transition ran at all.
+      this.foldTimer = window.setTimeout(() => {
+        this.foldTimer = null;
+        if (this.pillCollapsed) body.hidden = true;
+      }, FOLD_MS);
+      return;
+    }
+    // Unfolding: the strip measures zero while folded, so lift the limit to
+    // read its real width, put it back, and animate to what was measured.
+    body.hidden = false;
+    body.style.maxWidth = "none";
+    const target = body.scrollWidth;
+    body.style.maxWidth = "0px";
+    void body.offsetWidth;
+    body.style.maxWidth = `${target}px`;
+    // Then hand the width back to layout, so the strip can still grow when a
+    // tab appears or a label changes.
+    window.setTimeout(() => {
+      if (!this.pillCollapsed) body.style.maxWidth = "";
+    }, FOLD_MS + 20);
   }
 
   /** End a pill drag from any exit path. See endHeaderDrag. */
@@ -1293,9 +1732,44 @@ export class PlotpolishPanel extends HTMLElement {
     return controlsInGroup(group.id).some((c) => c.keys.some((k) => k in this.settings.rc));
   }
 
+  /** Show the popover's reset only when the open category has something to reset. */
+  private updateGroupReset(): void {
+    const btn = this.popResetBtn;
+    if (!btn) return;
+    const group = this.category;
+    const has = !!group && this.groupHasChanges(group);
+    btn.hidden = !has;
+    if (has) {
+      const label = GROUPS.find((g) => g.id === group)?.label ?? group;
+      btn.title = `Reset ${label}`;
+      btn.setAttribute("aria-label", `Reset ${label}`);
+    }
+  }
+
   private groupHasChanges(groupId: string): boolean {
     if (groupId === "look" && this.settings.style !== "" && this.settings.style !== "default") return true;
-    return controlsInGroup(groupId).some((c) => c.keys.some((k) => k in this.settings.rc));
+    return controlsInGroup(groupId).some((c) => this.controlIsSet(c));
+  }
+
+  /**
+   * Whether this control has something of its own set. For a key two controls
+   * share (axes.prop_cycle) "its own" means the parts controls.json gives it:
+   * a Look palette must not light up the Lines tab's dot and reset, and a
+   * per-line width must not light up Look's.
+   */
+  private controlIsSet(spec: ControlSpec): boolean {
+    return spec.keys.some((key) => {
+      const value = this.settings.rc[key];
+      if (value === undefined) return false;
+      const parts = spec.owns?.[key];
+      if (!parts) return true;
+      const cur = asPropCycle(value);
+      if (!cur) return true;
+      const base = asPropCycle(this.baseline[key]);
+      return parts.some((p) =>
+        p === "color" ? !base || !rcEqual(cur.color, base.color) : cur[p] !== undefined
+      );
+    });
   }
 
   private groupHasRerunPending(groupId: string): boolean {
@@ -1342,15 +1816,33 @@ export class PlotpolishPanel extends HTMLElement {
       railTabs.push(railTab.btn);
     }
 
-    const pillGrip = el("span", { class: "grip", title: "Drag to move" }, "⋮⋮");
+    const pillGrip = el("span", { class: "grip", title: "Drag to move, click to tuck away" }, "⋮⋮");
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
-    // A cancelled gesture (touch interrupted, browser takeover) never sends
+    // A canceled gesture (touch interrupted, browser takeover) never sends
     // pointerup, so without this the drag state would be left standing.
     pillGrip.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
     pillGrip.addEventListener("dblclick", () => this.reanchorPill());
-    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, ...pillTabs, errMark, menuToggle);
+    // In the pill rather than in a category, because a student reaches for it
+    // when a change is about to be expensive -- which is before they have
+    // opened anything. Always visible, so it is discoverable without hunting.
+    const autoGlyph = el("span", { class: "glyph" }, "\u27F3");
+    autoGlyph.setAttribute("aria-hidden", "true");
+    const autoBtn = el(
+      "button",
+      { type: "button", class: "auto-update" },
+      autoGlyph,
+      el("span", { class: "auto-word" }, "Auto")
+    );
+    autoBtn.addEventListener("click", () => {
+      this.autoUpdate = !this._autoUpdate;
+    });
+    // Everything but the grip lives in one wrapper, so collapsing is a single
+    // grid column going 1fr -> 0fr. Animating each child's max-width instead
+    // spends most of the duration above their natural width, doing nothing.
+    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, autoBtn, menuToggle);
+    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---
@@ -1359,7 +1851,24 @@ export class PlotpolishPanel extends HTMLElement {
     const reanchorBtn = el("button", { type: "button", class: "reanchor", title: "Move back to the tab" }, "⌖");
     const closeBtn = el("button", { type: "button", class: "close" }, "✕");
     closeBtn.setAttribute("aria-label", "Close");
-    const header = el("div", { class: "pop-head", title: "Drag to move" }, grip, title, reanchorBtn, closeBtn);
+    // One reset per open category, beside its name, shown only when that
+    // category has something to reset. A revert on every row was noise: most
+    // of them were hidden most of the time, and the ones that showed invited
+    // the reader to hunt for which control they belonged to.
+    const resetGroupBtn = el("button", { type: "button", class: "reset-group", hidden: true }, "\u21ba");
+    resetGroupBtn.addEventListener("click", () => {
+      if (this.category) this.resetCategory(this.category);
+    });
+    // Title and reset travel together on the left. They share a flex: 1 wrapper
+    // rather than the title carrying flex itself, so the reset stays beside the
+    // name whether or not it is showing, and the pin/close still sit far right.
+    const headMain = el("div", { class: "pop-head-main" }, title, resetGroupBtn);
+    const header = el(
+      "div",
+      { class: "pop-head", title: "Drag to move" },
+      grip, headMain, reanchorBtn, closeBtn
+    );
+    this.popResetBtn = resetGroupBtn;
     header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
     header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
     header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
@@ -1432,7 +1941,7 @@ export class PlotpolishPanel extends HTMLElement {
 
     this.root.append(style, pill, rail, popover, menu);
     this.ui = {
-      pill, pillGrip, errMark, menuToggle, rail,
+      pill, pillGrip, pillBody, errMark, autoBtn, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
       groups: groupViews,
@@ -1457,7 +1966,10 @@ export class PlotpolishPanel extends HTMLElement {
     const label = el("label", { htmlFor: id, title: spec.help ?? "" }, spec.label);
     const badges = el("div", { class: "badges" });
     const control = el("div", { class: "control" });
-    const revert = el("button", { type: "button", class: "revert", title: "Back to the style's default", hidden: true }, "↺");
+    // The per-row revert is gone; the popover header carries one reset for the
+    // whole category. Kept as a detached element so ControlView's shape and the
+    // update path below do not need special-casing per control type.
+    const revert = el("button", { type: "button", class: "revert", hidden: true }, "\u21ba");
     revert.setAttribute("aria-label", `Revert ${spec.label}`);
     revert.addEventListener("click", () => this.setKeys(spec, undefined));
     // The per-line table's revert sits at the right end of its label row (not
@@ -1465,13 +1977,15 @@ export class PlotpolishPanel extends HTMLElement {
     // wrapper alongside the label and its badges; every other control keeps
     // the plain label/badges/control layout, with revert inside .control.
     const row = spec.type === "linecycle"
-      ? el("div", { class: "row" }, el("div", { class: "control-label-row" }, label, badges, revert), control)
+      ? el("div", { class: "row" }, el("div", { class: "control-label-row" }, label, badges), control)
       : el("div", { class: "row" }, label, badges, control);
     row.dataset.control = spec.id;
     if (spec.category === "save") row.title = "Applies when the figure is saved, not on screen.";
     const inputs: (HTMLInputElement | HTMLSelectElement)[] = [];
     let segmented: HTMLElement | undefined;
     let swatchList: HTMLElement | undefined;
+    let styleThumbs: HTMLElement | undefined;
+    let styleShowAll: HTMLButtonElement | undefined;
     let legendLoc: LegendLocView | undefined;
     let rangeInput: HTMLInputElement | undefined;
     let readout: HTMLElement | undefined;
@@ -1490,13 +2004,30 @@ export class PlotpolishPanel extends HTMLElement {
 
     switch (spec.type) {
       case "style": {
-        const select = el("select", { id });
+        // The menu and the thumbnails do different jobs and both earn their
+        // place: the menu names every style and is reachable in one keystroke,
+        // the thumbnails show what one looks like. The menu sits beside the
+        // label, so the grid below it starts at the top of the control.
+        const select = el("select", { id, class: "style-select" });
         select.addEventListener("change", () => this.setStyle(select.value));
         inputs.push(select);
         control.append(select);
         // Spans the full row width, under the preset select (see the "row"
         // grid: an unplaced child would otherwise land in the narrow label
         // column), so it reads as a note about the whole control.
+        // Thumbnails are populated in update(): the previews arrive from the
+        // backend after the first refresh, and a host may never supply them.
+        const thumbs = el("div", { class: "style-thumbs" , hidden: true });
+        row.append(thumbs);
+        styleThumbs = thumbs;
+        // Lives inside the thumbnail strip rather than on a row of its own, so
+        // it fills the gap the last row leaves instead of claiming new height.
+        const showAll = el("button", { type: "button", class: "show-all-styles", hidden: true });
+        showAll.addEventListener("click", () => {
+          this.allStylesShown = !this.allStylesShown;
+          this.update();
+        });
+        styleShowAll = showAll;
         const note = el("p", { class: "next-run" }, "Applies on the next run.");
         row.append(note);
         nextRunNote = note;
@@ -1526,6 +2057,52 @@ export class PlotpolishPanel extends HTMLElement {
           const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
           if (!clipboard?.writeText) { done(false); return; }
           clipboard.writeText(block).then(() => done(true), () => done(false));
+        });
+        control.append(button, said);
+        break;
+      }
+      case "savefig": {
+        // The only thing in the tool that exercises the Save category. It goes
+        // through matplotlib's savefig rather than the on-screen canvas, so
+        // savefig.dpi / transparent / bbox actually apply -- a canvas grab
+        // gives a screen-resolution PNG and none of them.
+        const button = el("button", { type: "button", id, class: "save-fig" }, spec.label);
+        const said = el("span", { class: "copy-said", hidden: true });
+        const say = (text: string) => {
+          said.textContent = text;
+          said.hidden = false;
+          window.setTimeout(() => { said.hidden = true; }, 2500);
+        };
+        button.addEventListener("click", () => {
+          const client = this.client;
+          if (!client) { say("Run your code first"); return; }
+          button.disabled = true;
+          void client
+            .saveFigure("png")
+            .then((result) => {
+              if (!result.has_figure) { say("No figure to save"); return; }
+              const filename = `plot.${result.format}`;
+              // The host gets first refusal, because in an iframe a page-driven
+              // download is exactly the thing that gets blocked -- the same trap
+              // Copy code fell into.
+              const handled = !this.emit<SavedEventDetail>(
+                "saved",
+                { format: result.format, data: result.data, bytes: result.bytes, filename },
+                true
+              );
+              if (handled) { say("Saved"); return; }
+              const link = el("a", {
+                href: `data:image/${result.format};base64,${result.data}`,
+              }) as HTMLAnchorElement;
+              link.download = filename;
+              link.click();
+              say(`Saved ${filename}`);
+            })
+            .catch((e: unknown) => {
+              this.emitError(e, "save_figure");
+              say("Save failed");
+            })
+            .finally(() => { button.disabled = false; });
         });
         control.append(button, said);
         break;
@@ -1571,9 +2148,10 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "fontsize": {
-        // 6-40pt covers every relative name's resolved size at any base
-        // font.size the "Text size" slider allows (6-24pt).
-        const range = el("input", { type: "range", id, min: "6", max: "40", step: "0.5" });
+        // Bounds live in controls.json like every other slider's. 6-40pt covers
+        // every relative name's resolved size at any base font.size the
+        // "Text size" slider allows (6-24pt).
+        const range = rangeFromSpec(spec, id);
         const out = el("span", { class: "readout" });
         const commit = () => {
           const n = Number(range.value);
@@ -1588,7 +2166,7 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "dpi": {
-        const range = el("input", { type: "range", id, min: "72", max: "600", step: "1" });
+        const range = rangeFromSpec(spec, id);
         const out = el("span", { class: "readout" });
         const commit = () => {
           const n = Number(range.value);
@@ -1738,9 +2316,10 @@ export class PlotpolishPanel extends HTMLElement {
       case "legendloc": {
         // Sliders first (see docs/ux-design.md, "Round five"): the x/y range
         // keeps this control's id, so it is what `#ctl-legend_loc` finds.
-        const xRange = el("input", { type: "range", id, min: "0", max: "1", step: "0.01" });
+        const xRange = rangeFromSpec(spec, id);
         xRange.setAttribute("aria-label", "Legend x");
-        const yRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
+        const yRange = rangeFromSpec(spec, "");
+        yRange.removeAttribute("id");
         yRange.setAttribute("aria-label", "Legend y");
         const xOut = el("span", { class: "readout" });
         const yOut = el("span", { class: "readout" });
@@ -1780,10 +2359,23 @@ export class PlotpolishPanel extends HTMLElement {
     }
     // The per-line table's revert already lives in the label row (see `row`
     // above); every other control keeps it at the end of .control.
-    if (spec.type !== "linecycle") control.append(revert);
+    // revert is no longer appended anywhere: the category reset in the popover
+    // header replaced it. The element stays in the view so updateControl can go
+    // on setting `.hidden` without a type-by-type special case.
+    // A button says its own name, so repeating it in the label column reads as
+    // a stutter -- "Save PNG | [Save PNG]". The label carries the help tooltip,
+    // so that moves onto the button rather than being lost with it.
+    if (spec.type === "copycode" || spec.type === "savefig") {
+      label.hidden = true;
+      const button = control.querySelector("button");
+      if (button && spec.help) button.title = spec.help;
+    }
+
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
+    if (styleThumbs) view.styleThumbs = styleThumbs;
+    if (styleShowAll) view.styleShowAll = styleShowAll;
     if (legendLoc) view.legendLoc = legendLoc;
     if (rangeInput) view.rangeInput = rangeInput;
     if (readout) view.readout = readout;
@@ -1874,7 +2466,10 @@ export class PlotpolishPanel extends HTMLElement {
     for (let i = 0; i < length; i++) {
       if (i < rowCount) {
         const r = rows[i]!;
-        color.push(r.color.value);
+        // Unchanged since it was rendered: write back what the color actually
+        // was, not the input's sanitized idea of it.
+        const untouched = r.color.dataset.rendered !== undefined && r.color.value === r.color.dataset.rendered;
+        color.push(untouched ? (r.color.dataset.orig ?? r.color.value) : r.color.value);
         const w = Number(r.width.value);
         width.push(Number.isFinite(w) && w > 0 ? w : fallbackWidth);
         const activeBtn = Array.from(r.styleSeg.children).find(
@@ -1940,6 +2535,21 @@ export class PlotpolishPanel extends HTMLElement {
       : `Live preview on · ${this.backendMessage}`;
     ui.pill.title = statusText;
     ui.rail.title = statusText;
+    this.updateGroupReset();
+    // Shown whenever the HOST could ever preview, not once a backend has
+    // actually attached. On the demo's real path -- and on Trinket -- the
+    // interpreter arrives only when the student first runs, so keying this to
+    // `this.client` hid the switch for exactly as long as it was useful:
+    // before the first run, which is when someone about to start a long
+    // computation would reach for it. `features.livePreview` is the host's
+    // own declaration, so a worker host that can never preview still hides it.
+    ui.autoBtn.hidden = !this._features.livePreview;
+    ui.autoBtn.setAttribute("aria-pressed", String(this._autoUpdate));
+    ui.autoBtn.classList.toggle("off", !this._autoUpdate);
+    ui.autoBtn.title = this._autoUpdate
+      ? "Auto-update is on: the figure follows every change. Click to pause it."
+      : "Auto-update is off: changes wait for the next run. Click to resume.";
+    ui.autoBtn.setAttribute("aria-label", this._autoUpdate ? "Auto-update on" : "Auto-update off");
     ui.pill.classList.toggle("error", Boolean(this.fenceError));
     ui.rail.classList.toggle("error", Boolean(this.fenceError));
     ui.errMark.hidden = !this.fenceError;
@@ -2006,7 +2616,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   private updateControl(view: ControlView): void {
     const { spec, row, badges, revert } = view;
-    const isSet = spec.keys.some((k) => k in this.settings.rc);
+    const isSet = this.controlIsSet(spec);
     const userOverrides = !this.stale && spec.keys.some((k) => this.overridden.has(k));
     const relevantRerunKeys = spec.id === "style" ? ["style"] : spec.keys;
     const rerunPending =
@@ -2032,14 +2642,29 @@ export class PlotpolishPanel extends HTMLElement {
         const names = this.styles.includes(this.settings.style) ? this.styles : [...this.styles, this.settings.style];
         const current = Array.from(select.options).map((o) => o.value);
         if (current.join("\n") !== names.join("\n")) {
-          select.replaceChildren(...names.map((n) => el("option", { value: n }, n === this.settings.style && !this.styles.includes(n) ? `${n} (not available here)` : n)));
+          select.replaceChildren(
+            ...names.map((n) =>
+              el(
+                "option",
+                { value: n, title: n },
+                n === this.settings.style && !this.styles.includes(n)
+                  ? `${shortStyleName(n)} (not available here)`
+                  : shortStyleName(n)
+              )
+            )
+          );
         }
         select.value = this.settings.style;
+        this.updateStyleThumbs(view, names);
         if (view.nextRunNote) view.nextRunNote.classList.toggle("pending", this.rerunKeys.has("style"));
         break;
       }
       case "copycode":
         break;  // a button: no value to reflect
+      case "savefig":
+        // Needs a live interpreter to save from; says so on click rather than
+        // going grey, since "Run your code first" is the actual instruction.
+        break;
       case "bool":
         (view.inputs[0] as HTMLInputElement).checked =
           spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
@@ -2078,7 +2703,13 @@ export class PlotpolishPanel extends HTMLElement {
           resolved = baseN;
           input.title = "";
         }
-        if (!editing) input.value = String(resolved);
+        // A relative size resolves to whatever the scaling gives -- "large" at
+        // base 12 is 14.4 -- and a range input cannot hold a value off its step
+        // grid: assigning 14.4 to a step-0.5 slider stores 14.5. Put the thumb
+        // on the nearest step ourselves and let the readout and title carry the
+        // exact value, so the control and the number beside it agree and the
+        // block still gets the size the student actually chose.
+        if (!editing) input.value = String(snapToStep(resolved, spec));
         if (view.readout) view.readout.textContent = String(resolved);
         break;
       }
@@ -2147,7 +2778,18 @@ export class PlotpolishPanel extends HTMLElement {
           const visible = i < rowCount;
           r.row.hidden = !visible;
           if (!visible) continue;
-          if (!this.isEditing(r.color)) r.color.value = color[i]!;
+          if (!this.isEditing(r.color)) {
+            // <input type="color"> only understands #rrggbb. matplotlib's
+            // palettes are full of things it does not: the classic style is
+            // ['b','g','r','c','m','y','k'], grayscale is ['0.00','0.40',...],
+            // and 'C0'/'tab:blue'/'#abc' are ordinary too. The input silently
+            // turns every one of them into #000000. Remember the real value
+            // and what the input made of it, so an untouched swatch can be
+            // written back as it was rather than as black.
+            r.color.dataset.orig = color[i]!;
+            r.color.value = color[i]!;
+            r.color.dataset.rendered = r.color.value;
+          }
           if (!this.isEditing(r.width)) r.width.value = String(width[i]);
           for (const b of Array.from(r.styleSeg.children) as HTMLButtonElement[]) {
             b.setAttribute("aria-pressed", String(b.dataset.value === style[i]));
@@ -2187,6 +2829,23 @@ export class PlotpolishPanel extends HTMLElement {
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** A range input carrying the control's own min/max/step from the schema. */
+function rangeFromSpec(spec: ControlSpec, id: string): HTMLInputElement {
+  const range = el("input", { type: "range", id });
+  if (spec.min !== undefined) range.min = String(spec.min);
+  if (spec.max !== undefined) range.max = String(spec.max);
+  if (spec.step !== undefined) range.step = String(spec.step);
+  return range;
+}
+
+/** `n` moved to the nearest value the control's step grid can actually hold. */
+function snapToStep(n: number, spec: ControlSpec): number {
+  const step = spec.step;
+  if (!step) return n;
+  const min = spec.min ?? 0;
+  return round(min + Math.round((n - min) / step) * step);
 }
 
 /** Register the element under `tag` (default "plotpolish-panel"). Safe to call twice. */

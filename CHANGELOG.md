@@ -3,6 +3,26 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.3 — 2026-09-05
+
+Two corrections to the 0.1.2 drag fix.
+
+- **A second pointer ending cancelled a drag in progress.** The window-level
+  safety net added in 0.1.2 ended *any* live drag on *any* `pointerup`,
+  without checking which pointer it belonged to. Lifting a second finger, or a
+  stylus ending while a mouse drag was live, dropped the drag out from under
+  the user. It now only ends the drag whose `pointerId` actually ended.
+- **Removed duplicate `pointercancel` listeners.** 0.1.2 added a
+  `pointercancel` handler on the pill grip and popover header on the mistaken
+  belief that neither had one. Both already did, routed through the pointerup
+  handler, so 0.1.2 left two listeners on each doing the same work. The 0.1.2
+  changelog entry has been corrected accordingly: `pointercancel` was handled
+  correctly all along, and was never part of the reported bug.
+
+The user-visible fix in 0.1.2 -- the pill grabbing itself on hover after a
+missed release -- was real and stands. Only the account of `pointercancel` was
+wrong.
+
 ## 0.1.2 — 2026-09-05
 
 - The pill could start dragging itself. `pillDragStart` was cleared only by a
@@ -13,10 +33,11 @@ project is pre-1.0, so minor versions may change behavior.
   old anchor, so it jumps away from the cursor, and with no live pointer to
   capture, only the direction chasing it kept delivering events. The drag
   arithmetic was symmetric throughout.
-- A `pointermove` with no button held now ends a drag, `pointercancel` is
-  handled (it had no listener at all), and a window-level `pointerup` catches
-  the release that lands outside the element. Applied to the popover header as
-  well, which had the same defect.
+- A `pointermove` with no button held now ends a drag, and a window-level
+  `pointerup` catches the release that lands outside the element. Applied to
+  the popover header as well, which had the same defect. (This entry
+  originally also claimed `pointercancel` had no listener. That was wrong --
+  see 0.1.3.)
 
 ## 0.1.1 — 2026-09-05
 

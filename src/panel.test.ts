@@ -1067,6 +1067,33 @@ describe("draggable pill", () => {
     expect(pill(panel).classList.contains("dragging")).toBe(false);
   });
 
+  it("a second pointer ending does not cancel a drag in progress", () => {
+    const grip = pillGrip(panel);
+
+    // Pointer 1 is dragging the pill.
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 1 }));
+    expect(pill(panel).classList.contains("dragging")).toBe(true);
+    const during = pill(panel).style.left;
+
+    // An unrelated pointer 2 ends somewhere on the page -- a second finger
+    // lifting, or a stylus. The window-level safety net must ignore it.
+    window.dispatchEvent(
+      Object.assign(new Event("pointerup", { bubbles: true }), { clientX: 500, clientY: 500, pointerId: 2, buttons: 0 })
+    );
+    expect(pill(panel).classList.contains("dragging")).toBe(true);
+
+    // Pointer 1 keeps dragging normally.
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 80, clientY: 20, pointerId: 1, buttons: 1 }));
+    expect(pill(panel).style.left).not.toBe(during);
+
+    // And its own release still ends it.
+    window.dispatchEvent(
+      Object.assign(new Event("pointerup", { bubbles: true }), { clientX: 80, clientY: 20, pointerId: 1, buttons: 0 })
+    );
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+  });
+
   it("a move under 4px does not start a drag; a grip drag of >= 4px sets inline left/top and '.dragging'", () => {
     const grip = pillGrip(panel);
 

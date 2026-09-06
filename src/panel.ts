@@ -1009,9 +1009,16 @@ export class PlotpolishPanel extends HTMLElement {
    * which is the common way to finish a drag and the way the state used to be
    * left standing.
    */
-  private onWindowPointerEnd = (): void => {
-    this.endPillDrag();
-    this.endHeaderDrag();
+  private onWindowPointerEnd = (e: Event): void => {
+    // Only end the drag belonging to the pointer that actually ended. A second
+    // finger lifting, or a stylus ending while a mouse drag is live, must not
+    // cancel someone's drag out from under them. pointerId is undefined only
+    // for synthetic events that never carried one; treat those as a match so
+    // the safety net still works.
+    const id = (e as PointerEvent).pointerId;
+    const matches = (startId: number): boolean => id === undefined || id === startId;
+    if (this.pillDragStart && matches(this.pillDragStart.pointerId)) this.endPillDrag(id);
+    if (this.dragStart && matches(this.dragStart.pointerId)) this.endHeaderDrag(id);
   };
 
   private onWindowReflow = (): void => {
@@ -1284,7 +1291,6 @@ export class PlotpolishPanel extends HTMLElement {
     // A cancelled gesture (touch interrupted, browser takeover) never sends
     // pointerup, so without this the drag state would be left standing.
     pillGrip.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
-    pillGrip.addEventListener("pointercancel", (e) => this.onPillGripPointerUp(e as PointerEvent));
     pillGrip.addEventListener("dblclick", () => this.reanchorPill());
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, ...pillTabs, errMark, menuToggle);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
@@ -1300,7 +1306,6 @@ export class PlotpolishPanel extends HTMLElement {
     header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
     header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
     header.addEventListener("pointercancel", (e) => this.endHeaderDrag((e as PointerEvent).pointerId));
-    header.addEventListener("pointercancel", (e) => this.onHeaderPointerUp(e as PointerEvent));
     header.addEventListener("dblclick", () => this.reanchor());
     reanchorBtn.addEventListener("click", () => this.reanchor());
     closeBtn.addEventListener("click", () => this.showCategory(null));

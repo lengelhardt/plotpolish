@@ -207,10 +207,16 @@ const SHORT_STYLE_NAMES: Readonly<Record<string, string>> = {
  * instead. Display only -- `mpl.style.use("seaborn-v0_8-bright")` is what goes
  * into the student's file.
  */
-function shortStyleName(name: string): string {
+export function shortStyleName(name: string): string {
   const known = SHORT_STYLE_NAMES[name];
   if (known) return known;
-  if (name.startsWith("seaborn-v0_8-")) return `\u2013 ${name.slice("seaborn-v0_8-".length)}`;
+  if (name.startsWith("seaborn-v0_8-")) {
+    const variant = name.slice("seaborn-v0_8-".length);
+    // Every other variant wraps into the caption's two lines; "colorblind" is
+    // the one that needs a third, because it has no hyphen to break at and is
+    // wider than the cell on its own. Measured, not guessed.
+    return `sb-${variant === "colorblind" ? "cblind" : variant}`;
+  }
   return name;
 }
 

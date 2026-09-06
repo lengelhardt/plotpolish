@@ -11,7 +11,7 @@ import {
 } from "./block";
 import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
-  PlotpolishPanel, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
+  PlotpolishPanel, shortStyleName, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
 } from "./panel";
 import { CONTROLS, GROUPS, isPropCycle } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
@@ -1945,6 +1945,23 @@ describe("style thumbnails", () => {
     (dark as HTMLButtonElement).click();
     expect(panel.getSettings().style).toBe("dark_background");
     expect(panel.getBlock()).toContain('mpl.style.use("dark_background")');
+  });
+
+  it("prefixes seaborn variants with sb- and keeps every caption to two lines", () => {
+    // Display only, and measured against the caption box: sb-dark-palette wraps
+    // at its hyphen, but "colorblind" has none and is wider than the cell, so
+    // it alone is abbreviated rather than spilling to a third line.
+    expect(shortStyleName("seaborn-v0_8")).toBe("seaborn");
+    expect(shortStyleName("seaborn-v0_8-bright")).toBe("sb-bright");
+    expect(shortStyleName("seaborn-v0_8-dark")).toBe("sb-dark");
+    expect(shortStyleName("seaborn-v0_8-dark-palette")).toBe("sb-dark-palette");
+    expect(shortStyleName("seaborn-v0_8-colorblind")).toBe("sb-cblind");
+    expect(shortStyleName("dark_background")).toBe("dark bg");
+    expect(shortStyleName("fivethirtyeight")).toBe("538");
+    expect(shortStyleName("Solarize_Light2")).toBe("Solarize");
+    expect(shortStyleName("tableau-colorblind10")).toBe("tableau");
+    // Anything unrecognised is left exactly as matplotlib names it.
+    expect(shortStyleName("ggplot")).toBe("ggplot");
   });
 
   it("clicking a thumbnail selects that style", async () => {

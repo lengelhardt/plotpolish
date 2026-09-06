@@ -3,6 +3,25 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.7 — 2026-09-06
+
+- **"Fit labels in figure" is on by default now.** `figure.autolayout` gets a
+  `panelDefault` of `true`, so the first change to any control seeds it into
+  the block alongside `savefig.dpi`. Enlarging text is the first thing most
+  people do, and without autolayout the labels run outside the figure — which
+  meant the fix was a switch you had to know to look for. Nothing is written
+  to the user's file until they change something, so an untouched panel still
+  imposes nothing. (Trinket already forces `figure.autolayout = True` before
+  every run, so this changes nothing there; it matters for the demo and any
+  host that does not.)
+- Release workflow: the sourcemap the bundle already points at is uploaded, so
+  a consumer's devtools stop 404ing on it; the tag pattern is `v[0-9]*` rather
+  than `v*`, which also matched a tag like `vendor`; and publishing is
+  idempotent, so a re-run after a partial failure replaces the assets instead
+  of dying on "already exists".
+- README says what the project actually is now, rather than "pre-release
+  scaffold".
+
 ## 0.1.6 — 2026-09-05
 
 - **0.1.5 marked only half of a reset that also resets the style.** Both reset

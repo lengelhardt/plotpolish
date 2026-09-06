@@ -8,8 +8,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateBlock } from "./block";
 import type { PlotpolishPanel } from "./panel";
 import "./panel";
+import { CONTROLS } from "./schema";
 import { MemorySink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
+
+/**
+ * What plotpolish seeds into a block the first time it is created, and what the
+ * figure sat at beforehand. Both derived from the schema: these were written
+ * out longhand, so adding a second panelDefault invalidated them silently.
+ */
+const seededControls = CONTROLS.filter((c) => c.panelDefault !== undefined);
+const SEEDED = Object.fromEntries(
+  seededControls.flatMap((c) => c.keys.map((k) => [k, c.panelDefault as unknown]))
+);
+const SEEDED_BEFORE = Object.fromEntries(
+  seededControls.flatMap((c) => c.keys.map((k) => [k, c.default as unknown]))
+);
 
 function change(panel: PlotpolishPanel, id: string, value: string | boolean): void {
   const input = panel.shadowRoot!.querySelector<HTMLInputElement | HTMLSelectElement>(`#ctl-${id}`)!;
@@ -51,10 +65,10 @@ describe("figure baseline (`previous`) tracking", () => {
   it("sends the last-introspected value as previous on the first apply", async () => {
     change(panel, "linewidth", "3");
     await panel.settle();
-    // The first change out of fully-default settings coalesces with the seeded savefig.dpi into the same call.
+    // The first change out of fully-default settings coalesces with the seeded panelDefaults into the same call.
     const [call] = applyCalls(backend);
-    expect(call!.rc).toEqual({ "lines.linewidth": 3, "savefig.dpi": 300 });
-    expect(call!.previous).toEqual({ "lines.linewidth": 1.5, "savefig.dpi": "figure" });
+    expect(call!.rc).toEqual({ "lines.linewidth": 3, ...SEEDED });
+    expect(call!.previous).toEqual({ "lines.linewidth": 1.5, ...SEEDED_BEFORE });
   });
 
   it("advances previous to what it last applied", async () => {
@@ -87,9 +101,9 @@ describe("figure baseline (`previous`) tracking", () => {
     await panel.settle();
     expect(backend.calls.map((c) => c.fn)).toEqual(["set_style", "apply_live"]);
     const restore = applyCalls(backend)[0]!;
-    // linewidth was the first change out of default, so it seeded savefig.dpi too; both restore together.
-    expect(restore.rc).toEqual({ "lines.linewidth": 1.5, "savefig.dpi": "figure" }); // target: default baseline
-    expect(restore.previous).toEqual({ "lines.linewidth": 3, "savefig.dpi": 300 }); // reference: what the figure has
+    // linewidth was the first change out of default, so it seeded the panelDefaults too; all restore together.
+    expect(restore.rc).toEqual({ "lines.linewidth": 1.5, ...SEEDED_BEFORE }); // target: default baseline
+    expect(restore.previous).toEqual({ "lines.linewidth": 3, ...SEEDED }); // reference: what the figure has
     expect(panel.getSettings()).toEqual({ style: "default", rc: {} });
     expect(sink.getSource()).not.toContain("plot style");
     expect(generateBlock(panel.getSettings())).toBeNull();

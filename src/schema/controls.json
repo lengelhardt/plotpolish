@@ -154,8 +154,9 @@
         "figure.autolayout"
       ],
       "default": false,
+      "panelDefault": true,
       "category": "live",
-      "help": "Re-lays out the figure on every draw so axis labels and titles stay inside the edges (figure.autolayout, matplotlib's tight_layout). Turn on after enlarging text."
+      "help": "Re-lays out the figure on every draw so axis labels and titles stay inside the edges (figure.autolayout, matplotlib's tight_layout). On by default, because enlarging text is the first thing most people do and it clips without this."
     },
     {
       "id": "title_size",

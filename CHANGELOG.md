@@ -3,6 +3,28 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.2.0 — 2026-09-06
+
+- **New: "Minor grid lines" (Axes → More).** Draws grid lines at the minor
+  ticks as well as the major ones, via `axes.grid.which`. It needs Minor ticks
+  on — matplotlib draws a minor grid line only where a minor tick exists — and
+  the help text says so rather than silently switching a second thing on. This
+  is the first control whose key is not a plain boolean, so `bool` controls can
+  now declare `onValue`/`offValue` ("both"/"major" here).
+- **New: "Copy code" (Save).** Copies the generated block to the clipboard, for
+  pasting into a script that has no panel. The async clipboard API is refused
+  in some contexts — no user gesture, an insecure origin, an iframe without the
+  permission, and Trinket runs the embed in an iframe — so a failure says so
+  and points at Show code rather than failing silently.
+- **Marker size now tops out at 12 rather than 20.** 20 was past the point of
+  being useful.
+- **Fixed: the "(all)" master contradicted the table above it.** It read the
+  whole property cycle, which spans the palette, while the table shows one row
+  per line in the figure — so two rows both plainly reading 8 sat under a
+  master insisting they were "mixed". It now reads only the rows the table
+  shows, and displays the value they share instead of its own untouched
+  scalar, so "mixed" means what it says.
+
 ## 0.1.9 — 2026-09-06
 
 - **Fixed: a per-line width or style could stick, updating for one curve but

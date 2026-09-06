@@ -31,7 +31,9 @@ export type ControlType =
   | "fontsize"
   | "colorcycle"
   | "legendloc"
-  | "linecycle";
+  | "linecycle"
+  /** A button, not a setting: writes no rc key. */
+  | "copycode";
 
 /** primary = visible as soon as the category opens; more = under the "More" expander. */
 export type Tier = "primary" | "more";
@@ -62,6 +64,10 @@ export interface ControlSpec {
   panelDefault?: RcValue;
   category: Category;
   help?: string;
+  /** bool: values written when on/off, when the key is not a plain boolean
+   *  (axes.grid.which is "both"/"major", not true/false). Defaults to true/false. */
+  onValue?: RcValue;
+  offValue?: RcValue;
   /** linecycle: bounds on the number of per-line rows. */
   minLines?: number;
   maxLines?: number;

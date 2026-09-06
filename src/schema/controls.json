@@ -374,7 +374,7 @@
       "default": 6,
       "category": "live",
       "min": 1,
-      "max": 20,
+      "max": 12,
       "step": 0.5,
       "help": "lines.markersize, in points"
     },
@@ -518,6 +518,21 @@
       "help": "xtick.minor.visible and ytick.minor.visible"
     },
     {
+      "id": "minor_grid",
+      "group": "axes",
+      "tier": "more",
+      "label": "Minor grid lines",
+      "type": "bool",
+      "keys": [
+        "axes.grid.which"
+      ],
+      "default": "major",
+      "onValue": "both",
+      "offValue": "major",
+      "category": "live",
+      "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which). Needs Minor ticks on: matplotlib only draws a minor grid line where a minor tick exists."
+    },
+    {
       "id": "legend_loc",
       "group": "legend",
       "tier": "primary",
@@ -657,6 +672,17 @@
           "label": "Yes"
         }
       ]
+    },
+    {
+      "id": "copy_code",
+      "group": "save",
+      "tier": "primary",
+      "label": "Copy code",
+      "type": "copycode",
+      "keys": [],
+      "default": false,
+      "category": "save",
+      "help": "Copy the generated block to the clipboard, to paste into a script that does not have the panel."
     }
   ]
 }

@@ -182,6 +182,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return node;
 }
 
+/** The value a bool control writes when switched on: true unless it says otherwise. */
+function boolOn(spec: ControlSpec): RcValue {
+  return spec.onValue === undefined ? true : spec.onValue;
+}
+/** ...and when switched off. */
+function boolOff(spec: ControlSpec): RcValue {
+  return spec.offValue === undefined ? false : spec.offValue;
+}
+
 export class PlotpolishPanel extends HTMLElement {
   /** rc keys your host sets once at startup; preserved when the panel resets styles. */
   hostRcKeys: string[] = [];
@@ -660,13 +669,41 @@ export class PlotpolishPanel extends HTMLElement {
     apply["axes.prop_cycle"] = preview;
   }
 
-  /** True when the effective property cycle carries per-line values for `prop` that differ between lines. */
-  private perLineMixed(prop: "linewidth" | "linestyle"): boolean {
+  /**
+   * The per-line values for `prop` across the rows the table actually shows,
+   * or null when the cycle carries none.
+   *
+   * The array spans the palette (up to ten entries) while the table shows one
+   * row per line in the figure, so the tail belongs to rows the user can
+   * neither see nor edit. Reading it reported "mixed" for two rows that both
+   * plainly said 8.
+   */
+  private perLineVisible(prop: "linewidth" | "linestyle"): (number | string)[] | null {
     const cycle = this.effective("axes.prop_cycle");
-    if (!isPropCycle(cycle)) return false;
+    if (!isPropCycle(cycle)) return null;
     const arr = cycle[prop] as (number | string)[] | undefined;
-    if (!arr || arr.length < 2) return false;
-    return arr.some((v) => v !== arr[0]);
+    if (!arr || !arr.length) return null;
+    const cycleSpec = CONTROLS.find((c) => c.type === "linecycle");
+    const visible = cycleSpec ? this.lineCycleRowCount(cycleSpec) : arr.length;
+    return arr.slice(0, Math.min(arr.length, Math.max(1, visible)));
+  }
+
+  /** True when the rows the table shows carry per-line values that differ. */
+  private perLineMixed(prop: "linewidth" | "linestyle"): boolean {
+    const shown = this.perLineVisible(prop);
+    return !!shown && shown.length > 1 && shown.some((v) => v !== shown[0]);
+  }
+
+  /**
+   * The value every shown row shares, or null when they differ or the cycle
+   * carries no per-line value. The "(all)" master displays this in preference
+   * to its own scalar: with every row reading 8, a master reading 1.5 (the
+   * unset scalar's default) contradicts the table right above it.
+   */
+  private perLineUniform(prop: "linewidth" | "linestyle"): number | string | null {
+    const shown = this.perLineVisible(prop);
+    if (!shown || !shown.length) return null;
+    return shown.some((v) => v !== shown[0]) ? null : shown[0]!;
   }
 
   private setStyle(name: string): void {
@@ -1465,9 +1502,39 @@ export class PlotpolishPanel extends HTMLElement {
         nextRunNote = note;
         break;
       }
+      case "copycode": {
+        // A button, not a setting. The async clipboard API is refused in some
+        // contexts (no user gesture, insecure origin, an iframe without the
+        // permission), and Trinket runs the embed in an iframe -- so failure
+        // is reported rather than swallowed, and the block stays visible via
+        // the reset menu's "Show code" either way.
+        const button = el("button", { type: "button", id, class: "copy-code" }, spec.label);
+        const said = el("span", { class: "copy-said", hidden: true });
+        button.addEventListener("click", () => {
+          const block = this.getBlock();
+          if (!block) {
+            said.textContent = "Nothing to copy yet";
+            said.hidden = false;
+            window.setTimeout(() => { said.hidden = true; }, 2000);
+            return;
+          }
+          const done = (ok: boolean) => {
+            said.textContent = ok ? "Copied" : "Copy failed \u2014 use Show code";
+            said.hidden = false;
+            window.setTimeout(() => { said.hidden = true; }, 2000);
+          };
+          const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+          if (!clipboard?.writeText) { done(false); return; }
+          clipboard.writeText(block).then(() => done(true), () => done(false));
+        });
+        control.append(button, said);
+        break;
+      }
       case "bool": {
         const input = el("input", { type: "checkbox", id, class: "switch" });
-        input.addEventListener("change", () => this.setKeys(spec, input.checked));
+        input.addEventListener("change", () =>
+          this.setKeys(spec, input.checked ? boolOn(spec) : boolOff(spec))
+        );
         inputs.push(input);
         control.append(input);
         break;
@@ -1971,17 +2038,23 @@ export class PlotpolishPanel extends HTMLElement {
         if (view.nextRunNote) view.nextRunNote.classList.toggle("pending", this.rerunKeys.has("style"));
         break;
       }
+      case "copycode":
+        break;  // a button: no value to reflect
       case "bool":
-        (view.inputs[0] as HTMLInputElement).checked = Boolean(value);
+        (view.inputs[0] as HTMLInputElement).checked =
+          spec.onValue === undefined ? Boolean(value) : value === spec.onValue;
         break;
       case "number": {
         const v = typeof value === "number" ? String(value) : "";
-        const mixed = spec.keys.includes("lines.linewidth") && this.perLineMixed("linewidth");
+        const isLineMaster = spec.keys.includes("lines.linewidth");
+        const mixed = isLineMaster && this.perLineMixed("linewidth");
+        const uniform = isLineMaster ? this.perLineUniform("linewidth") : null;
+        const shown = uniform === null ? v : String(uniform);
         row.classList.toggle("mixed", mixed);
         if (view.rangeInput) {
-          view.rangeInput.value = v;
+          view.rangeInput.value = shown;
           view.rangeInput.title = mixed ? "Set per line below; drag to make every line the same." : "";
-          if (view.readout) view.readout.textContent = mixed ? "mixed" : v;
+          if (view.readout) view.readout.textContent = mixed ? "mixed" : shown;
         } else if (view.inputs[0] && !this.isEditing(view.inputs[0])) {
           (view.inputs[0] as HTMLInputElement).value = v;
         }

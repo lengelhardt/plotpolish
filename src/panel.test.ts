@@ -1734,6 +1734,79 @@ describe("panelDefault seeding", () => {
   });
 });
 
+describe("the (all) master vs the per-line table", () => {
+  function widthCells(p: PlotpolishPanel): HTMLInputElement[] {
+    return Array.from(p.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width"));
+  }
+  function masterReadout(p: PlotpolishPanel): string {
+    return ctl(p, "linewidth").querySelector(".readout")!.textContent ?? "";
+  }
+  function setCell(cells: HTMLInputElement[], i: number, value: string): void {
+    cells[i]!.value = value;
+    fireInput(cells[i]!);
+  }
+
+  it("reads the value every shown row shares, not its own unset scalar", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const cells = widthCells(panel);
+    setCell(cells, 0, "8");
+    // One row changed: the rows genuinely differ, so the master says so.
+    expect(masterReadout(panel)).toBe("mixed");
+
+    setCell(widthCells(panel), 1, "8");
+    // Both shown rows are 8 now. Reporting "mixed" (from palette entries the
+    // table never shows) or "1.5" (the untouched scalar) would both contradict
+    // the table directly above it.
+    expect(masterReadout(panel)).toBe("8");
+  });
+
+  it("says mixed only when the rows the table shows actually differ", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const cells = widthCells(panel);
+    setCell(cells, 0, "8");
+    setCell(widthCells(panel), 1, "8");
+    expect(masterReadout(panel)).toBe("8");
+
+    setCell(widthCells(panel), 1, "3");
+    expect(masterReadout(panel)).toBe("mixed");
+    expect(ctl(panel, "linewidth").closest(".row")?.classList.contains("mixed") ?? true).toBe(true);
+  });
+});
+
+describe("minor grid lines", () => {
+  it("writes axes.grid.which as both/major rather than a boolean", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "axes");
+    const toggle = input(panel, "minor_grid") as HTMLInputElement;
+
+    toggle.checked = true;
+    change(toggle);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("both");
+    expect(panel.getBlock()).toContain('"axes.grid.which": "both"');
+
+    toggle.checked = false;
+    change(toggle);
+    expect(panel.getSettings().rc["axes.grid.which"]).toBe("major");
+  });
+
+  it("reflects the enum back into the checkbox, rather than coercing it", () => {
+    panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "axes.grid.which": "both" } })!);
+    openTab(panel, "axes");
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(true);
+
+    // "major" is a non-empty string: Boolean("major") would be true.
+    panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "axes.grid.which": "major" } })!);
+    openTab(panel, "axes");
+    expect((input(panel, "minor_grid") as HTMLInputElement).checked).toBe(false);
+  });
+});
+
 describe("linecycle (Per line)", () => {
   function visibleLineRows(p: PlotpolishPanel): HTMLElement[] {
     return Array.from(ctl(p, "line_cycle").querySelectorAll<HTMLElement>(".line-row:not(.line-head)")).filter((r) => !r.hidden);

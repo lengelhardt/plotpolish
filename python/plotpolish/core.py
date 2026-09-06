@@ -25,7 +25,7 @@ from matplotlib import ticker as _ticker
 from matplotlib.colors import to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
-__version__ = "0.1.9"
+__version__ = "0.2.0"
 
 TOOL_NAME = "plotpolish"
 
@@ -49,6 +49,7 @@ CURATED_KEYS = (
     "lines.markersize",
     "axes.prop_cycle",
     "axes.grid",
+    "axes.grid.which",
     "grid.alpha",
     "grid.linestyle",
     "axes.spines.top",
@@ -506,6 +507,28 @@ def _apply_grid(fig, new, old, only):
         ax.grid(bool(new))
 
 
+def _apply_grid_which(fig, new, old, only):
+    """Draw grid lines at the minor ticks as well as the major ones.
+
+    matplotlib only draws a minor grid line where a minor tick exists, so this
+    does nothing visible unless xtick/ytick.minor.visible are on -- the panel
+    says so in the control's help rather than silently turning them on, which
+    would be a second change the user did not ask for.
+    """
+    which = str(new)
+    minor_on = which in ("minor", "both")
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            if only:
+                current = _grid_on(axis)
+                if not current:
+                    continue
+            for tick in axis.get_minor_ticks():
+                tick.gridline.set_visible(minor_on)
+        # Keep the major grid as it was; ax.grid(which=...) would toggle it.
+        ax.tick_params(axis="both", which="minor", gridOn=minor_on)
+
+
 def _apply_grid_kw(kw):
     def apply(fig, new, old, only):
         for ax in fig.axes:
@@ -731,6 +754,7 @@ _LIVE_HANDLERS = {
     "font.family": _apply_font_family,
     "figure.autolayout": _apply_autolayout,
     "axes.grid": _apply_grid,
+    "axes.grid.which": _apply_grid_which,
     "grid.alpha": _apply_grid_kw("alpha"),
     "grid.linestyle": _apply_grid_kw("linestyle"),
     "axes.spines.top": _apply_spine_visible("top"),

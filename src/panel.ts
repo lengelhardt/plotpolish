@@ -273,6 +273,11 @@ export class PlotpolishPanel extends HTMLElement {
   }
 
   connectedCallback(): void {
+    // Re-parenting runs disconnected -> connected, which dropped the sink
+    // subscription; restore it and re-read the source, which may have changed
+    // while the element was detached.
+    this.subscribeSink();
+    this.loadFromSink();
     this.update();
     this.measureLayout();
     this.positionRail();
@@ -342,19 +347,30 @@ export class PlotpolishPanel extends HTMLElement {
     return this._sink;
   }
   set sink(sink: CodeSink | null) {
-    this.unsubscribeSink?.();
-    this.unsubscribeSink = null;
     this._sink = sink;
-    if (sink?.subscribe) {
-      this.unsubscribeSink = sink.subscribe(() => {
-        if (!this.writing) {
-          this.loadFromSink();
-          this.update();
-        }
-      });
-    }
+    this.subscribeSink();
     this.loadFromSink();
     this.update();
+  }
+
+  /**
+   * (Re)attach the sink's change listener. Called both when the sink is set and
+   * from connectedCallback, because disconnectedCallback drops the subscription
+   * and a host may re-parent the element -- WebAgg rebuilds the figure's DOM on
+   * every run, so a panel mounted in that subtree is moved routinely. Without
+   * this, the panel stops noticing edits made outside it after the first move.
+   */
+  private subscribeSink(): void {
+    this.unsubscribeSink?.();
+    this.unsubscribeSink = null;
+    const sink = this._sink;
+    if (!sink?.subscribe) return;
+    this.unsubscribeSink = sink.subscribe(() => {
+      if (!this.writing) {
+        this.loadFromSink();
+        this.update();
+      }
+    });
   }
 
   get features(): PanelFeatures {
@@ -459,6 +475,12 @@ export class PlotpolishPanel extends HTMLElement {
    */
   async refresh(): Promise<void> {
     this.loadFromSink();
+    // A run has just completed, so nothing is pending a re-run any more. This
+    // is true whether or not a backend is attached: on a host that runs the
+    // program off the main thread there is no client to introspect with, and
+    // leaving the marks set would strand them on permanently.
+    this.stale = false;
+    this.rerunKeys.clear();
     if (this.client) {
       try {
         const [styles, intro] = await Promise.all([this.client.listStyles(), this.client.introspect()]);
@@ -467,8 +489,6 @@ export class PlotpolishPanel extends HTMLElement {
         this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
         this.figure = intro.figure;
-        this.stale = false;
-        this.rerunKeys.clear();
         this.backendState = "ready";
         this.backendMessage = `matplotlib ${intro.matplotlib}${intro.figure ? "" : ", no figure yet"}`;
       } catch (e) {

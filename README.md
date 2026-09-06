@@ -8,7 +8,7 @@ environment for physics students), but it depends on nothing Trinket-specific:
 a JupyterLab extension or a standalone Pyodide page adopts it by writing two
 small adapters.
 
-![The Lines category open over a matplotlib figure: choosing a per-line color, width, dash pattern and marker, with the figure redrawing on every change](docs/img/panel.gif)
+![A tour of the panel over a matplotlib figure: each of the six category tabs opened in turn, changing the style and colors, the text sizes, per-line width, dash and markers, the grid and ticks, the legend and the save settings, with the figure redrawing on every change](docs/img/panel.gif)
 
 **Status:** v0.3.0, released and working. The panel is complete for rcParams,
 and the first host adapter — a "Plot style" panel in the PICUP Trinket fork's

@@ -74,7 +74,7 @@
         ]
       },
       "category": "live",
-      "help": "The color given to the 1st, 2nd, … line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
+      "help": "The color given to the 1st, 2nd, \u2026 line (axes.prop_cycle). Applies to the lines already drawn and to new ones.",
       "default": [
         "#1f77b4",
         "#ff7f0e",
@@ -106,7 +106,7 @@
         },
         {
           "id": "okabe-ito",
-          "label": "Colorblind-safe (Okabe–Ito)",
+          "label": "Colorblind-safe (Okabe\u2013Ito)",
           "colors": [
             "#E69F00",
             "#56B4E9",
@@ -174,7 +174,10 @@
       ],
       "default": "large",
       "category": "live",
-      "help": "axes.titlesize"
+      "help": "axes.titlesize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "label_size",
@@ -187,7 +190,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "axes.labelsize"
+      "help": "axes.labelsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "tick_label_size",
@@ -201,7 +207,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "xtick.labelsize and ytick.labelsize"
+      "help": "xtick.labelsize and ytick.labelsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "legend_fontsize",
@@ -214,7 +223,10 @@
       ],
       "default": "medium",
       "category": "live",
-      "help": "legend.fontsize"
+      "help": "legend.fontsize",
+      "min": 6,
+      "max": 40,
+      "step": 0.5
     },
     {
       "id": "font_family",
@@ -271,7 +283,7 @@
         "#bcbd22",
         "#17becf"
       ],
-      "help": "Color, width and style for the 1st, 2nd, … line in the order they are drawn (axes.prop_cycle). A line whose code sets its own color or width keeps it.",
+      "help": "Color, width and style for the 1st, 2nd, \u2026 line in the order they are drawn (axes.prop_cycle). A line whose code sets its own color or width keeps it.",
       "minLines": 2,
       "maxLines": 8
     },
@@ -341,23 +353,23 @@
         },
         {
           "value": "o",
-          "label": "● Circle"
+          "label": "\u25cf Circle"
         },
         {
           "value": "s",
-          "label": "■ Square"
+          "label": "\u25a0 Square"
         },
         {
           "value": "^",
-          "label": "▲ Triangle"
+          "label": "\u25b2 Triangle"
         },
         {
           "value": "D",
-          "label": "◆ Diamond"
+          "label": "\u25c6 Diamond"
         },
         {
           "value": "x",
-          "label": "✕ X"
+          "label": "\u2715 X"
         },
         {
           "value": "+",
@@ -365,11 +377,11 @@
         },
         {
           "value": "*",
-          "label": "★ Star"
+          "label": "\u2605 Star"
         },
         {
           "value": ".",
-          "label": "· Point"
+          "label": "\u00b7 Point"
         }
       ]
     },
@@ -453,6 +465,22 @@
       ]
     },
     {
+      "id": "minor_grid",
+      "group": "axes",
+      "tier": "more",
+      "label": "Minor grid lines",
+      "type": "bool",
+      "keys": [
+        "axes.grid.which"
+      ],
+      "default": "major",
+      "onValue": "both",
+      "offValue": "major",
+      "category": "live",
+      "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which). Needs Minor ticks on: matplotlib only draws a minor grid line where a minor tick exists.",
+      "subgroup": "grid"
+    },
+    {
       "id": "box",
       "group": "axes",
       "subgroup": "box",
@@ -529,21 +557,6 @@
       "help": "xtick.minor.visible and ytick.minor.visible"
     },
     {
-      "id": "minor_grid",
-      "group": "axes",
-      "tier": "more",
-      "label": "Minor grid lines",
-      "type": "bool",
-      "keys": [
-        "axes.grid.which"
-      ],
-      "default": "major",
-      "onValue": "both",
-      "offValue": "major",
-      "category": "live",
-      "help": "Draw grid lines at the minor ticks as well as the major ones (axes.grid.which). Needs Minor ticks on: matplotlib only draws a minor grid line where a minor tick exists."
-    },
-    {
       "id": "legend_loc",
       "group": "legend",
       "tier": "primary",
@@ -600,7 +613,10 @@
           "value": "center",
           "label": "Center"
         }
-      ]
+      ],
+      "min": 0,
+      "max": 1,
+      "step": 0.01
     },
     {
       "id": "legend_frameon",
@@ -642,8 +658,8 @@
       ],
       "default": "figure",
       "category": "save",
-      "min": 36,
-      "max": 1200,
+      "min": 72,
+      "max": 600,
       "step": 1,
       "help": "savefig.dpi for plt.savefig(). plotpolish sets 300 as soon as you change anything; matplotlib's own default is the figure's screen dpi.",
       "panelDefault": 300

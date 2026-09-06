@@ -2806,3 +2806,87 @@ describe("two controls, one key: axes.prop_cycle", () => {
     expect(rc["axes.prop_cycle"]).toEqual(OKABE.colors);
   });
 });
+
+describe("the widgets agree with the schema that describes them", () => {
+  // controls.json calls itself the single source of truth. It only is if the
+  // rendering reads it: savefig_dpi carried min 36 / max 1200 for three
+  // releases while the panel hardcoded 72-600, so the schema's numbers were
+  // decoration and nothing noticed.
+  it("renders every control's own min, max and step", () => {
+    for (const spec of CONTROLS) {
+      if (spec.min === undefined && spec.max === undefined) continue;
+      const el = input(panel, spec.id) as HTMLInputElement;
+      expect(el, spec.id).not.toBeNull();
+      if (spec.min !== undefined) expect(`${spec.id}.min=${el.min}`).toBe(`${spec.id}.min=${spec.min}`);
+      if (spec.max !== undefined) expect(`${spec.id}.max=${el.max}`).toBe(`${spec.id}.max=${spec.max}`);
+      if (spec.step !== undefined) expect(`${spec.id}.step=${el.step}`).toBe(`${spec.id}.step=${spec.step}`);
+    }
+  });
+
+  it("gives every slider its bounds in the schema rather than in the code", () => {
+    const hardcoded = CONTROLS.filter((spec) => {
+      const el = input(panel, spec.id) as HTMLInputElement | null;
+      return el?.type === "range" && (spec.min === undefined || spec.max === undefined);
+    });
+    expect(hardcoded.map((c) => c.id)).toEqual([]);
+  });
+
+  // The row loop emits a subheading when spec.subgroup changes, so a control
+  // with no subgroup lands under whichever heading came last -- "Minor grid
+  // lines" spent a release under "Tick marks" -- and a subgroup interrupted by
+  // another one would get a second heading.
+  it("gives every control in a subgrouped group a subgroup, listed contiguously", () => {
+    for (const g of GROUPS) {
+      if (!g.subgroups) continue;
+      const inGroup = CONTROLS.filter((c) => c.group === g.id);
+      expect(inGroup.filter((c) => !c.subgroup).map((c) => c.id)).toEqual([]);
+
+      const order = inGroup.map((c) => c.subgroup!);
+      const runs = order.filter((sg, i) => i === 0 || sg !== order[i - 1]);
+      expect(runs).toEqual([...new Set(order)]); // no subgroup appears twice
+      expect(inGroup.map((c) => c.subgroup)).toEqual(
+        inGroup.map((c) => g.subgroups!.find((sg) => sg.id === c.subgroup)?.id)
+      ); // and every one names a subgroup the group declares
+    }
+  });
+
+  it("renders each subgroup's rows under its own heading", () => {
+    const seen: Record<string, string> = {};
+    for (const g of GROUPS) {
+      if (!g.subgroups) continue;
+      const container = group(panel, g.id);
+      let head = "";
+      const walk = (node: HTMLElement): void => {
+        for (const child of Array.from(node.children) as HTMLElement[]) {
+          if (child.classList.contains("subhead")) head = child.textContent ?? "";
+          else if (child.classList.contains("row") && child.dataset.control) seen[child.dataset.control] = head;
+          else walk(child);
+        }
+      };
+      walk(container);
+    }
+    // Primary-tier rows sit above the headings, so only the "More" rows carry one.
+    expect(seen["minor_grid"]).toBe("Grid");
+    expect(seen["grid_alpha"]).toBe("Grid");
+    expect(seen["axes_linewidth"]).toBe("Box and axes lines");
+    expect(seen["minor_ticks"]).toBe("Tick marks");
+  });
+
+  it("puts the fontsize thumb on a step the slider can hold, and the exact size beside it", () => {
+    panel.sink = new MemorySink("");
+    const fontSize = input(panel, "font_size") as HTMLInputElement;
+    fontSize.value = "12";
+    fireInput(fontSize);
+
+    // "large" is 1.2 x base = 14.4, which a step-0.5 range cannot hold: a
+    // browser stores 14.5. Say 14.5 ourselves rather than letting the element
+    // silently disagree with the readout.
+    const title = input(panel, "title_size") as HTMLInputElement;
+    expect(title.value).toBe("14.5");
+    expect(ctl(panel, "title_size").querySelector(".readout")!.textContent).toBe("14.4");
+    expect(title.title).toContain("14.4");
+    // And the block gets the exact size, not the snapped one.
+    expect(panel.getSettings().rc["axes.titlesize"]).toBeUndefined();
+    expect(panel.getBlock()).not.toContain("14.5");
+  });
+});

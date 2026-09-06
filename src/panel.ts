@@ -1917,9 +1917,10 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "fontsize": {
-        // 6-40pt covers every relative name's resolved size at any base
-        // font.size the "Text size" slider allows (6-24pt).
-        const range = el("input", { type: "range", id, min: "6", max: "40", step: "0.5" });
+        // Bounds live in controls.json like every other slider's. 6-40pt covers
+        // every relative name's resolved size at any base font.size the
+        // "Text size" slider allows (6-24pt).
+        const range = rangeFromSpec(spec, id);
         const out = el("span", { class: "readout" });
         const commit = () => {
           const n = Number(range.value);
@@ -1934,7 +1935,7 @@ export class PlotpolishPanel extends HTMLElement {
         break;
       }
       case "dpi": {
-        const range = el("input", { type: "range", id, min: "72", max: "600", step: "1" });
+        const range = rangeFromSpec(spec, id);
         const out = el("span", { class: "readout" });
         const commit = () => {
           const n = Number(range.value);
@@ -2084,9 +2085,10 @@ export class PlotpolishPanel extends HTMLElement {
       case "legendloc": {
         // Sliders first (see docs/ux-design.md, "Round five"): the x/y range
         // keeps this control's id, so it is what `#ctl-legend_loc` finds.
-        const xRange = el("input", { type: "range", id, min: "0", max: "1", step: "0.01" });
+        const xRange = rangeFromSpec(spec, id);
         xRange.setAttribute("aria-label", "Legend x");
-        const yRange = el("input", { type: "range", min: "0", max: "1", step: "0.01" });
+        const yRange = rangeFromSpec(spec, "");
+        yRange.removeAttribute("id");
         yRange.setAttribute("aria-label", "Legend y");
         const xOut = el("span", { class: "readout" });
         const yOut = el("span", { class: "readout" });
@@ -2433,7 +2435,13 @@ export class PlotpolishPanel extends HTMLElement {
           resolved = baseN;
           input.title = "";
         }
-        if (!editing) input.value = String(resolved);
+        // A relative size resolves to whatever the scaling gives -- "large" at
+        // base 12 is 14.4 -- and a range input cannot hold a value off its step
+        // grid: assigning 14.4 to a step-0.5 slider stores 14.5. Put the thumb
+        // on the nearest step ourselves and let the readout and title carry the
+        // exact value, so the control and the number beside it agree and the
+        // block still gets the size the student actually chose.
+        if (!editing) input.value = String(snapToStep(resolved, spec));
         if (view.readout) view.readout.textContent = String(resolved);
         break;
       }
@@ -2553,6 +2561,23 @@ export class PlotpolishPanel extends HTMLElement {
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** A range input carrying the control's own min/max/step from the schema. */
+function rangeFromSpec(spec: ControlSpec, id: string): HTMLInputElement {
+  const range = el("input", { type: "range", id });
+  if (spec.min !== undefined) range.min = String(spec.min);
+  if (spec.max !== undefined) range.max = String(spec.max);
+  if (spec.step !== undefined) range.step = String(spec.step);
+  return range;
+}
+
+/** `n` moved to the nearest value the control's step grid can actually hold. */
+function snapToStep(n: number, spec: ControlSpec): number {
+  const step = spec.step;
+  if (!step) return n;
+  const min = spec.min ?? 0;
+  return round(min + Math.round((n - min) / step) * step);
 }
 
 /** Register the element under `tag` (default "plotpolish-panel"). Safe to call twice. */

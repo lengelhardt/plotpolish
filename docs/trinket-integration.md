@@ -126,8 +126,9 @@ One request/response pair, modelled on `snapshot` → `snapshot-result`:
 * worker → page `{ type: "plotpolish-result", id, json }`, or the existing
   `{ type: "error", id, traceback }`
 
-Worker handler: `ns = pyodide.toPy({})`, `json = pyodide.runPython(msg.code,
-{ globals: ns })`, `ns.destroy()`, post. Page side: a `plotpolishRun(code)`
+Worker handler: `ns = pyodide.toPy({})`, then
+`json = pyodide.runPython(msg.code, { globals: ns })`, then `ns.destroy()`,
+then post. Page side: a `plotpolishRun(code)`
 method on `worker-client.js` using the same `pending[id] = resolve`
 correlation as `snapshot()`. The worker backend's `runPython` rejects while
 `workerClient.isRunning()`.
@@ -251,6 +252,10 @@ git -C picup-trinket-oss worktree add -b feature/plot-style \
     ../picup-trinket-plotstyle origin/main
 ```
 
+`-b` creates the branch, so re-running this after the branch exists fails with
+"branch already exists". To re-attach a worktree to a branch that is already
+there, drop the `-b` and name the branch as the final argument instead.
+
 `.env` and `config/local.yaml` are gitignored, so they do **not** appear in a
 new worktree — copy both from the original checkout by hand. Add the dev flag
 to the worktree's `config/local.yaml`:
@@ -262,8 +267,9 @@ features:
 
 Bring it up with `make mongo` (self-host shape: mongo + redis + garage S3),
 app on <http://localhost:3000>; stop with `make down-mongo`. A healthy start
-logs `DB: mongoose mongodb:27017/trinket ✓` and `Server started on port:
-3000`, and `/version` reports the worktree's branch — `build-info.sh` runs on
+logs `DB: mongoose mongodb:27017/trinket ✓` followed by
+`Server started on port: 3000`, and `/version` reports the worktree's
+branch — `build-info.sh` runs on
 the host, so it stamps correctly from a worktree.
 
 Docker facts that cost time to learn:
@@ -280,8 +286,8 @@ Docker facts that cost time to learn:
   with `docker compose stop <service>`.
 * **A worktree is its own compose project**, so its volumes start empty —
   including `mongodb_data`, meaning no account and no trinkets. The named
-  volumes do seed from the image, though: `/components/src-min-noconflict/
-  theme-github.js` returns 200 on a first run with no vendoring step.
+  volumes do seed from the image, though: a first run with no vendoring step
+  already serves `theme-github.js` from `/components/src-min-noconflict/`.
 
 ## Survey findings
 
@@ -356,8 +362,9 @@ debugging session:
   `lib/views/embed/base.html` 22-46 emits `trinket.config.<flag>` →
   `<flag>Enabled()` helpers in pyodide.js (1638, 1149). Template gates use
   `config.features.<flag>`.
-* **CSP:** `config/default.yaml` 569-597, `script-src 'self' {origin}
-  'unsafe-inline' 'unsafe-eval' {cdn}` with cdnjs and jsDelivr as the only CDN
+* **CSP:** `config/default.yaml` 569-597,
+  `script-src 'self' {origin} 'unsafe-inline' 'unsafe-eval' {cdn}`
+  with cdnjs and jsDelivr as the only CDN
   origins, meant to shrink, not grow.
 * **Theming:** none. No CSS variables, no dark mode, hard-coded light colors
   in `public/css/embed/embed.css` and inline styles.

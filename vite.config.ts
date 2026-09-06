@@ -46,7 +46,13 @@ export default defineConfig({
       name: "plotpolish",
       fileName: (format) => (format === "iife" ? "plotpolish.iife.js" : "plotpolish.js"),
     },
-    sourcemap: true,
+    // "hidden", not true: the map is still built and published, but no
+    // `//# sourceMappingURL=` comment goes into the bundle. A host vendors this
+    // as ONE self-contained file -- that is what the IIFE build is for -- and a
+    // reference to a map they do not serve is a 404 in every one of their
+    // users' devtools. Anyone who wants the map can attach it from the release;
+    // `minify: false` means the bundle is readable without it anyway.
+    sourcemap: "hidden",
     target: "es2020",
     minify: false,
     rollupOptions: {

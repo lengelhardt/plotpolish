@@ -3,6 +3,22 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.1 — 2026-09-06
+
+- **Fixed: the vendored bundle asked every host's users for a sourcemap they
+  did not have.** The build emitted `//# sourceMappingURL=plotpolish.iife.js.map`
+  into `plotpolish.iife.js`, but the whole point of the IIFE build is that a
+  host copies *one* self-contained file and serves it from their own origin —
+  so the reference resolved to a `.map` they never copied, and every one of
+  their users' devtools took a 404 for it. Found by a reviewer on the first
+  host integration, which is exactly where it would show up first.
+
+  `sourcemap: "hidden"` builds the map and publishes it beside the release as
+  before, without putting a reference to it in the bundle; anyone debugging a
+  vendored copy can attach it by hand, and `minify: false` means the shipped
+  bundle is readable JavaScript regardless. `src/iife.test.ts` now asserts the
+  bundle carries no `sourceMappingURL`, so it cannot come back.
+
 ## 0.3.0 — 2026-09-06
 
 - **Fixed: a per-line width could stick, and then stop responding entirely.**

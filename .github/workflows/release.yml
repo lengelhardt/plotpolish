@@ -96,9 +96,9 @@ jobs:
         working-directory: dist
         run: sha256sum plotpolish.iife.js > plotpolish.iife.js.sha256
 
-      # The bundle ends in `//# sourceMappingURL=plotpolish.iife.js.map`, so a
-      # consumer's devtools request the map whether or not it is published.
-      # Upload it rather than serving them a 404.
+      # The map is built with `sourcemap: "hidden"`, so the bundle carries no
+      # reference to it and nothing 404s when a host does not serve it. Publish
+      # it anyway: someone debugging a vendored copy can attach it by hand.
       #
       # Idempotent on purpose: if a run fails after the release exists, a
       # re-run would otherwise die on "already exists" and leave a draft to

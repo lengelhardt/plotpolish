@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plotpolish"
-version = "0.1.5"
+version = "0.1.6"
 description = "matplotlib-facing helper for the plotpolish style panel (shipped inside the JS bundle)"
 readme = "../README.md"
 license = { text = "BSD-3-Clause" }

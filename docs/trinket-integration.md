@@ -28,7 +28,9 @@ rather than the adapter reaching in. The flag needs **no** hook at all: the
 adapter self-gates on `window.trinket.config.plotStyle` and never defines
 `window.trinketPlotpolish` when off, so every hook is a no-op.
 
-The hooks, on `origin/main` line numbers:
+The hooks, at line numbers on `origin/main` as of **66d7edc** (pin the SHA:
+these drift every time someone edits pyodide.js, and a number with no commit
+behind it is worse than no number):
 
 1. **3292**, in `TrinketAPI.initialize` — one line inside Trinket's existing
    `editor.change` callback, plus the `init({...})` call.

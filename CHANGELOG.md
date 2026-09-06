@@ -3,6 +3,15 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.6 — 2026-09-05
+
+- **0.1.5 marked only half of a reset that also resets the style.** Both reset
+  flows wrote `if (willResetStyle) noteRerun(["style"]); else if (!canPreview)
+  noteRerun(keys);` -- an `else if`, so resetting a Look category that carried
+  both a style and rc keys marked the style and left every reverted control
+  without an indicator. The two are not alternatives: with no preview both the
+  style reset and the reverted keys need a run before they show.
+
 ## 0.1.5 — 2026-09-05
 
 - **The reset flows had the same no-preview gap 0.1.4 fixed for changes.**

@@ -781,7 +781,7 @@ def _cycle_props(value):
     return {k: list(v) for k, v in value.items() if k in _PROP_CYCLE_ATTRS and v}
 
 
-def _apply_prop_cycle(fig, new, old, only, fallback=None):
+def _apply_prop_cycle(fig, new, old, only, fallback=None, rc=None):
     """Apply per-line color/linewidth/linestyle through the property cycle.
 
     For each axes and each line at index ``i``, the new value for a
@@ -797,9 +797,10 @@ def _apply_prop_cycle(fig, new, old, only, fallback=None):
     blocked by ``only_defaults``).
     """
     new_props = _cycle_props(new)
-    if not new_props:
-        return
     old_props = _cycle_props(old)
+    if not new_props:
+        _uncycle(fig, new_props, old_props, only, rc)
+        return
 
     for ax in fig.axes:
         for i, line in enumerate(ax.lines):
@@ -824,6 +825,40 @@ def _apply_prop_cycle(fig, new, old, only, fallback=None):
                     if not matches:
                         continue
                 getattr(line, setter_name)(caster(new_val))
+
+    _uncycle(fig, new_props, old_props, only, rc)
+
+
+def _uncycle(fig, new_props, old_props, only, rc=None):
+    """Walk lines back to the scalar rcParam for properties the cycle has DROPPED.
+
+    Applying a cycle only ever set the properties the new cycle carried, so when
+    one went away -- reverting the per-line table, resetting the category, or the
+    "(all)" master taking over -- the lines kept wearing it. A re-run draws them
+    at ``lines.linewidth``/``lines.linestyle`` instead, so the preview was simply
+    wrong.
+
+    It also locked the control. Once a line sits at a width the panel no longer
+    believes it has, ``only_defaults`` reads it as one the student set by hand
+    and refuses to touch it again, so every later change to that row did nothing
+    at all. That is the shape of the bug as it was reported: a line stuck huge,
+    then stuck small, and never moving again.
+    """
+    for prop in set(old_props) - set(new_props):
+        if prop == "color":
+            continue  # every cycle carries colour; there is no scalar to fall back to
+        getter_name, setter_name, caster = _PROP_CYCLE_ATTRS[prop]
+        key = "lines." + prop
+        # What a re-run would draw: this call's own scalar if it carries one,
+        # else whatever the session already has.
+        target = (rc or {}).get(key, mpl.rcParams[key])
+        old_list = old_props[prop]
+        for ax in fig.axes:
+            for i, line in enumerate(ax.lines):
+                old_val = old_list[i % len(old_list)]
+                if only and not _close_or_equal(getattr(line, getter_name)(), old_val):
+                    continue  # the student styled this one themselves
+                getattr(line, setter_name)(caster(target))
 
 
 # Line properties the panel can move, and how to copy one between Line2Ds.
@@ -1059,7 +1094,7 @@ def apply_live(rc, only_defaults=True, previous=None):
             if fig is not None and _CYCLE_MASTERS.get(key) not in cycled:
                 if key == "axes.prop_cycle":
                     _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults,
-                                        fallback=cycle_fallback)
+                                        fallback=cycle_fallback, rc=rc)
                 else:
                     _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
             mpl.rcParams[key] = json_to_rc(key, value)
@@ -1079,7 +1114,11 @@ def apply_live(rc, only_defaults=True, previous=None):
         for key in result["applied"]:
             touched.update(_LINE_PROPS_FOR_KEY.get(key, ()))
         if "axes.prop_cycle" in result["applied"]:
+            # The properties the cycle DROPPED count too: _uncycle walked the
+            # lines back to the scalar for those, and the legend's copies have
+            # to follow, exactly as they follow a property the cycle gained.
             touched.update(_cycle_props(rc["axes.prop_cycle"]))
+            touched.update(_cycle_props(old_value("axes.prop_cycle")))
         _sync_legend_handles(fig, touched & set(_LINE_SYNC_ATTRS))
         try:
             fig.canvas.draw_idle()

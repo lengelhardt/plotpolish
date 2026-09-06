@@ -5,6 +5,17 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.0 — 2026-09-06
 
+- **Fixed: a per-line width could stick, and then stop responding entirely.**
+  Applying a property cycle only ever set the properties the *new* cycle
+  carried, so when one went away — reverting the per-line table, resetting the
+  category, the "(all)" master taking over — the lines kept wearing it, while a
+  re-run of the same block drew them at `lines.linewidth`. The line then sat at
+  a width the panel did not believe it had, and `only_defaults` read that as
+  student-set and refused to touch the row ever again. Reported as a line stuck
+  huge, then stuck small, then never moving. The legend's copies of those lines
+  are walked back too.
+
+
 - **New: "Save PNG" (Save).** The Save category had three settings and no way
   to save, so `savefig.dpi`, `savefig.transparent` and `savefig.bbox` had no
   observable effect anywhere in the tool — the live-vs-re-run harness rejects

@@ -254,7 +254,17 @@ def test_prop_cycle_sets_per_line_color_width_style():
     assert mpl.rcParams["axes.prop_cycle"].by_key()["linewidth"] == [2.0, 1.0]
 
 
-def test_prop_cycle_second_call_changing_only_colors_keeps_widths():
+def test_prop_cycle_second_call_changing_only_colors_drops_the_widths():
+    """A cycle that no longer carries a property gives it back to the scalar.
+
+    This test used to assert the opposite -- that widths absent from the second
+    call were left untouched -- and that was the bug, not the requirement: a
+    re-run of a block whose cycler is `mpl.cycler(color=[...])` draws every line
+    at lines.linewidth, so leaving them at 2 was live preview disagreeing with
+    the file it had just written. The line then sat at a width the panel did not
+    believe it had, and only_defaults refused to move it again, which is how it
+    was found: a row that went stuck and stayed stuck.
+    """
     fig, ax = make_figure()
     default_line, user_line = ax.lines
     apply_live({"axes.prop_cycle": {
@@ -265,11 +275,10 @@ def test_prop_cycle_second_call_changing_only_colors_keeps_widths():
     apply_live({"axes.prop_cycle": {"color": ["#000000", "#FFFFFF"]}})
     assert default_line.get_color() == "#000000"
     assert user_line.get_color() == "#FFFFFF"
-    # widths/styles were absent from the second call's value: untouched
-    assert default_line.get_linewidth() == 2
+    assert default_line.get_linewidth() == mpl.rcParams["lines.linewidth"]
+    assert default_line.get_linestyle() == mpl.rcParams["lines.linestyle"]
+    # ...and the line the student drew with lw=3 is still theirs.
     assert user_line.get_linewidth() == 3
-    assert default_line.get_linestyle() == "-"
-    assert user_line.get_linestyle() == "--"
 
 
 def test_prop_cycle_previous_with_dict_old_value():
@@ -897,3 +906,59 @@ def test_save_figure_is_reachable_through_dispatch():
     response = _json.loads(dispatch(_json.dumps({"fn": "save_figure", "args": {"format": "png"}})))
     assert response["ok"] is True
     assert response["result"]["has_figure"] is True
+
+
+def test_a_property_the_cycle_drops_goes_back_to_the_scalar():
+    """Reported as: a line stuck huge, then stuck small, then never moving again.
+
+    Applying a cycle only ever set the properties the NEW cycle carried, so when
+    one went away -- reverting the per-line table, resetting the category, the
+    "(all)" master taking over -- the lines kept wearing it while a re-run drew
+    them at lines.linewidth. Worse, the line then sat at a width the panel no
+    longer believed it had, so only_defaults read it as student-set and refused
+    to touch that row ever again.
+    """
+    fig, ax = make_figure()
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+    wide = {"color": colors, "linewidth": [24, 1.5, 1.5]}
+
+    previous = introspect_figure()["rc"]
+    apply_live({"axes.prop_cycle": wide}, previous=previous)
+    assert ax.lines[0].get_linewidth() == 24
+
+    # The cycle loses its linewidth: a re-run would draw at lines.linewidth.
+    previous = dict(previous, **{"axes.prop_cycle": wide})
+    apply_live({"axes.prop_cycle": colors}, previous=previous)
+    assert ax.lines[0].get_linewidth() == mpl.rcParams["lines.linewidth"]
+
+    # ...and the row still responds, which it did not before.
+    previous = dict(previous, **{"axes.prop_cycle": colors})
+    apply_live({"axes.prop_cycle": {"color": colors, "linewidth": [6, 1.5, 1.5]}}, previous=previous)
+    assert ax.lines[0].get_linewidth() == 6
+
+
+def test_dropping_a_cycled_property_leaves_a_hand_styled_line_alone():
+    """only_defaults still applies on the way back: lw=3 in the code stays 3."""
+    fig, ax = make_figure()  # line 1 is drawn with lw=3
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+    previous = introspect_figure()["rc"]
+    apply_live({"axes.prop_cycle": {"color": colors, "linewidth": [8, 8, 8]}}, previous=previous)
+    assert ax.lines[0].get_linewidth() == 8
+    assert ax.lines[1].get_linewidth() == 3  # untouched, as ever
+
+    previous = dict(previous, **{"axes.prop_cycle": {"color": colors, "linewidth": [8, 8, 8]}})
+    apply_live({"axes.prop_cycle": colors}, previous=previous)
+    assert ax.lines[0].get_linewidth() == mpl.rcParams["lines.linewidth"]
+    assert ax.lines[1].get_linewidth() == 3
+
+
+def test_the_scalar_in_the_same_payload_wins_over_the_session():
+    """Dropping the cycle and setting the master at once: the master decides."""
+    fig, ax = make_figure()
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+    previous = introspect_figure()["rc"]
+    apply_live({"axes.prop_cycle": {"color": colors, "linewidth": [8, 8, 8]}}, previous=previous)
+
+    previous = dict(previous, **{"axes.prop_cycle": {"color": colors, "linewidth": [8, 8, 8]}})
+    apply_live({"axes.prop_cycle": colors, "lines.linewidth": 5}, previous=previous)
+    assert ax.lines[0].get_linewidth() == 5

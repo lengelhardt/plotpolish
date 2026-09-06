@@ -282,7 +282,7 @@ function buildCases(): Case[] {
   // second apply has to bring it to where a re-run of the SECOND block lands --
   // this is the shape of the revert bug, where the panel's idea of the baseline
   // came from rcParams the block itself had set.
-  for (const id of ["linewidth", "grid", "font_size", "prop_cycle"]) {
+  for (const id of ["linewidth", "grid", "font_size", "prop_cycle", "line_cycle"]) {
     const spec = CONTROLS.find((c) => c.id === id)!;
     const value = probeValue(spec)!;
     const first: Record<string, RcValue> = {};

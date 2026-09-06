@@ -25,7 +25,7 @@ from matplotlib import ticker as _ticker
 from matplotlib.colors import to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 TOOL_NAME = "plotpolish"
 
@@ -605,6 +605,10 @@ def _colors_equal(a, b):
         return a == b
 
 
+# Scalar rc key -> the axes.prop_cycle property that overrides it on a draw.
+# When the cycle carries that property, the scalar must not touch the artists.
+_CYCLE_MASTERS = {"lines.linewidth": "linewidth", "lines.linestyle": "linestyle"}
+
 # axes.prop_cycle property name -> (getter, setter, caster) on a Line2D.
 _PROP_CYCLE_ATTRS = {
     "color": ("get_color", "set_color", str),
@@ -780,6 +784,16 @@ def apply_live(rc, only_defaults=True, previous=None):
     result = {"applied": [], "deferred": [], "unknown": [], "has_figure": fig is not None}
     rc = dict(rc or {})
 
+    # ``axes.prop_cycle`` supplies per-line linewidth/linestyle, and on a real
+    # draw the cycler wins over the scalar rcParam: matplotlib gives [8, 8] for
+    # a cycler of linewidth=[8, 8] even with lines.linewidth=2. Mirror that.
+    # The scalar is still written to mpl.rcParams, so a re-run and savefig
+    # agree, but it must not walk the artists -- otherwise the "(all)" master
+    # marches over every line and undoes the per-line values the cycler just
+    # applied, and because each applier carries its own only_defaults guard it
+    # undoes them for some lines and not others.
+    cycled = set(_cycle_props(rc.get("axes.prop_cycle"))) if "axes.prop_cycle" in rc else set()
+
     def old_value(key):
         if isinstance(previous, dict) and key in previous:
             return previous[key]
@@ -809,7 +823,7 @@ def apply_live(rc, only_defaults=True, previous=None):
             mpl.rcParams[key] = value
             result["applied"].append(key)
         elif key in _LIVE_HANDLERS:
-            if fig is not None:
+            if fig is not None and _CYCLE_MASTERS.get(key) not in cycled:
                 _LIVE_HANDLERS[key](fig, value, old_value(key), only_defaults)
             mpl.rcParams[key] = json_to_rc(key, value)
             result["applied"].append(key)

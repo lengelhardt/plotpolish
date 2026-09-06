@@ -284,6 +284,63 @@ def test_prop_cycle_previous_with_dict_old_value():
     assert user_line.get_linewidth() == 3  # still user-set, left alone
 
 
+def test_cycler_wins_over_the_scalar_master_for_linewidth():
+    """The "(all)" master must not undo per-line widths.
+
+    matplotlib gives [8, 8] for a cycler of linewidth=[8, 8] even with
+    lines.linewidth=2, so live preview has to agree or it stops matching what a
+    re-run of the block would draw. Before this, the master marched over every
+    line after the cycler had set them -- and because each applier carries its
+    own only_defaults guard it undid some lines and not others, so one curve
+    would update and another would sit at the master's value.
+    """
+    fig, ax = make_figure()
+    a, b = ax.lines
+    apply_live({"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linewidth": [8, 8]}},
+               only_defaults=False)
+    assert [a.get_linewidth(), b.get_linewidth()] == [8, 8]
+
+    result = apply_live(
+        {"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linewidth": [8, 8]},
+         "lines.linewidth": 2},
+        previous={"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linewidth": [8, 8]},
+                  "lines.linewidth": 8},
+    )
+    assert [a.get_linewidth(), b.get_linewidth()] == [8, 8]
+    # The scalar is still recorded, so a re-run and savefig agree with the panel.
+    assert "lines.linewidth" in result["applied"]
+    assert mpl.rcParams["lines.linewidth"] == 2.0
+
+
+def test_cycler_wins_over_the_scalar_master_for_linestyle():
+    """The same collision existed for linestyle, with the same asymmetry."""
+    fig, ax = make_figure()
+    a, b = ax.lines
+    apply_live({"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linestyle": ["--", "-"]}},
+               only_defaults=False)
+    assert [a.get_linestyle(), b.get_linestyle()] == ["--", "-"]
+
+    apply_live(
+        {"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linestyle": ["--", "-"]},
+         "lines.linestyle": ":"},
+        previous={"axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"], "linestyle": ["--", "-"]},
+                  "lines.linestyle": "-"},
+    )
+    assert [a.get_linestyle(), b.get_linestyle()] == ["--", "-"]
+    assert mpl.rcParams["lines.linestyle"] == ":"
+
+
+def test_scalar_master_still_applies_when_the_cycler_omits_that_property():
+    """The master is only overridden for properties the cycler actually carries."""
+    fig, ax = make_figure()
+    default_line, _user_line = ax.lines
+    apply_live({"lines.linewidth": 5, "axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"]}})
+    assert default_line.get_linewidth() == 5
+
+    apply_live({"lines.linestyle": "--", "axes.prop_cycle": {"color": ["#E69F00", "#56B4E9"]}})
+    assert default_line.get_linestyle() == "--"
+
+
 def test_prop_cycle_only_defaults_false_forces_everything():
     fig, ax = make_figure()
     default_line, user_line = ax.lines

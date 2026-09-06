@@ -3,6 +3,28 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.1.9 — 2026-09-06
+
+- **Fixed: a per-line width or style could stick, updating for one curve but
+  not another.** `lines.linewidth` and `axes.prop_cycle`'s `linewidth` both
+  drive `Line2D.set_linewidth`, and the scalar "(all)" master ran over every
+  line *after* the cycler had set them, undoing the per-line values. Because
+  each applier carries its own `only_defaults` guard, it undid them for some
+  lines and not others — so one curve would follow the panel while another sat
+  at the master's value. `lines.linestyle` had the identical collision with the
+  cycler's `linestyle`.
+
+  The rule now matches matplotlib: a cycler carrying `linewidth=[8, 8]` draws
+  at 8 even with `lines.linewidth=2`, so when the cycle carries a property the
+  scalar sets the rcParam — a re-run and savefig still agree — but does not
+  walk the artists. The master is untouched when the cycler omits that
+  property, which is the case whenever it is the only thing you have set.
+
+  Swept every other applier for the same collision: on `Line2D` only
+  `linewidth` and `linestyle` are written by two keys. `marker` and
+  `markersize` have no cycler counterpart, `color` has no scalar master, and
+  gridlines are not in `ax.lines`, so `grid.linestyle` is unaffected.
+
 ## 0.1.8 — 2026-09-06
 
 - **The bundle now carries its own license notice.** BSD-3-Clause asks binary

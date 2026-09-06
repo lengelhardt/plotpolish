@@ -1772,7 +1772,14 @@ export class PlotpolishPanel extends HTMLElement {
     // In the pill rather than in a category, because a student reaches for it
     // when a change is about to be expensive -- which is before they have
     // opened anything. Always visible, so it is discoverable without hunting.
-    const autoBtn = el("button", { type: "button", class: "auto-update" }, "\u27F3");
+    const autoGlyph = el("span", { class: "glyph" }, "\u27F3");
+    autoGlyph.setAttribute("aria-hidden", "true");
+    const autoBtn = el(
+      "button",
+      { type: "button", class: "auto-update" },
+      autoGlyph,
+      el("span", { class: "auto-word" }, "Auto")
+    );
     autoBtn.addEventListener("click", () => {
       this.autoUpdate = !this._autoUpdate;
     });

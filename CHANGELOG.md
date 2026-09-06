@@ -20,12 +20,16 @@ project is pre-1.0, so minor versions may change behavior.
   now compares each bundle's banner against `LICENSE` verbatim.
 
 
-- **New: an auto-update switch, in the tab pill.** The figure follows every
+- **New: an auto-update switch, in the tab pill ("⟳ Auto").** The figure follows every
   change by default; the switch pauses that, and the changes go on being
   written to the block with the "re-run to see" mark the worker path already
   used. It sits in the pill rather than inside a category because a student
   reaches for it when a change is about to be expensive, which is before they
   have opened anything. Turning it back on catches the figure up in one apply.
+  It also fires a `plotpolish-auto-update` event, because a host that re-runs
+  the program by itself has to stop doing that too — the demo did not, and a
+  paused panel marks every change as pending a re-run, which was exactly what
+  its auto-re-run was listening for. Pausing made it re-run *more*.
 
 - **The Look category reads top down again.** "Colors" is above "Styles" (it is
   one row; the style grid is five), "Style preset" is just "Styles", and the

@@ -286,15 +286,31 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
   .pill, .pill-body, .pill.collapsed .pill-body { transition: none; }
 }
 
-/* The auto-update switch. Struck through when off, which reads as "paused"
-   without needing a second glyph. */
+/* The auto-update switch. It reads as a switch, not an icon: always bordered,
+   always filled, with a word beside the glyph. The OFF state is the loud one
+   on purpose -- a student who has paused updates and forgotten needs to see
+   why the figure stopped following them, whereas "on" is just the tool
+   behaving normally. */
 .auto-update {
-  font: inherit; font-size: 12px; line-height: 1; padding: 2px 4px; cursor: pointer;
-  color: var(--_muted); background: none; border: 1px solid transparent; border-radius: 4px;
+  display: inline-flex; align-items: center; gap: 3px;
+  font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
+  padding: 3px 7px; cursor: pointer; white-space: nowrap;
+  border-radius: 999px; border: 1px solid var(--_accent);
+  color: var(--_accent); background: var(--_bg);
 }
-.auto-update:hover { color: var(--_fg); border-color: var(--_border); }
-.auto-update[aria-pressed="true"] { color: var(--_accent); }
-.auto-update.off { text-decoration: line-through; }
+.auto-update .glyph { font-size: 13px; line-height: 1; }
+.auto-update:hover { background: var(--_accent-tint); }
+.auto-update.off {
+  border-color: var(--_danger); color: var(--_danger); font-weight: 700;
+}
+.auto-update.off:hover { background: var(--_danger); color: var(--_bg); }
+/* The slash is drawn, not a strikethrough on the text: it has to cross the
+   glyph, and text-decoration would score the word instead. */
+.auto-update.off .glyph { position: relative; }
+.auto-update.off .glyph::after {
+  content: ""; position: absolute; left: -1px; right: -1px; top: 50%;
+  border-top: 2px solid currentColor; transform: rotate(-20deg);
+}
 
 /* Spans both grid columns: the strip is about the whole control, not a value
    sitting opposite the label. Captions are gone -- no abbreviation fitted the

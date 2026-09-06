@@ -15,6 +15,9 @@ export type { FigureBackend, IntrospectResult, ApplyResult, FigureDescription, A
 export { MemorySink, ClipboardSink } from "./sink";
 export type { CodeSink, ClipboardSinkOptions } from "./sink";
 export { PlotpolishPanel, registerPanel } from "./panel";
-export type { PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail } from "./panel";
+export type {
+  PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail,
+  AutoUpdateEventDetail,
+} from "./panel";
 export { PyodideBackend } from "./adapters/pyodide";
 export type { PyodideLike } from "./adapters/pyodide";

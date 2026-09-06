@@ -11,7 +11,8 @@ import {
 } from "./block";
 import { ELEMENT_TAG, FENCE_START } from "./constants";
 import {
-  PlotpolishPanel, shortStyleName, type ChangeEventDetail, type PanelErrorEventDetail, type RerunNeededEventDetail,
+  PlotpolishPanel, shortStyleName, type AutoUpdateEventDetail, type ChangeEventDetail,
+  type PanelErrorEventDetail, type RerunNeededEventDetail,
 } from "./panel";
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
@@ -2984,6 +2985,38 @@ describe("auto-update: the student's own pause switch", () => {
     expect(autoBtn(panel).hidden).toBe(true); // the host declared it cannot preview
     await attachBackend(panel, new MockBackend());
     expect(autoBtn(panel).hidden).toBe(true); // ...and a backend does not change that
+  });
+
+  it("announces the change, so a host can stop its own auto-re-run too", async () => {
+    // The demo (and Trinket) re-run the program when the panel reports keys
+    // pending a re-run. A paused panel marks EVERY change that way, so without
+    // this event pausing made the host re-run more, not less -- the opposite of
+    // what the student asked for, on the host where it matters most.
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const seen: boolean[] = [];
+    panel.addEventListener("plotpolish-auto-update", (e) =>
+      seen.push((e as CustomEvent<AutoUpdateEventDetail>).detail.autoUpdate)
+    );
+
+    autoBtn(panel).click();
+    expect(seen).toEqual([false]);
+    autoBtn(panel).click();
+    expect(seen).toEqual([false, true]);
+  });
+
+  it("shows a word, not just a glyph, and shouts when it is off", async () => {
+    await attachBackend(panel, new MockBackend());
+    const btn = autoBtn(panel);
+    expect(btn.textContent).toContain("Auto");
+    expect(btn.querySelector(".glyph")).not.toBeNull();
+    expect(btn.querySelector(".glyph")!.getAttribute("aria-hidden")).toBe("true");
+
+    expect(btn.classList.contains("off")).toBe(false);
+    btn.click();
+    // "off" is the state a student needs to notice: it is why the figure
+    // stopped following them.
+    expect(btn.classList.contains("off")).toBe(true);
   });
 
   it("remembers a pause made before the interpreter arrived", async () => {

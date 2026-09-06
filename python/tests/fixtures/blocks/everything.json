@@ -27,6 +27,7 @@
       "#000000"
     ],
     "axes.grid": true,
+    "axes.grid.which": "both",
     "grid.alpha": 0.3,
     "grid.linestyle": ":",
     "axes.spines.top": false,

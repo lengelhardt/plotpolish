@@ -25,6 +25,7 @@ mpl.rcParams.update({
     "ytick.direction": "in",
     "xtick.minor.visible": True,
     "ytick.minor.visible": True,
+    "axes.grid.which": "both",
     "legend.loc": "upper left",
     "legend.frameon": False,
     "legend.framealpha": 0.5,

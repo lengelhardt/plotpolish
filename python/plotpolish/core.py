@@ -93,7 +93,7 @@ def _plain(value):
 
 
 def _color_json(color):
-    """One prop_cycle colour as the panel expects it: a string.
+    """One prop_cycle color as the panel expects it: a string.
 
     Strings pass through verbatim. Anything else -- an RGB(A) tuple, or a numpy
     row from ``plt.cm.viridis(np.linspace(0, 1, n))``, which is an ordinary way
@@ -734,7 +734,7 @@ def _apply_legend_title_size(fig, base_old, base_new, only):
             title.set_fontsize(base_new)
 
 
-# to_hex rounds each channel to 8 bits, so a colour that went through the
+# to_hex rounds each channel to 8 bits, so a color that went through the
 # panel's JSON can sit up to half a step away from the float the artist holds.
 _HEX_TOL = 0.5 / 255 + 1e-9
 
@@ -744,7 +744,7 @@ def _colors_equal(a, b):
 
     Tolerates the rounding of a hex round trip: a line drawn from a colormap
     holds floats such as 0.267004 while the panel's ``previous`` (JSON from
-    :func:`introspect_figure`) says ``#440154``; both name the same colour.
+    :func:`introspect_figure`) says ``#440154``; both name the same color.
     """
     try:
         ra, rb = _to_rgba(a), _to_rgba(b)
@@ -999,7 +999,21 @@ def apply_live(rc, only_defaults=True, previous=None):
     # marches over every line and undoes the per-line values the cycler just
     # applied, and because each applier carries its own only_defaults guard it
     # undoes them for some lines and not others.
-    cycled = set(_cycle_props(rc.get("axes.prop_cycle"))) if "axes.prop_cycle" in rc else set()
+    # The cycle that will be in force on the next run: the payload's if it
+    # carries one, else the session's. Reading only the payload was not enough.
+    # The panel sends deltas -- drag "Line width (all)" and only
+    # "lines.linewidth" arrives -- and with no cycle in that batch the scalar
+    # walked the artists even though the block still carries a cycler that
+    # would beat it on a re-run. only_defaults hides that most of the time,
+    # because a line sitting at a cycled width does not look untouched; it
+    # stops hiding it the moment one of the cycle's entries happens to equal
+    # the scalar rc value, and then that one line moves live and springs back
+    # on the next run.
+    if "axes.prop_cycle" in rc:
+        cycle_now = rc["axes.prop_cycle"]
+    else:
+        cycle_now = rc_to_json("axes.prop_cycle", mpl.rcParams["axes.prop_cycle"])
+    cycled = set(_cycle_props(cycle_now))
 
     def old_value(key):
         if isinstance(previous, dict) and key in previous:

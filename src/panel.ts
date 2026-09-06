@@ -223,7 +223,7 @@ export function shortStyleName(name: string): string {
 /**
  * A small preview of a style, drawn from its own rc values rather than by
  * rendering matplotlib: background, frame, grid and the first three cycle
- * colours are all the eye needs to tell ggplot from dark_background, and
+ * colors are all the eye needs to tell ggplot from dark_background, and
  * asking Python for 26 rendered PNGs to fill a dropdown would not be.
  */
 function styleThumb(preview: StylePreview): SVGSVGElement {
@@ -255,11 +255,11 @@ function styleThumb(preview: StylePreview): SVGSVGElement {
   }
 
   const shapes = ["M4,23 L15,15 L26,18 L40,7", "M4,17 L15,21 L26,9 L40,13", "M4,10 L15,6 L26,23 L40,19"];
-  preview.colors.slice(0, shapes.length).forEach((colour, i) => {
+  preview.colors.slice(0, shapes.length).forEach((color, i) => {
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("d", shapes[i]!);
     path.setAttribute("fill", "none");
-    path.setAttribute("stroke", colour);
+    path.setAttribute("stroke", color);
     path.setAttribute("stroke-width", "1.6");
     svg.append(path);
   });
@@ -2226,7 +2226,7 @@ export class PlotpolishPanel extends HTMLElement {
     for (let i = 0; i < length; i++) {
       if (i < rowCount) {
         const r = rows[i]!;
-        // Unchanged since it was rendered: write back what the colour actually
+        // Unchanged since it was rendered: write back what the color actually
         // was, not the input's sanitised idea of it.
         const untouched = r.color.dataset.rendered !== undefined && r.color.value === r.color.dataset.rendered;
         color.push(untouched ? (r.color.dataset.orig ?? r.color.value) : r.color.value);

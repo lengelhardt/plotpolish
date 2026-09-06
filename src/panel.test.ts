@@ -1667,7 +1667,7 @@ describe("commit as you type", () => {
   // update() rewrites every control from state on each change, so it has to
   // leave alone whatever the user is in the middle of. `isEditing` is what
   // stops it, and it guards nine places: the fontsize and dpi sliders, the
-  // figure-size pair, the per-line colour swatch and width cell, and the
+  // figure-size pair, the per-line color swatch and width cell, and the
   // legend x/y sliders. These three cover the three shapes -- a typed field, a
   // dragged slider, and a slider moved by a sibling control -- and each one
   // fails with the guard removed. The test they replace drove `title_size`
@@ -1951,9 +1951,9 @@ describe("panelDefault seeding", () => {
   });
 });
 
-describe("colours the colour input cannot represent", () => {
+describe("colors the color input cannot represent", () => {
   it("does not rewrite a named palette to black when an unrelated cell is edited", async () => {
-    // The classic style's palette is named colours; <input type="color"> turns
+    // The classic style's palette is named colors; <input type="color"> turns
     // every one of them into #000000. Editing a width must not drag the whole
     // palette to black in the student's file.
     const backend = new MockBackend();
@@ -1972,7 +1972,7 @@ describe("colours the colour input cannot represent", () => {
     expect(panel.getBlock()).not.toContain("#000000");
   });
 
-  it("still takes a colour the student actually picks", async () => {
+  it("still takes a color the student actually picks", async () => {
     const backend = new MockBackend();
     backend.rc["axes.prop_cycle"] = ["b", "g", "r", "c"];
     await attachBackend(panel, backend);
@@ -1984,7 +1984,7 @@ describe("colours the colour input cannot represent", () => {
     colors[1]!.value = "#ff8800";
     fireInput(colors[1]!);
 
-    // With only colours set, the cycle is written as a plain colour array;
+    // With only colors set, the cycle is written as a plain color array;
     // once widths or styles join it becomes the dict form.
     const value = panel.getSettings().rc["axes.prop_cycle"];
     const written = Array.isArray(value) ? (value as string[]) : (value as { color: string[] }).color;
@@ -2071,7 +2071,7 @@ describe("style thumbnails", () => {
       .toEqual(["default"]);
   });
 
-  it("draws each style from its own colours, so they are distinguishable", async () => {
+  it("draws each style from its own colors, so they are distinguishable", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);
     await panel.settle();
@@ -2117,7 +2117,7 @@ describe("style thumbnails", () => {
     expect(shortStyleName("fivethirtyeight")).toBe("538");
     expect(shortStyleName("Solarize_Light2")).toBe("Solarize");
     expect(shortStyleName("tableau-colorblind10")).toBe("tableau");
-    // Anything unrecognised is left exactly as matplotlib names it.
+    // Anything unrecognized is left exactly as matplotlib names it.
     expect(shortStyleName("ggplot")).toBe("ggplot");
   });
 
@@ -2711,7 +2711,7 @@ describe("two controls, one key: axes.prop_cycle", () => {
 
     groupReset(panel).click();
 
-    // The per-line widths are gone; the colours the other category owns are not.
+    // The per-line widths are gone; the colors the other category owns are not.
     const after = cycle(panel);
     expect(isPropCycle(after)).toBe(false);
     expect(after).toEqual(OKABE.colors);
@@ -2720,7 +2720,7 @@ describe("two controls, one key: axes.prop_cycle", () => {
   it("Reset Look keeps the per-line widths, re-zipped to the palette it restores", async () => {
     await ready(panel);
     openTab(panel, "look");
-    pickPalette(panel, "okabe-ito"); // eight colours
+    pickPalette(panel, "okabe-ito"); // eight colors
     openTab(panel, "lines");
     setWidth(panel, 1, "3");
 
@@ -2730,7 +2730,7 @@ describe("two controls, one key: axes.prop_cycle", () => {
     const after = cycle(panel);
     expect(isPropCycle(after)).toBe(true);
     const value = after as PropCycleValue;
-    expect(value.color).toEqual(DEFAULT_PALETTE); // ten colours
+    expect(value.color).toEqual(DEFAULT_PALETTE); // ten colors
     expect(value.linewidth![1]).toBe(3);
     // mpl.cycler zips equal-length lists, so the widths had to follow the
     // palette from eight entries to ten rather than be left short.
@@ -2753,7 +2753,7 @@ describe("two controls, one key: axes.prop_cycle", () => {
     openTab(panel, "lines");
     setWidth(panel, 0, "8");
     openTab(panel, "look");
-    expect(groupReset(panel).hidden).toBe(true); // Look owns no colour change yet
+    expect(groupReset(panel).hidden).toBe(true); // Look owns no color change yet
 
     pickPalette(panel, "okabe-ito");
     expect(groupReset(panel).hidden).toBe(false);

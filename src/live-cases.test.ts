@@ -64,7 +64,7 @@ const PROGRAMS: Record<string, string> = {
     'ax.set_xlabel("x")',
     'ax.set_ylabel("y")',
   ].join("\n"),
-  // Lines the student coloured from a colormap. Those colours reach the panel as
+  // Lines the student colored from a colormap. Those colors reach the panel as
   // numpy arrays of floats, not hex strings, so the "is this artist still at the
   // value the panel last set?" comparison has to survive a round trip through
   // JSON. Getting that wrong crashed the palette once and, another time, made
@@ -90,9 +90,9 @@ const PROGRAMS: Record<string, string> = {
     "ax.plot(x, x * 2.5e6)",
     'ax.set_xlabel("x")',
   ].join("\n"),
-  // The student sets their own property cycle, from a colormap. Those colours
+  // The student sets their own property cycle, from a colormap. Those colors
   // reach the panel as float arrays; the panel sends back hex. The "is this
-  // line still where I left it?" test has to see the two as the same colour.
+  // line still where I left it?" test has to see the two as the same color.
   cyclecode: [
     "import matplotlib.pyplot as plt",
     "import numpy as np",
@@ -179,6 +179,14 @@ interface Case {
   /** Settings applied before the ones under test, to model a change of mind. */
   before: StyleSettings | null;
   /**
+   * Keys the LAST apply sends, when that is fewer than all of them. The panel
+   * applies deltas -- move one slider and only that control's keys go to the
+   * interpreter -- while the block always carries every setting, so a key can
+   * be in force on a re-run without being in the batch that is being applied.
+   * null means "send everything", which is what most cases want.
+   */
+  delta: string[] | null;
+  /**
    * False when the settings are expected to draw nothing different -- legend
    * keys on a figure with no legend. Such a case still has to run without
    * throwing and still has to match a re-run; it just cannot be asked to prove
@@ -209,6 +217,7 @@ function buildCases(): Case[] {
       program: "basic",
       before: null,
       beforeBlock: null,
+      delta: null,
       visible: true,
       settings,
       block: generateBlock(settings)!,
@@ -230,6 +239,7 @@ function buildCases(): Case[] {
       program: "explicit",
       before: null,
       beforeBlock: null,
+      delta: null,
       visible: true,
       settings,
       block: generateBlock(settings)!,
@@ -258,6 +268,7 @@ function buildCases(): Case[] {
         program,
         before: null,
         beforeBlock: null,
+        delta: null,
         visible:
           (program !== "nolegend" || !id.startsWith("legend_")) &&
           !(program === "cyclecode" && id !== "linewidth"),
@@ -286,6 +297,7 @@ function buildCases(): Case[] {
       program: "basic",
       before: beforeSettings,
       beforeBlock: generateBlock(beforeSettings),
+      delta: null,
       visible: true,
       settings: { style: "default", rc: {} },
       block: "",
@@ -308,6 +320,7 @@ function buildCases(): Case[] {
     program: "basic",
     before: null,
     beforeBlock: null,
+    delta: null,
     visible: true,
     settings: { style: "default", rc: both },
     block: generateBlock({ style: "default", rc: both })!,
@@ -330,13 +343,14 @@ function buildCases(): Case[] {
       program,
       before: null,
       beforeBlock: null,
+      delta: null,
       visible: true,
       settings: { style: "default", rc: everything },
       block: generateBlock({ style: "default", rc: everything })!,
     });
   }
 
-  // The palette against colormap-coloured lines, on its own, so a failure names
+  // The palette against colormap-colored lines, on its own, so a failure names
   // the palette rather than "everything".
   for (const id of ["prop_cycle", "line_cycle", "linewidth"]) {
     const spec = CONTROLS.find((c) => c.id === id)!;
@@ -345,17 +359,44 @@ function buildCases(): Case[] {
     for (const key of spec.keys) rc[key] = value;
     cases.push({
       id: `colormap:${id}`,
-      note: `${spec.label} on lines the student coloured from a colormap`,
+      note: `${spec.label} on lines the student colored from a colormap`,
       program: "colormap",
       before: null,
       beforeBlock: null,
-      // Every line in that program names its own colour, so a palette changes
+      // Every line in that program names its own color, so a palette changes
       // nothing there -- for either path, which is the point. What must still
-      // hold is that the two agree, and that the comparison survives colours
+      // hold is that the two agree, and that the comparison survives colors
       // that arrive as float arrays rather than hex.
+      delta: null,
       visible: id !== "prop_cycle",
       settings: { style: "default", rc },
       block: generateBlock({ style: "default", rc })!,
+    });
+  }
+
+  // Delta applies. The panel sends only the keys that changed, so a key can be
+  // in force on the re-run without being in the batch, and the appliers have to
+  // reckon with a property cycle that is not in front of them. The cycle's
+  // first entry deliberately equals the scalar's rc default: that is the one
+  // arrangement where only_defaults cannot tell a cycled line from an
+  // untouched one, and it is where this hid for a release.
+  {
+    const cycle: RcValue = { color: ["#E69F00", "#56B4E9"], linewidth: [1.5, 5], linestyle: ["-", "--"] };
+    const before: StyleSettings = { style: "default", rc: { "axes.prop_cycle": cycle } };
+    const full: StyleSettings = {
+      style: "default",
+      rc: { "axes.prop_cycle": cycle, "lines.linewidth": 7, "lines.linestyle": ":" },
+    };
+    cases.push({
+      id: "delta:master-after-cycle",
+      note: 'the "(all)" masters sent alone, with a cycle already in force from the block',
+      program: "basic",
+      before,
+      beforeBlock: generateBlock(before),
+      delta: ["lines.linewidth", "lines.linestyle"],
+      visible: true,
+      settings: full,
+      block: generateBlock(full)!,
     });
   }
 

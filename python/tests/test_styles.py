@@ -64,9 +64,9 @@ def test_style_previews_fall_back_to_defaults_for_keys_a_style_omits():
     by_name = {p["name"]: p for p in style_previews()}
 
     for name, preview in by_name.items():
-        assert preview["colors"], "%s previewed with no colours" % name
+        assert preview["colors"], "%s previewed with no colors" % name
         assert isinstance(preview["grid"], bool), "%s grid is %r" % (name, preview["grid"])
-        assert preview["axes"], "%s has no axes colour" % name
+        assert preview["axes"], "%s has no axes color" % name
 
     if "dark_background" in plt.style.library:
         dark = by_name["dark_background"]

@@ -50,7 +50,7 @@ def test_set_style_through_dispatch():
 def test_introspect_survives_a_colormap_prop_cycle():
     """The student idiom ``plt.rcParams['axes.prop_cycle'] = cycler(color=plt.cm.viridis(...))``.
 
-    Its colours are numpy rows; the panel's whole refresh used to come back as
+    Its colors are numpy rows; the panel's whole refresh used to come back as
     ``{"ok": false, "error": "TypeError: Object of type ndarray is not JSON serializable"}``.
     """
     rows = plt.cm.viridis(np.linspace(0, 1, 4))

@@ -60,7 +60,7 @@ KNOWN_DIVERGENCES = {
 
 # Found by this harness, and not yet decided. When the student's own code sets
 # axes.prop_cycle -- `plt.rcParams['axes.prop_cycle'] = cycler(...)` -- it runs
-# AFTER the block and wins, so a re-run keeps their colours. Live preview
+# AFTER the block and wins, so a re-run keeps their colors. Live preview
 # repaints the lines with the panel's palette anyway, because the only_defaults
 # test compares each line against what the panel last saw the figure at, and
 # what it last saw IS the student's cycle. The panel cannot tell "the student
@@ -70,7 +70,7 @@ KNOWN_DIVERGENCES = {
 # question; pinned here so the harness stays green and the finding stays visible.
 STUDENT_CYCLE_NOTE = (
     "the student's code sets axes.prop_cycle after the block, so a re-run keeps "
-    "their colours while live preview repaints with the panel's palette"
+    "their colors while live preview repaints with the panel's palette"
 )
 
 # A legend's padding, handle length and label spacing are multiples of the font
@@ -119,6 +119,11 @@ def live_figure(case):
     wanted = dict(case["settings"]["rc"])
     for key in (case["before"] or {"rc": {}})["rc"]:
         wanted.setdefault(key, DEFAULTS[key])  # reverted: back to the baseline
+    if case["delta"]:
+        # Only the keys that changed reach the interpreter, which is what the
+        # panel really sends; the rest are still in the block and still in
+        # force on the next run.
+        wanted = {key: wanted[key] for key in case["delta"]}
     steps.append(wanted)
 
     for step in steps:

@@ -15,7 +15,7 @@ import numpy as np
 from matplotlib.colors import to_hex
 
 
-def _colour(value):
+def _color(value):
     try:
         return to_hex(value, keep_alpha=True)
     except (ValueError, TypeError):
@@ -24,13 +24,13 @@ def _colour(value):
 
 def _line(line):
     return {
-        "color": _colour(line.get_color()),
+        "color": _color(line.get_color()),
         "linewidth": round(float(line.get_linewidth()), 6),
         "linestyle": str(line.get_linestyle()),
         "marker": str(line.get_marker()),
         "markersize": round(float(line.get_markersize()), 6),
-        "markerfacecolor": _colour(line.get_markerfacecolor()),
-        "markeredgecolor": _colour(line.get_markeredgecolor()),
+        "markerfacecolor": _color(line.get_markerfacecolor()),
+        "markeredgecolor": _color(line.get_markeredgecolor()),
         "alpha": line.get_alpha(),
         "visible": line.get_visible(),
     }
@@ -40,7 +40,7 @@ def _text(text):
     return {
         "size": round(float(text.get_fontsize()), 6),
         "family": list(text.get_fontfamily()),
-        "color": _colour(text.get_color()),
+        "color": _color(text.get_color()),
         "string": text.get_text(),
         "visible": text.get_visible(),
     }
@@ -48,7 +48,7 @@ def _text(text):
 
 def _grid_line(line):
     return {
-        "color": _colour(line.get_color()),
+        "color": _color(line.get_color()),
         "linestyle": str(line.get_linestyle()),
         "linewidth": round(float(line.get_linewidth()), 6),
         "alpha": line.get_alpha(),
@@ -80,8 +80,8 @@ def _legend(legend):
     return {
         "frameon": legend.get_frame_on(),
         "framealpha": legend.get_frame().get_alpha(),
-        "facecolor": _colour(legend.get_frame().get_facecolor()),
-        "edgecolor": _colour(legend.get_frame().get_edgecolor()),
+        "facecolor": _color(legend.get_frame().get_facecolor()),
+        "edgecolor": _color(legend.get_frame().get_edgecolor()),
         "texts": [_text(t) for t in legend.get_texts()],
         "title": _text(legend.get_title()),
         # The sample lines beside the labels are COPIES of the plotted lines,
@@ -94,13 +94,13 @@ def _legend(legend):
 def _axes(ax):
     return {
         "title": _text(ax.title),
-        "facecolor": _colour(ax.get_facecolor()),
+        "facecolor": _color(ax.get_facecolor()),
         "position": [round(v, 6) for v in ax.get_position().bounds],
         "spines": {
             name: {
                 "visible": s.get_visible(),
                 "linewidth": round(float(s.get_linewidth()), 6),
-                "color": _colour(s.get_edgecolor()),
+                "color": _color(s.get_edgecolor()),
             }
             for name, s in ax.spines.items()
         },
@@ -117,7 +117,7 @@ def describe(fig):
     return {
         "figsize": [round(v, 6) for v in fig.get_size_inches()],
         "dpi": round(float(fig.dpi), 6),
-        "facecolor": _colour(fig.get_facecolor()),
+        "facecolor": _color(fig.get_facecolor()),
         "layout_engine": type(fig.get_layout_engine()).__name__ if fig.get_layout_engine() else None,
         "axes": [_axes(a) for a in fig.axes],
     }

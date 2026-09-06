@@ -379,6 +379,29 @@ def test_every_live_key_is_dispatched():
     assert result["deferred"] == [] and result["unknown"] == []
 
 
+def test_a_scalar_alone_still_yields_to_a_cycle_already_in_force():
+    """The panel sends deltas, so the cycle is often not in the payload.
+
+    Drag "Line width (all)" and only lines.linewidth arrives, while the block
+    still carries a cycler that beats it on a re-run. only_defaults hides this
+    while the cycled widths look nothing like the scalar; it stops hiding it as
+    soon as one entry equals the scalar's rc value, and then that line moves
+    live and springs back on the next run. Raised by Copilot on PR #14; it took
+    the matching-entry arrangement to actually reproduce.
+    """
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=["#E69F00", "#56B4E9"], linewidth=[1.5, 5])
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    ax.plot([0, 1], [1, 0])
+    assert [l.get_linewidth() for l in ax.lines] == [1.5, 5.0]
+
+    apply_live({"lines.linewidth": 7}, previous={"lines.linewidth": 1.5})
+
+    # A re-run would let the cycler win for both lines, so live must too.
+    assert [l.get_linewidth() for l in ax.lines] == [1.5, 5.0]
+    assert mpl.rcParams["lines.linewidth"] == 7  # still recorded, for savefig
+
+
 def test_legend_title_follows_the_base_font_size_not_the_legend_size():
     """rcParams["legend.title_fontsize"] is None, which means "use font.size".
 
@@ -465,7 +488,7 @@ def test_prop_cycle_follows_lines_drawn_from_a_colormap():
 
     The panel's ``previous`` comes back through JSON as hex strings, which
     round the colormap's floats to 8 bits; an exact comparison would then call
-    every line user-set and skip it, while a re-run recolours them all.
+    every line user-set and skip it, while a re-run recolors them all.
     """
     rows = plt.cm.viridis(np.linspace(0, 1, 3))
     mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=rows)
@@ -476,7 +499,7 @@ def test_prop_cycle_follows_lines_drawn_from_a_colormap():
     assert [line.get_color() for line in lines] == ["#E69F00", "#56B4E9", "#009E73"]
 
 
-def test_colors_equal_tolerates_hex_rounding_but_not_a_different_colour():
+def test_colors_equal_tolerates_hex_rounding_but_not_a_different_color():
     from plotpolish.core import _colors_equal
 
     row = plt.cm.viridis(0.0)

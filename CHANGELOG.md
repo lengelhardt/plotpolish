@@ -18,7 +18,7 @@ project is pre-1.0, so minor versions may change behavior.
   rejected as proving nothing.
 
 - **Fixed: the legend's swatches never followed the lines.** A legend's sample
-  lines are copies taken when it was built, so changing colour, width, style,
+  lines are copies taken when it was built, so changing color, width, style,
   marker or the per-line cycle updated the plot and left the swatches behind —
   five controls with one cause. Found by the harness.
 
@@ -56,7 +56,7 @@ project is pre-1.0, so minor versions may change behavior.
   and the row loop only starts a new heading when the subgroup changes.
 
 - Four tests that passed for the wrong reason were replaced, each verified by
-  breaking the behaviour and watching the test go red. One of them had been the
+  breaking the behavior and watching the test go red. One of them had been the
   only cover for all nine `isEditing` call sites, and another for the `writing`
   guard — both of which the whole suite passed without.
 

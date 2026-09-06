@@ -177,7 +177,9 @@ needs "Minor tick marks" on, because matplotlib puts a grid line only where a
 tick is. That was first left to the help text, then tried as disabling the
 switch until its prerequisite was met — which was worse, since the control was
 disabled by default and so the feature could not be reached at all. It now
-simply turns the tick marks on with it (`turnsOn` in controls.json). Asking for
+simply turns on what it cannot draw without (`turnsOn` in controls.json, a
+list): the Grid toggle and the minor tick marks both, since with `axes.grid`
+off nothing draws whatever else is set. Asking for
 the grid lines IS asking for whatever it takes to see them; the ticks are
 matplotlib's business, not a second decision for the student. Only on the way
 on — switching the grid lines off leaves the ticks, which a student may want by

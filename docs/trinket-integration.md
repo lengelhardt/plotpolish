@@ -1,14 +1,20 @@
-# Trinket integration plan (spike, 2026-09-05)
+# Trinket integration plan
 
-Status: **spike**. This document is the deliverable of a read-only survey of
-`picup-trinket-oss` plus one library change (the IIFE build). No Trinket code
-has been written yet. The adapter itself will live in the Trinket repo; this
-plan says what it has to do and what plotpolish had to change to make that
-possible.
+Status: **Phase 1 starting.** plotpolish v0.1.0 is released; the Trinket
+worktree exists (`feature/plot-style`, off `origin/main`) and its stack has
+been verified running clean. No Trinket code has been written yet. The adapter
+itself will live in the Trinket repo; this plan says what it has to do and
+what plotpolish had to change to make that possible.
 
 The "Survey findings" section records what two read-only surveys of
-`picup-trinket-oss` established, with file and line references as of
-2026-09-05; the design sections above it are derived from those findings.
+`picup-trinket-oss` established. **Those surveys were taken against a
+different branch and their line numbers ran ~300 high** — the corrected table
+under that heading is authoritative, and the "Corrections to the adapter
+design" subsection lists three findings that invalidate parts of the prose
+above it. Read both before following any design section here.
+
+"Local development setup" describes how to bring the environment up, and the
+Docker traps that are worth knowing before you lose an hour to one.
 
 ## Goal and non-goals
 
@@ -220,9 +226,11 @@ already covers same-origin `/components/...` paths; no policy change.
    running container is the fallback. Phase 3 can still move to the
    release-asset pattern under `public/components/`.
 2. **Worker path.** Protocol addition, worker backend, redraw pump.
-3. **Deploy.** plotpolish: a tagged-release workflow attaching
-   `plotpolish.iife.js` + sha256. Trinket: Dockerfile ARGs, `sync-plotpolish.sh`,
-   `setup-vendor`, `RUNNER_PATHS`, `COMPONENTS.md`, flag default.
+3. **Deploy.** plotpolish: **done** — `.github/workflows/release.yml` fires on
+   `v*` tags and attaches `plotpolish.iife.js` + its sha256; v0.1.0 is
+   published and the built asset is byte-for-byte reproducible. Trinket:
+   Dockerfile ARGs, `sync-plotpolish.sh`, `setup-vendor`, `RUNNER_PATHS`,
+   `COMPONENTS.md`, flag default.
 
    **Blocker to settle first: plotpolish is a private repo.** The release-asset
    pattern is an unauthenticated `curl` inside a Docker build, which 404s
@@ -231,9 +239,99 @@ already covers same-origin `/components/...` paths; no policy change.
    vendor the bundle another way. Making it public around the classroom trial
    is the cheapest of the three.
 
+## Local development setup
+
+Verified end to end on 2026-09-05 by actually running it.
+
+The work happens in a **git worktree** so the Trinket checkout's own branch is
+never disturbed:
+
+```
+git -C picup-trinket-oss worktree add -b feature/plot-style \
+    ../picup-trinket-plotstyle origin/main
+```
+
+`.env` and `config/local.yaml` are gitignored, so they do **not** appear in a
+new worktree — copy both from the original checkout by hand. Add the dev flag
+to the worktree's `config/local.yaml`:
+
+```yaml
+features:
+  plotStyle: true    # false in config/default.yaml; on here for dev only
+```
+
+Bring it up with `make mongo` (self-host shape: mongo + redis + garage S3),
+app on <http://localhost:3000>; stop with `make down-mongo`. A healthy start
+logs `DB: mongoose mongodb:27017/trinket ✓` and `Server started on port:
+3000`, and `/version` reports the worktree's branch — `build-info.sh` runs on
+the host, so it stamps correctly from a worktree.
+
+Docker facts that cost time to learn:
+
+* **`docker-compose.yml` hardcodes `container_name`** (`trinket`, `garage`,
+  `garage-init`, `redis`, `mongodb` at lines 12, 110, 133, 155, 163). Compose
+  does not namespace those by project, so **two checkouts can never run the
+  mongo stack at the same time**, whatever `COMPOSE_PROJECT_NAME` says. The
+  gcr stack coexists happily — different names, port 3001.
+* **`docker compose down` acts on the whole project, not the compose file.**
+  Both compose files in a checkout share the directory-derived project name,
+  so a plain `docker compose down` there also stops `trinket-gcr`. Restore it
+  with `docker compose -f docker-compose.gcr.yml up -d app`, or be surgical
+  with `docker compose stop <service>`.
+* **A worktree is its own compose project**, so its volumes start empty —
+  including `mongodb_data`, meaning no account and no trinkets. The named
+  volumes do seed from the image, though: `/components/src-min-noconflict/
+  theme-github.js` returns 200 on a first run with no vendoring step.
+
 ## Survey findings
 
 *Filled in from the two survey reports.*
+
+> **Re-keyed 2026-09-05.** The original surveys were taken while the checkout
+> sat on `feature/sympy-math-output`, which inserts ~300 lines into
+> `pyodide.js` above `finishRun`. Every line number below the "Front-end" and
+> "Runtime" headings therefore ran high. The table here is the corrected set,
+> verified directly against `origin/main` (66d7edc); prefer it over any
+> number quoted in the prose.
+>
+> | What | origin/main | previously quoted |
+> | --- | --- | --- |
+> | `finishRun()` | pyodide.js:2790 | 3087 |
+> | source read, `editor.getAllFiles()` | pyodide.js:2904 | 3199 |
+> | `editor.change(...)` fan-out | pyodide.js:3292 | 3589 |
+> | `getEditor()` / `getMainFile()` | pyodide.js:3364 / 3373 | 3661 / 3671 |
+> | `variableExplorerEnabled()` | pyodide.js:1344 | — |
+> | `stepDebuggerEnabled()` | pyodide.js:1405 | — |
+> | editor widget instantiation | pyodide.js:3129 | 3426 |
+> | `base.html` flag emission | base.html:41-44 | — |
+> | `getFile(fileName)` | code-editor.js:2174 | — |
+>
+> Also branch-only, and therefore **not available to copy from**:
+> `ensureKatex()`, `mathOutputEnabled()`, `scripts/sync-katex.sh`, and the
+> `COMPONENTS.md` write-up of the volume-shadowing trap. On `origin/main` that
+> trap is recorded instead in `scripts/setup-glowscript.sh:2-9` and
+> `GETTING_STARTED.md:218-227`.
+
+### Corrections to the adapter design
+
+Three things the first survey got wrong, each of which would have cost a
+debugging session:
+
+* **`getFile(fileName)` already exists** (code-editor.js:2174) and returns the
+  file's *text*. Use it for `getSource()`. The session-returning accessor this
+  plan proposed under the same name would have silently shadowed it — give
+  that one a different name.
+* **`finishRun()` is not the only completion point.** Step-through recording
+  (`runStepThrough`, pyodide.js:1870-1950, finishing via `recordingDone()`)
+  and the REPL both bypass it, and both can create or close figures. With
+  `stepDebugger: true` — the local dev default — the panel can therefore go
+  stale after a recording unless `recordingDone()` is hooked too.
+* **`editor.change(cb)` is single-owner** (`this._onChange = cb`), so calling
+  it again replaces Trinket's own listener rather than adding to it. Wrap
+  `api.triggerChange`; do not re-register. Hooking Ace's per-file session
+  `change` directly is not equivalent — it misses files added later, upload,
+  rename, tab close/restore, hide/show and comment edits, all of which notify
+  only through the widget-level `_onChange`.
 
 ### Front-end
 

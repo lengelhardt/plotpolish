@@ -1794,6 +1794,48 @@ describe("panelDefault seeding", () => {
   });
 });
 
+describe("colours the colour input cannot represent", () => {
+  it("does not rewrite a named palette to black when an unrelated cell is edited", async () => {
+    // The classic style's palette is named colours; <input type="color"> turns
+    // every one of them into #000000. Editing a width must not drag the whole
+    // palette to black in the student's file.
+    const backend = new MockBackend();
+    backend.rc["axes.prop_cycle"] = ["b", "g", "r", "c"];
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const widths = Array.from(
+      panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-width")
+    );
+    widths[0]!.value = "4";
+    fireInput(widths[0]!);
+
+    const cycle = panel.getSettings().rc["axes.prop_cycle"] as { color: string[] };
+    expect(cycle.color.slice(0, 4)).toEqual(["b", "g", "r", "c"]);
+    expect(panel.getBlock()).not.toContain("#000000");
+  });
+
+  it("still takes a colour the student actually picks", async () => {
+    const backend = new MockBackend();
+    backend.rc["axes.prop_cycle"] = ["b", "g", "r", "c"];
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+
+    const colors = Array.from(
+      panel.shadowRoot!.querySelectorAll<HTMLInputElement>("input.line-color")
+    );
+    colors[1]!.value = "#ff8800";
+    fireInput(colors[1]!);
+
+    // With only colours set, the cycle is written as a plain colour array;
+    // once widths or styles join it becomes the dict form.
+    const value = panel.getSettings().rc["axes.prop_cycle"];
+    const written = Array.isArray(value) ? (value as string[]) : (value as { color: string[] }).color;
+    expect(written[0]).toBe("b");
+    expect(written[1]).toBe("#ff8800");
+  });
+});
+
 describe("one reset per category", () => {
   it("is hidden until the open category has something to reset, and names it", () => {
     panel.sink = new MemorySink("");

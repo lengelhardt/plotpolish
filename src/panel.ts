@@ -848,6 +848,7 @@ export class PlotpolishPanel extends HTMLElement {
           return btn;
         })
       );
+      if (showAll) host.append(showAll);
     }
     for (const btn of Array.from(host.querySelectorAll<HTMLButtonElement>("button.style-thumb"))) {
       btn.setAttribute("aria-pressed", String(btn.dataset.style === this.settings.style));
@@ -1736,12 +1737,13 @@ export class PlotpolishPanel extends HTMLElement {
         const thumbs = el("div", { class: "style-thumbs" , hidden: true });
         row.append(thumbs);
         styleThumbs = thumbs;
+        // Lives inside the thumbnail strip rather than on a row of its own, so
+        // it fills the gap the last row leaves instead of claiming new height.
         const showAll = el("button", { type: "button", class: "show-all-styles", hidden: true });
         showAll.addEventListener("click", () => {
           this.allStylesShown = !this.allStylesShown;
           this.update();
         });
-        row.append(showAll);
         styleShowAll = showAll;
         const note = el("p", { class: "next-run" }, "Applies on the next run.");
         row.append(note);
@@ -2124,7 +2126,10 @@ export class PlotpolishPanel extends HTMLElement {
     for (let i = 0; i < length; i++) {
       if (i < rowCount) {
         const r = rows[i]!;
-        color.push(r.color.value);
+        // Unchanged since it was rendered: write back what the colour actually
+        // was, not the input's sanitised idea of it.
+        const untouched = r.color.dataset.rendered !== undefined && r.color.value === r.color.dataset.rendered;
+        color.push(untouched ? (r.color.dataset.orig ?? r.color.value) : r.color.value);
         const w = Number(r.width.value);
         width.push(Number.isFinite(w) && w > 0 ? w : fallbackWidth);
         const activeBtn = Array.from(r.styleSeg.children).find(
@@ -2399,7 +2404,18 @@ export class PlotpolishPanel extends HTMLElement {
           const visible = i < rowCount;
           r.row.hidden = !visible;
           if (!visible) continue;
-          if (!this.isEditing(r.color)) r.color.value = color[i]!;
+          if (!this.isEditing(r.color)) {
+            // <input type="color"> only understands #rrggbb. matplotlib's
+            // palettes are full of things it does not: the classic style is
+            // ['b','g','r','c','m','y','k'], grayscale is ['0.00','0.40',...],
+            // and 'C0'/'tab:blue'/'#abc' are ordinary too. The input silently
+            // turns every one of them into #000000. Remember the real value
+            // and what the input made of it, so an untouched swatch can be
+            // written back as it was rather than as black.
+            r.color.dataset.orig = color[i]!;
+            r.color.value = color[i]!;
+            r.color.dataset.rendered = r.color.value;
+          }
           if (!this.isEditing(r.width)) r.width.value = String(width[i]);
           for (const b of Array.from(r.styleSeg.children) as HTMLButtonElement[]) {
             b.setAttribute("aria-pressed", String(b.dataset.value === style[i]));

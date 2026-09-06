@@ -263,7 +263,8 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .style-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
 .style-thumbs .style-name { display: block; font-size: 10px; line-height: 12px; color: var(--_muted); text-align: center; max-width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .style-thumbs .style-thumb[aria-pressed="true"] .style-name { color: var(--_fg); font-weight: 600; }
-.show-all-styles { margin: 4px 0 0; border: 0; background: none; padding: 2px 0; font-size: 11px; color: var(--_accent); cursor: pointer; }
+.style-thumbs .show-all-styles { width: 50px; height: 46px; border: 1px dashed var(--_border); border-radius: 4px; background: none; padding: 0 2px; font-size: 10px; line-height: 12px; color: var(--_accent); cursor: pointer; white-space: normal; }
+.style-thumbs .show-all-styles:hover { border-color: var(--_accent); border-style: solid; }
 .style-thumbs .style-thumb { padding: 2px; border: 1px solid var(--_border); border-radius: 4px; background: var(--_field-bg); line-height: 0; cursor: pointer; }
 .style-thumbs .style-thumb:hover { border-color: var(--_accent); }
 .style-thumbs .style-thumb[aria-pressed="true"] { border-color: var(--_accent); box-shadow: 0 0 0 1px var(--_accent) inset; }

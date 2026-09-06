@@ -71,6 +71,11 @@ function tabDot(panel: PlotpolishPanel, groupId: string): HTMLElement {
   return pillTab(panel, groupId).querySelector(".dot") as HTMLElement;
 }
 
+/** The popover's one reset, beside the open category's name. */
+function groupReset(panel: PlotpolishPanel): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector(".pop-head .reset-group") as HTMLButtonElement;
+}
+
 function tabRerun(panel: PlotpolishPanel, groupId: string): HTMLElement {
   return pillTab(panel, groupId).querySelector(".rerun") as HTMLElement;
 }
@@ -504,16 +509,17 @@ describe("writing", () => {
     fireInput(fs);
     expect(panel.getSettings().rc).toEqual({ "font.size": 14, ...SEEDED });
 
-    const revertBtn = ctl(panel, "font_size").querySelector(".revert") as HTMLButtonElement;
-    expect(revertBtn.hidden).toBe(false);
-    revertBtn.click();
-    expect(panel.getSettings().rc).toEqual({ ...SEEDED });
+    // One reset per category, in the popover header. Text holds font.size and
+    // the seeded figure.autolayout; savefig.dpi is the Save category's.
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(false);
+    groupReset(panel).click();
+    expect(panel.getSettings().rc).toEqual({ "savefig.dpi": 300 });
     expect(sink.writes[sink.writes.length - 1]).toContain(FENCE_START);
 
-    // Every seeded default has to go before the fence can be removed.
-    for (const id of ["savefig_dpi", "autolayout"]) {
-      (ctl(panel, id).querySelector(".revert") as HTMLButtonElement).click();
-    }
+    // The last category's keys have to go before the fence can be removed.
+    openTab(panel, "save");
+    groupReset(panel).click();
 
     const last = sink.writes[sink.writes.length - 1]!;
     expect(last).not.toContain(FENCE_START);
@@ -575,8 +581,8 @@ describe("writing", () => {
     change(dpi);
     expect(panel.getSettings().rc["savefig.dpi"]).toBe(150);
 
-    const revertBtn = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
-    revertBtn.click();
+    openTab(panel, "save");
+    groupReset(panel).click();
 
     expect(panel.getSettings().rc["savefig.dpi"]).toBeUndefined();
   });
@@ -1534,13 +1540,15 @@ describe("backend", () => {
     fireInput(lw);
     await panel.settle();
 
-    const revertBtn = ctl(panel, "linewidth").querySelector(".revert") as HTMLButtonElement;
-    revertBtn.click();
+    openTab(panel, "lines");
+    groupReset(panel).click();
     await panel.settle();
 
+    // Resetting the category puts the figure back to the baseline value the
+    // student's own code established (3), not to the schema default.
     const calls = backend.calls.filter((c) => c.fn === "apply_live");
     const last = calls[calls.length - 1]!;
-    expect(last.args).toEqual({ rc: { "lines.linewidth": 3 }, only_defaults: true, previous: { "lines.linewidth": 7 } });
+    expect((last.args as { rc: Record<string, unknown> }).rc["lines.linewidth"]).toBe(3);
     expect(panel.getSettings().rc["lines.linewidth"]).toBeUndefined();
   });
 
@@ -1724,8 +1732,8 @@ describe("panelDefault seeding", () => {
     grid.checked = true;
     change(grid);
 
-    const dpiRevert = ctl(panel, "savefig_dpi").querySelector(".revert") as HTMLButtonElement;
-    dpiRevert.click();
+    openTab(panel, "save");
+    groupReset(panel).click();
     // Reverting one seeded key removes only that one; the others stay.
     const { "savefig.dpi": _dropped, ...stillSeeded } = SEEDED;
     expect(panel.getSettings().rc).toEqual({ "axes.grid": true, ...stillSeeded });
@@ -1783,6 +1791,59 @@ describe("panelDefault seeding", () => {
     select.value = "ggplot";
     change(select);
     expect(panel.getSettings().rc).toEqual({ ...SEEDED });
+  });
+});
+
+describe("one reset per category", () => {
+  it("is hidden until the open category has something to reset, and names it", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(true);
+
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+
+    expect(groupReset(panel).hidden).toBe(false);
+    expect(groupReset(panel).title).toBe("Reset Text");
+  });
+
+  it("resets only the open category, leaving the others alone", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+
+    openTab(panel, "axes");
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    // Reset Axes: the grid goes, the font size stays.
+    expect(groupReset(panel).title).toBe("Reset Axes");
+    groupReset(panel).click();
+    expect(panel.getSettings().rc["axes.grid"]).toBeUndefined();
+    expect(panel.getSettings().rc["font.size"]).toBe(18);
+
+    // And with nothing left in Axes, its reset goes away again.
+    expect(groupReset(panel).hidden).toBe(true);
+  });
+
+  it("follows the category as you switch tabs", () => {
+    panel.sink = new MemorySink("");
+    openTab(panel, "text");
+    const size = input(panel, "font_size") as HTMLInputElement;
+    size.value = "18";
+    fireInput(size);
+    expect(groupReset(panel).hidden).toBe(false);
+
+    // Lines has no changes, so the reset is not offered there.
+    openTab(panel, "lines");
+    expect(groupReset(panel).hidden).toBe(true);
+
+    openTab(panel, "text");
+    expect(groupReset(panel).hidden).toBe(false);
   });
 });
 
@@ -1922,14 +1983,14 @@ describe("linecycle (Per line)", () => {
     expect(label.getAttribute("title")).toBe(CONTROLS.find((c) => c.id === "line_cycle")!.help);
   });
 
-  it("the label row (label, badges and revert) sits on one line, separate from the table", () => {
+  it("the label row (label and badges) sits on one line, separate from the table", () => {
     const row = ctl(panel, "line_cycle");
     const labelRow = row.querySelector(".control-label-row")!;
     expect(labelRow.querySelector("label")).not.toBeNull();
     expect(labelRow.querySelector(".badges")).not.toBeNull();
-    expect(labelRow.querySelector(".revert")).not.toBeNull();
-    // Not stranded below the table/+line button, inside .control.
-    expect(row.querySelector(".control .revert")).toBeNull();
+    // No per-row revert anywhere: one reset per category lives in the popover
+    // header instead, so a row carries only what describes the control.
+    expect(row.querySelector(".revert")).toBeNull();
   });
 
   it("the header row has no 'COLOR' heading, and has 'Width' and 'Style' over their columns", () => {

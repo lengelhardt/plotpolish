@@ -284,6 +284,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   private _open = false;
   /** Collapsed: the pill shows only its grip, tucked into the figure's corner. */
+  private popResetBtn: HTMLButtonElement | null = null;
   private pillCollapsed = false;
   /** Where the pill was dragged to before collapsing, restored on expand. */
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
@@ -567,7 +568,22 @@ export class PlotpolishPanel extends HTMLElement {
               /* no thumbnails; the select still works */
             });
         }
-        this.baseline = { ...schemaDefaults(), ...intro.rc };
+        // intro.rc is the interpreter *after the block ran*, so for every key
+        // the block sets it holds the block's own value. Adopting it wholesale
+        // made "baseline" mean "what you just chose", and reverting a control
+        // then applied that same value back: the block lost the key, the figure
+        // and the slider did not move, and the revert looked broken.
+        //
+        // Keep the baseline we already hold for keys the block sets -- from
+        // schemaDefaults() for the default style, or from set_style()'s
+        // effective values for a preset -- and take intro.rc only for keys the
+        // block leaves alone, where it really does describe the environment.
+        const defaults = schemaDefaults();
+        const fromFigure = { ...defaults, ...intro.rc };
+        for (const key of Object.keys(this.settings.rc)) {
+          fromFigure[key] = this.baseline[key] ?? defaults[key]!;
+        }
+        this.baseline = fromFigure;
         this.figureRc = { ...intro.rc };
         this.overridden = new Set(intro.overridden);
         this.figure = intro.figure;
@@ -1422,6 +1438,20 @@ export class PlotpolishPanel extends HTMLElement {
     return controlsInGroup(group.id).some((c) => c.keys.some((k) => k in this.settings.rc));
   }
 
+  /** Show the popover's reset only when the open category has something to reset. */
+  private updateGroupReset(): void {
+    const btn = this.popResetBtn;
+    if (!btn) return;
+    const group = this.category;
+    const has = !!group && this.groupHasChanges(group);
+    btn.hidden = !has;
+    if (has) {
+      const label = GROUPS.find((g) => g.id === group)?.label ?? group;
+      btn.title = `Reset ${label}`;
+      btn.setAttribute("aria-label", `Reset ${label}`);
+    }
+  }
+
   private groupHasChanges(groupId: string): boolean {
     if (groupId === "look" && this.settings.style !== "" && this.settings.style !== "default") return true;
     return controlsInGroup(groupId).some((c) => c.keys.some((k) => k in this.settings.rc));
@@ -1488,7 +1518,20 @@ export class PlotpolishPanel extends HTMLElement {
     const reanchorBtn = el("button", { type: "button", class: "reanchor", title: "Move back to the tab" }, "⌖");
     const closeBtn = el("button", { type: "button", class: "close" }, "✕");
     closeBtn.setAttribute("aria-label", "Close");
-    const header = el("div", { class: "pop-head", title: "Drag to move" }, grip, title, reanchorBtn, closeBtn);
+    // One reset per open category, beside its name, shown only when that
+    // category has something to reset. A revert on every row was noise: most
+    // of them were hidden most of the time, and the ones that showed invited
+    // the reader to hunt for which control they belonged to.
+    const resetGroupBtn = el("button", { type: "button", class: "reset-group", hidden: true }, "\u21ba");
+    resetGroupBtn.addEventListener("click", () => {
+      if (this.category) this.resetCategory(this.category);
+    });
+    const header = el(
+      "div",
+      { class: "pop-head", title: "Drag to move" },
+      grip, title, resetGroupBtn, reanchorBtn, closeBtn
+    );
+    this.popResetBtn = resetGroupBtn;
     header.addEventListener("pointerdown", (e) => this.onHeaderPointerDown(e as PointerEvent));
     header.addEventListener("pointermove", (e) => this.onHeaderPointerMove(e as PointerEvent));
     header.addEventListener("pointerup", (e) => this.onHeaderPointerUp(e as PointerEvent));
@@ -1586,7 +1629,10 @@ export class PlotpolishPanel extends HTMLElement {
     const label = el("label", { htmlFor: id, title: spec.help ?? "" }, spec.label);
     const badges = el("div", { class: "badges" });
     const control = el("div", { class: "control" });
-    const revert = el("button", { type: "button", class: "revert", title: "Back to the style's default", hidden: true }, "↺");
+    // The per-row revert is gone; the popover header carries one reset for the
+    // whole category. Kept as a detached element so ControlView's shape and the
+    // update path below do not need special-casing per control type.
+    const revert = el("button", { type: "button", class: "revert", hidden: true }, "\u21ba");
     revert.setAttribute("aria-label", `Revert ${spec.label}`);
     revert.addEventListener("click", () => this.setKeys(spec, undefined));
     // The per-line table's revert sits at the right end of its label row (not
@@ -1594,7 +1640,7 @@ export class PlotpolishPanel extends HTMLElement {
     // wrapper alongside the label and its badges; every other control keeps
     // the plain label/badges/control layout, with revert inside .control.
     const row = spec.type === "linecycle"
-      ? el("div", { class: "row" }, el("div", { class: "control-label-row" }, label, badges, revert), control)
+      ? el("div", { class: "row" }, el("div", { class: "control-label-row" }, label, badges), control)
       : el("div", { class: "row" }, label, badges, control);
     row.dataset.control = spec.id;
     if (spec.category === "save") row.title = "Applies when the figure is saved, not on screen.";
@@ -1915,7 +1961,9 @@ export class PlotpolishPanel extends HTMLElement {
     }
     // The per-line table's revert already lives in the label row (see `row`
     // above); every other control keeps it at the end of .control.
-    if (spec.type !== "linecycle") control.append(revert);
+    // revert is no longer appended anywhere: the category reset in the popover
+    // header replaced it. The element stays in the view so updateControl can go
+    // on setting `.hidden` without a type-by-type special case.
     const view: ControlView = { spec, row, inputs, badges, revert };
     if (segmented) view.segmented = segmented;
     if (swatchList) view.swatchList = swatchList;
@@ -2076,6 +2124,7 @@ export class PlotpolishPanel extends HTMLElement {
       : `Live preview on · ${this.backendMessage}`;
     ui.pill.title = statusText;
     ui.rail.title = statusText;
+    this.updateGroupReset();
     ui.pill.classList.toggle("error", Boolean(this.fenceError));
     ui.rail.classList.toggle("error", Boolean(this.fenceError));
     ui.errMark.hidden = !this.fenceError;

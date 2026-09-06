@@ -5,6 +5,21 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.0 — 2026-09-06
 
+- **The bundle now carries the whole license, not just an identifier.** BSD-3-
+  Clause asks a redistribution to reproduce the copyright notice, the list of
+  conditions *and* the disclaimer; the banner had only the first of the three.
+  It costs 1,746 bytes of a 200 KB bundle (916 gzipped) and means a host that
+  vendors plotpolish by curling one file is compliant by serving it, with
+  nothing its sync script has to remember. The text is read from `LICENSE` at
+  build time rather than retyped, so the two cannot drift, and the SPDX
+  identifier stays on the first line. Raised by Copilot on PR #13.
+
+  The release gate that was supposed to protect this could not: it grepped for
+  the SPDX line, which vite writes from the same repo two lines earlier, so it
+  proved a banner existed and nothing about what was in it. `src/iife.test.ts`
+  now compares each bundle's banner against `LICENSE` verbatim.
+
+
 - **New: an auto-update switch, in the tab pill.** The figure follows every
   change by default; the switch pauses that, and the changes go on being
   written to the block with the "re-run to see" mark the worker path already

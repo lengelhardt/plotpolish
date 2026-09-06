@@ -39,4 +39,27 @@ describe("IIFE bundle (dist/plotpolish.iife.js)", () => {
     expect(typeof plotpolish.HELPER_SOURCE).toBe("string");
     expect(plotpolish.HELPER_SOURCE as string).toContain("def dispatch(");
   });
+
+  // BSD-3-Clause asks a redistribution to carry the copyright notice, the list
+  // of conditions AND the disclaimer. Checking for the SPDX identifier alone
+  // proves only that vite wrote a banner two lines earlier in the same repo: it
+  // cannot tell a complete notice from a truncated one, which is exactly what
+  // this is meant to catch. So compare against LICENSE itself.
+  it.each(["dist/plotpolish.js", "dist/plotpolish.iife.js"])(
+    "%s opens with the whole license, not just an identifier",
+    (file) => {
+      const bundle = readFileSync(file, "utf8");
+      const banner = bundle.slice(0, bundle.indexOf("*/") + 2);
+
+      expect(banner.split("\n")[0]).toContain("SPDX-License-Identifier: BSD-3-Clause");
+      // Strip the comment furniture and what is left must be LICENSE verbatim.
+      const carried = banner
+        .split("\n")
+        .slice(1, -1)
+        .map((line) => line.replace(/^ \*( |$)/, ""))
+        .join("\n")
+        .trim();
+      expect(carried).toBe(readFileSync("LICENSE", "utf8").trim());
+    }
+  );
 });

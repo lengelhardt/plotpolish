@@ -45,13 +45,23 @@ jobs:
       # the artifact this workflow publishes.
       - run: npx vitest run src/iife.test.ts
 
+      # src/iife.test.ts (run just above) compares each bundle's banner against
+      # LICENSE verbatim, which is the real gate. This is the cheap one: the
+      # three pieces BSD-3-Clause actually asks a redistribution to carry, so a
+      # banner truncated to its identifier fails here too. Checking only for the
+      # SPDX line -- which vite writes from this same repo -- proved a banner
+      # existed and nothing about what was in it.
       - name: Verify the license notice survived the build
         run: |
           for f in dist/plotpolish.js dist/plotpolish.iife.js; do
-            if ! head -1 "$f" | grep -q "SPDX-License-Identifier: BSD-3-Clause"; then
-              echo "Error: license banner missing from $f"
-              exit 1
-            fi
+            head -1 "$f" | grep -q "SPDX-License-Identifier: BSD-3-Clause" \
+              || { echo "Error: SPDX identifier missing from the first line of $f"; exit 1; }
+            grep -q "Copyright (c) 2026, Larry Engelhardt and plotpolish contributors" "$f" \
+              || { echo "Error: copyright notice missing from $f"; exit 1; }
+            grep -q "list of conditions and the following disclaimer" "$f" \
+              || { echo "Error: list of conditions missing from $f"; exit 1; }
+            grep -q "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS" "$f" \
+              || { echo "Error: warranty disclaimer missing from $f"; exit 1; }
           done
 
       - name: Verify the Python helper is inside both bundles

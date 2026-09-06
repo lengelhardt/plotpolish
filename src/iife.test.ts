@@ -35,6 +35,16 @@ describe("IIFE bundle (dist/plotpolish.iife.js)", () => {
     expect(customElements.get("plotpolish-panel")).toBeDefined();
   });
 
+  // A host vendors this file on its own -- that is the whole point of the IIFE
+  // build -- and serves it from its own origin. A `//# sourceMappingURL=`
+  // comment would then make every one of that host's users' devtools request a
+  // .map they never copied, which is a 404 apiece. The map is still built
+  // (`sourcemap: "hidden"`) and still published beside the release, for anyone
+  // who wants to attach it by hand.
+  it("carries no sourceMappingURL, so a host can vendor it as one file", () => {
+    expect(code).not.toContain("sourceMappingURL");
+  });
+
   it("inlines the Python helper, with its dispatch entry point", () => {
     expect(typeof plotpolish.HELPER_SOURCE).toBe("string");
     expect(plotpolish.HELPER_SOURCE as string).toContain("def dispatch(");

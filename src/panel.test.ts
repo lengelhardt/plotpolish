@@ -325,19 +325,43 @@ describe("loading from a sink", () => {
     expect(ctl(panel, "grid").classList.contains("is-set")).toBe(true);
   });
 
-  it("keeps its sink subscription when the element is re-parented", async () => {
+  it("keeps its sink subscription across a disconnect and reconnect", () => {
     const sink = new MemorySink("print('hi')\n");
     panel.sink = sink;
     expect(panel.getBlock()).toBeNull();
 
     // WebAgg rebuilds the figure's whole DOM on every run, so a panel mounted
-    // in that subtree is disconnected and reconnected routinely. That runs
-    // disconnectedCallback, which drops the sink subscription.
+    // in that subtree gets moved routinely, and a move fires disconnected then
+    // connected -- which is what drops the sink subscription. Do the two halves
+    // explicitly rather than relying on a bare re-parent: the spec says moving
+    // a node runs both callbacks, but leaning on that would make this test quietly
+    // stop proving anything under a DOM implementation that skips them.
+    const newHost = document.createElement("div");
+    document.body.append(newHost);
+
+    panel.remove();
+    expect(panel.isConnected).toBe(false);
+    newHost.append(panel);
+    expect(panel.isConnected).toBe(true);
+
+    const settings: StyleSettings = { style: "ggplot", rc: { "font.size": 12 } };
+    sink.externalEdit(generateBlock(settings)!);
+
+    expect(panel.getSettings()).toEqual(settings);
+    newHost.remove();
+  });
+
+  it("keeps its sink subscription across a bare re-parent", () => {
+    // The form the demo's mountPanel() actually uses: insert the same element
+    // somewhere else without removing it first.
+    const sink = new MemorySink("print('hi')\n");
+    panel.sink = sink;
+
     const newHost = document.createElement("div");
     document.body.append(newHost);
     newHost.append(panel);
 
-    const settings: StyleSettings = { style: "ggplot", rc: { "font.size": 12 } };
+    const settings: StyleSettings = { style: "ggplot", rc: { "font.size": 14 } };
     sink.externalEdit(generateBlock(settings)!);
 
     expect(panel.getSettings()).toEqual(settings);

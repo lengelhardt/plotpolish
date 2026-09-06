@@ -608,7 +608,7 @@
       "id": "legend_framealpha",
       "group": "legend",
       "tier": "more",
-      "label": "Frame opacity",
+      "label": "Legend opacity",
       "type": "number",
       "keys": [
         "legend.framealpha"
@@ -618,7 +618,7 @@
       "min": 0,
       "max": 1,
       "step": 0.05,
-      "help": "legend.framealpha"
+      "help": "legend.framealpha. Fades the legend background box and its border together; the labels themselves stay solid."
     },
     {
       "id": "savefig_dpi",

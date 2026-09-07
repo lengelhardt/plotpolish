@@ -27,7 +27,7 @@ from matplotlib import ticker as _ticker
 from matplotlib.colors import to_hex as _to_hex, to_rgba as _to_rgba
 from matplotlib.font_manager import font_scalings as _FONT_SCALINGS
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 TOOL_NAME = "plotpolish"
 

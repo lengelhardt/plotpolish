@@ -3,6 +3,64 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.2 — 2026-09-07
+
+- **Fixed: the block threw away the host's `figure.figsize` whenever the style
+  set one.** `hostRcKeys` reached only the live path — the panel handed it to
+  `set_style(name, keep)`, which saves those keys across its reset, but the
+  block never saw it. So a re-run ran `mpl.style.use(<name>)` on top of the
+  host's per-run setup and any key the style sheet happened to set was gone.
+  Not hypothetical: Trinket's Web Worker sets a pane-fitting `figure.figsize`
+  through rcParams before every run, 8 of matplotlib's 29 styles set
+  `figure.figsize`, and one of the eight is `seaborn-v0_8` — a curated style
+  button, on by default. Picking it discarded the pane fit on every run while
+  live preview went on showing it, which is the promise this tool rests on
+  broken in a tenth place.
+
+  `generateBlock`, `upsertBlock` and `replaceFence` now take the host's keys
+  and the panel passes `this.hostRcKeys` at all six call sites (Copy code and
+  Show code go through `getBlock`). With a named style and a non-empty list the
+  block saves those keys, applies the style, and puts them back.
+
+- **Fixed: backend failures were invisible — everything they said lived in a
+  hover tooltip.** `update()` built a status string covering "no backend",
+  "connecting", "error" and "ready" and put it in `pill.title` and
+  `rail.title`, while the *visible* affordances — `.pill.error`, `.rail.error`
+  and the `!` mark — were wired to `fenceError` alone, which is a parse error
+  in the student's own block. A backend that failed changed nothing on screen.
+  The failure that matters is on Trinket: a program plots a figure early and
+  then keeps computing, so the host rejects every helper call with "A program
+  is running". The student drags a slider, the figure sits still, and nothing
+  says why — it reads as the tool having stopped working.
+
+  A wait and a fault are not the same news, so they no longer get the same
+  treatment. `backendStallReason()` classifies a rejected `runPython`: the two
+  transient messages Trinket sends are a wait, a `BackendError` never is (the
+  interpreter did run the snippet and the helper raised, which no amount of
+  waiting fixes), and anything unrecognized keeps the loud treatment — the safe
+  way round.
+
+- **Fixed: CI ran the bundle tests before the bundle existed, so they never
+  ran.** `src/iife.test.ts` reads `dist/` and skips itself when `dist/` is
+  missing, which is the right behavior for `npm test` on a fresh clone. But
+  `ci.yml` ordered `npm test` before `npm run build`, so on every push all six
+  of its cases skipped: the no-`sourceMappingURL` guard added in v0.3.1, the
+  license-notice check, and the four global-surface assertions. The bundle is
+  now built first, as `release.yml` already did, so a regression to either
+  guard fails the PR that introduces it instead of surviving until someone cuts
+  a tag.
+
+- **The integration doc said there was "nothing for the adapter to do" about
+  `figure.autolayout` / `figure.figsize`, and that was wrong twice.** There is
+  something to do — the adapter must pass them as `panel.hostRcKeys`, which is
+  what `set_style()` takes as its `keep` list — and the doc now prescribes
+  `["figure.autolayout", "figure.figsize"]` on the worker path against
+  `["figure.autolayout"]` on the main thread. It also documents a guard the
+  file never mentioned: only mount over a matplotlib figure. Web VPython draws
+  in the same pane and Trinket has two scene containers with different ids
+  (`#glowscript` on the main thread, `#vpython-scene` on the worker), so match
+  the `glowscript` class both of them share rather than either id.
+
 ## 0.3.1 — 2026-09-06
 
 - **Fixed: the vendored bundle asked every host's users for a sourcemap they

@@ -79,9 +79,15 @@ export interface PanelErrorEventDetail {
   error: Error;
   context: string;
   /**
-   * Why the call did not land. `"busy"` and `"loading"` are the host declining
-   * for now -- mid-run, or Python not up yet -- which the panel itself shows as
-   * a calm wait rather than a fault. `null` is a real backend fault.
+   * Whether the call was merely refused for now. `"busy"` and `"loading"` are
+   * the host declining -- mid-run, or Python not up yet -- which the panel
+   * itself shows as a calm wait rather than a fault.
+   *
+   * `null` means **not a transient refusal**, which is not the same as "a
+   * backend fault": this event also fires for failures that never reached the
+   * backend at all, such as `context: "write"` when the panel could not write
+   * to the source. Read `context` to tell those apart. Only `"busy"` and
+   * `"loading"` carry a positive claim.
    *
    * Additive on purpose: a host that ignores this behaves exactly as before,
    * and one that reads it can avoid surfacing a transient refusal as an error.

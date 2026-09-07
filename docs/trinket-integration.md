@@ -134,8 +134,13 @@ how Trinket runs programs, any change to the block format.
   identically on 3.8.4 and 3.10.9. `figure.autolayout` escapes only because it
   is an exposed control that the panel seeds into the block *after* the
   `style.use` line; `figure.figsize` is not a control and gets no such luck.
-  Fixed on the plotpolish side by having the block save and restore
-  `hostRcKeys` around `mpl.style.use` — see the block-generation tests.
+  **Not fixed on `main` yet.** The fix — having the block save and restore
+  `hostRcKeys` around `mpl.style.use` — is proposed in #22 and is deliberately
+  unreleased while PICUP-Physics/trinket-oss#251 is under review, because
+  re-vendoring the bundle mid-review would invalidate that PR's byte-for-byte
+  reproducibility claim. Until #22 lands, `generateBlock` emits a bare
+  `mpl.style.use(<name>)` and an adapter cannot do anything about it from the
+  host side.
 * **Only mount over a matplotlib figure.** A host that shares its output pane
   with other graphics must gate mounting. On Trinket the adapter's
   `hasFigure()` counts a `<canvas>` in `#graphic` — but Web VPython draws its

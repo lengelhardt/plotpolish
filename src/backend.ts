@@ -105,6 +105,38 @@ export class BackendError extends Error {
   }
 }
 
+/**
+ * A transient reason a backend could not answer, as opposed to a failure:
+ * "busy" while the student's own program holds the interpreter, "loading"
+ * before the interpreter exists at all. Both clear themselves.
+ */
+export type BackendStall = "busy" | "loading";
+
+// Read off the message, because `FigureBackend` is deliberately one method and
+// carries no error codes (see CLAUDE.md: two tiny host interfaces only). The
+// two Trinket rejects with, verbatim, are `new Error("A program is running")`
+// and `new Error("Python is not loaded yet")`; see docs/trinket-integration.md.
+// The neighboring wordings are here because a host is free to phrase its own.
+const BUSY_PATTERNS = [/\bprogram is running\b/i, /\balready running\b/i, /\bis busy\b/i];
+const LOADING_PATTERNS = [/\bnot loaded\b/i, /\bnot ready\b/i, /\bstill loading\b/i, /\bstarting up\b/i];
+
+/**
+ * Classify a rejected `runPython`. Returns null for anything not recognized as
+ * transient, which is the safe way round: an unrecognized failure keeps the
+ * loud treatment rather than being explained away as "come back later".
+ *
+ * A `BackendError` is never a stall. It means the interpreter *did* run the
+ * snippet and the helper raised (or answered with something unreadable), which
+ * is a real fault no amount of waiting fixes.
+ */
+export function backendStallReason(error: unknown): BackendStall | null {
+  if (error instanceof BackendError) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  if (BUSY_PATTERNS.some((re) => re.test(message))) return "busy";
+  if (LOADING_PATTERNS.some((re) => re.test(message))) return "loading";
+  return null;
+}
+
 /** Python source for one helper call. Exported so hosts can inspect or log it. */
 export function buildSnippet(fn: string, args: Record<string, unknown> = {}): string {
   // JSON.stringify twice: the inner call makes the request JSON, the outer

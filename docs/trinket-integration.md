@@ -120,6 +120,16 @@ how Trinket runs programs, any change to the block format.
   `panel.hostRcKeys = ["figure.autolayout", "figure.figsize"]` on the worker
   path (`["figure.autolayout"]` on the main thread): the block then saves those
   keys, applies the style and puts them back.
+* **Only mount over a matplotlib figure.** A host that shares its output pane
+  with other graphics must gate mounting. On Trinket the adapter's
+  `hasFigure()` counts a `<canvas>` in `#graphic` — but Web VPython draws its
+  3D scene on a canvas there too, and there are **two** scene containers with
+  **different ids**: `#glowscript` (main thread, `setupGlowScene()`) and
+  `#vpython-scene` (worker path). Both carry `className 'glowscript'`, so match
+  the **class**, not either id. An id-based check shipped once and mounted the
+  matplotlib pill over a VPython scene on the worker path — offering to write
+  rcParams into a VPython program. Any new scene container must carry that
+  class or the guard lapses silently.
 * **Persistent interpreter.** rcParams and open figures survive between runs
   on the main thread; `set_style()` handles style leftovers, and the block is
   self-contained so a fresh interpreter (Clear memory, or the proposed

@@ -15,3 +15,10 @@ export const FENCE_END = "# --- end plot style ---";
 
 /** Name of the variable the Python snippets leave their JSON result in. */
 export const RESULT_VARIABLE = `__${TOOL_NAME}_result__`;
+
+/**
+ * Name the block binds while it carries the host's rc values across
+ * `mpl.style.use`. It lives for three lines and is deleted; it is prefixed
+ * with the tool name so it cannot plausibly collide with a student's global.
+ */
+export const HOST_RC_VARIABLE = `_${TOOL_NAME}_host_rc`;

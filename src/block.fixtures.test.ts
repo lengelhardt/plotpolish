@@ -24,10 +24,17 @@ function file(name: string, ext: string): string {
   return FILES[key]!;
 }
 
-function load(name: string): { py: string; settings: StyleSettings } {
+/**
+ * The sidecar is the StyleSettings, plus an optional `hostRcKeys` naming the rc
+ * keys the host owns -- a generator input, not part of the settings, so it is
+ * split back out before anything compares against what parseBlock returns.
+ */
+function load(name: string): { py: string; settings: StyleSettings; hostRcKeys: string[] } {
   const py = file(name, "py").replace(/\n$/, "");
-  const settings = JSON.parse(file(name, "json")) as StyleSettings;
-  return { py, settings };
+  const { hostRcKeys = [], ...settings } = JSON.parse(file(name, "json")) as StyleSettings & {
+    hostRcKeys?: string[];
+  };
+  return { py, settings, hostRcKeys };
 }
 
 describe("golden fixtures", () => {
@@ -38,8 +45,8 @@ describe("golden fixtures", () => {
   for (const name of NAMES) {
     describe(name, () => {
       it("generateBlock reproduces the golden block byte for byte", () => {
-        const { py, settings } = load(name);
-        expect(generateBlock(settings)).toBe(py);
+        const { py, settings, hostRcKeys } = load(name);
+        expect(generateBlock(settings, hostRcKeys)).toBe(py);
       });
 
       it("parseBlock reads the golden block back to the sidecar settings", () => {
@@ -52,10 +59,10 @@ describe("golden fixtures", () => {
       });
 
       it("upsert into a user file is idempotent", () => {
-        const { settings } = load(name);
+        const { settings, hostRcKeys } = load(name);
         const user = "import numpy as np\nimport matplotlib.pyplot as plt\n\nplt.plot([1, 2], [3, 4])\nplt.show()\n";
-        const once = upsertBlock(user, settings);
-        const twice = upsertBlock(once, settings);
+        const once = upsertBlock(user, settings, hostRcKeys);
+        const twice = upsertBlock(once, settings, hostRcKeys);
         expect(twice).toBe(once);
         expect(once.endsWith(user.slice(0))).toBe(true); // user's lines untouched, block above them
         expect(parseBlock(once)!.settings).toEqual(settings);

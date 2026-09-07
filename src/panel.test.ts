@@ -2874,6 +2874,57 @@ describe("events", () => {
   });
 });
 
+describe("hostRcKeys reach the generated block", () => {
+  // The panel already handed hostRcKeys to set_style (the live path). The block
+  // is the other half: 8 of matplotlib's 29 styles set figure.figsize, and
+  // seaborn-v0_8 -- one of the eight curated style buttons -- is one of them, so
+  // without the save/restore a re-run threw the host's pane fit away.
+  const SAVE = '_plotpolish_host_rc = {k: mpl.rcParams[k] for k in ["figure.figsize"] if k in mpl.rcParams}';
+  const RESTORE = "mpl.rcParams.update(_plotpolish_host_rc)";
+  const styled: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12 } };
+
+  it("getBlock() carries the host's keys across the style", () => {
+    panel.hostRcKeys = ["figure.figsize"];
+    panel.sink = new MemorySink(generateBlock(styled)!);
+
+    const block = panel.getBlock()!;
+    expect(block).toContain(SAVE);
+    expect(block).toContain(RESTORE);
+    expect(block).toContain("del _plotpolish_host_rc");
+    expect(block.indexOf(SAVE)).toBeLessThan(block.indexOf('mpl.style.use("seaborn-v0_8")'));
+    expect(block.indexOf(RESTORE)).toBeGreaterThan(block.indexOf('mpl.style.use("seaborn-v0_8")'));
+  });
+
+  it("writes them into the student's file, and reads the result back unchanged", () => {
+    panel.hostRcKeys = ["figure.figsize"];
+    const sink = new MemorySink(`${generateBlock(styled)!}\n\nplt.show()\n`);
+    panel.sink = sink;
+
+    const fs = input(panel, "font_size") as HTMLInputElement;
+    fs.value = "14";
+    fireInput(fs);
+
+    expect(sink.getSource()).toContain(SAVE);
+    expect(sink.getSource()).toContain(RESTORE);
+    expect(sink.getSource()!.endsWith("\nplt.show()\n")).toBe(true);
+    // The save/restore lines are the panel's own, not the student's: reading
+    // back must not turn them into rc settings or unknown keys.
+    expect(parseBlock(sink.getSource()!)!.settings.rc["font.size"]).toBe(14);
+    expect(parseBlock(sink.getSource()!)!.unknownKeys).toEqual([]);
+  });
+
+  it("puts nothing extra in the block when the settings carry no named style", () => {
+    panel.hostRcKeys = ["figure.figsize"];
+    panel.sink = new MemorySink(generateBlock({ style: "default", rc: { "font.size": 12 } })!);
+    expect(panel.getBlock()).not.toContain("_plotpolish_host_rc");
+  });
+
+  it("puts nothing extra in the block when the host owns no keys", () => {
+    panel.sink = new MemorySink(generateBlock(styled)!);
+    expect(panel.getBlock()).toBe(generateBlock(styled));
+  });
+});
+
 describe("write-only sink", () => {
   it("receives just the generated block text on setSource", () => {
     class WriteOnlySink implements CodeSink {

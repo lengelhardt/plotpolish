@@ -1,0 +1,12 @@
+{
+  "style": "seaborn-v0_8",
+  "rc": {
+    "lines.markersize": 9,
+    "axes.linewidth": 1.5,
+    "legend.frameon": true
+  },
+  "hostRcKeys": [
+    "figure.autolayout",
+    "figure.figsize"
+  ]
+}

@@ -113,8 +113,13 @@ how Trinket runs programs, any change to the block format.
   via rcParams before every run (`MATPLOTLIB_SETUP_CODE`, `MPL_SETUP`). The
   block therefore never calls `mpl.style.use("default")`; a style switch is
   applied between runs with `set_style()`, and the next run's setup restores
-  Trinket's values. Nothing for the adapter to do. If Trinket ever moves
-  those settings out of the per-run setup, pass them as `panel.hostRcKeys`.
+  Trinket's values. That per-run setup runs *before* the block, though, so it
+  does not protect a key the style sheet itself sets — and `seaborn-v0_8`,
+  one of the eight curated style buttons, sets `figure.figsize`, throwing away
+  the worker's pane fit on every re-run. So the adapter should set
+  `panel.hostRcKeys = ["figure.autolayout", "figure.figsize"]` on the worker
+  path (`["figure.autolayout"]` on the main thread): the block then saves those
+  keys, applies the style and puts them back.
 * **Persistent interpreter.** rcParams and open figures survive between runs
   on the main thread; `set_style()` handles style leftovers, and the block is
   self-contained so a fresh interpreter (Clear memory, or the proposed

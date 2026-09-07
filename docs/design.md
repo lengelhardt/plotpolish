@@ -76,8 +76,30 @@ The golden copies of this format live in `python/tests/fixtures/blocks/`.
   the user changes the style dropdown, the panel calls `set_style(name)`,
   which resets to library defaults and applies the new style between runs.
   The host's per-run setup then restores its own values on the next run.
-  Hosts that set rcParams once at startup pass those keys as `hostRcKeys`
-  and `set_style` preserves them.
+  Hosts pass the keys they own as `panel.hostRcKeys`, and `set_style`
+  preserves them.
+* **A named style carries the host's keys across `mpl.style.use`.** The
+  per-run setup above runs *before* the block, so it does not protect a key
+  the style sheet itself sets: 8 of matplotlib's 29 styles set
+  `figure.figsize`, `seaborn-v0_8` among them, and it is one of the eight
+  curated style buttons. When there is a named style and `hostRcKeys` is
+  non-empty, the block saves those keys, applies the style, puts them back
+  and deletes the name it used:
+
+  ```python
+  import matplotlib as mpl
+  # Hold on to the values this page set, so the style below does not replace them.
+  _plotpolish_host_rc = {k: mpl.rcParams[k] for k in ["figure.autolayout", "figure.figsize"] if k in mpl.rcParams}
+  mpl.style.use("seaborn-v0_8")
+  mpl.rcParams.update(_plotpolish_host_rc)
+  del _plotpolish_host_rc
+  ```
+
+  The restore lands before the block's own `rcParams.update`, so a key the
+  student set still beats both the style and the host. With no named style
+  nothing would reset the keys and the block is byte-identical to one with
+  no host keys. `parseBlock` recognizes these lines and skips them: the
+  host, not the block, is the authority on which keys it owns.
 * **A fully default state produces no block.** Style `"default"` with no
   keys set means there is nothing to say; `upsertBlock` removes an existing
   fence rather than writing an empty one.

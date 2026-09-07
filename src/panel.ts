@@ -627,7 +627,7 @@ export class PlotpolishPanel extends HTMLElement {
 
   /** The block the current settings generate, or null when everything is default. */
   getBlock(): string | null {
-    return generateBlock(this.settings);
+    return generateBlock(this.settings, this.hostRcKeys);
   }
 
   get currentFenceError(): FenceError | null {
@@ -732,7 +732,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (src === null) return;
     this.writing = true;
     try {
-      sink.setSource(replaceFence(src, this.settings));
+      sink.setSource(replaceFence(src, this.settings, this.hostRcKeys));
     } finally {
       this.writing = false;
     }
@@ -781,12 +781,12 @@ export class PlotpolishPanel extends HTMLElement {
     this.writing = true;
     try {
       if (src === null) {
-        const block = generateBlock(this.settings) ?? "";
+        const block = generateBlock(this.settings, this.hostRcKeys) ?? "";
         sink.setSource(block);
         return null;
       }
       try {
-        const next = upsertBlock(src, this.settings);
+        const next = upsertBlock(src, this.settings, this.hostRcKeys);
         this.fenceError = null;
         if (next !== src) sink.setSource(next);
         return next;
@@ -1251,7 +1251,7 @@ export class PlotpolishPanel extends HTMLElement {
   private emitChange(): void {
     const sink = this._sink;
     const source = sink ? sink.getSource() : null;
-    this.emit<ChangeEventDetail>("change", { settings: cloneSettings(this.settings), block: generateBlock(this.settings), source });
+    this.emit<ChangeEventDetail>("change", { settings: cloneSettings(this.settings), block: generateBlock(this.settings, this.hostRcKeys), source });
   }
 
   private emitError(error: unknown, context: string, stall: BackendStall | null = null): void {
@@ -2762,7 +2762,7 @@ export class PlotpolishPanel extends HTMLElement {
     if (activeHasChanges && activeGroup) ui.resetCategoryItem.textContent = `Reset ${activeGroup.label}`;
     ui.resetAllItem.disabled = isDefaultSettings(this.settings) && !this.fenceError;
     ui.showCodeItem.hidden = !this._features.showCode;
-    const block = generateBlock(this.settings);
+    const block = generateBlock(this.settings, this.hostRcKeys);
     ui.codePre.textContent = block ?? "# (no block: every setting is at its default)";
     ui.codePre.hidden = !(this._features.showCode && this._codeOpen);
 

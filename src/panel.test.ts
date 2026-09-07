@@ -5,6 +5,7 @@
  * fresh instance, appends it to document.body, and removes it afterwards.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BackendError } from "./backend";
 import type { AxesDescription, FigureDescription } from "./backend";
 import {
   defaultSettings, FenceError, generateBlock, parseBlock, type StyleSettings,
@@ -1769,6 +1770,25 @@ describe("backend trouble is visible in the panel", () => {
     const css = readFileSync("src/panel.css", "utf8");
     expect(css).toMatch(/\.pill\.stalled:not\(\.error\)/);
     expect(css).toMatch(/\.rail\.stalled:not\(\.error\)/);
+  });
+
+  // Copilot on #20: the panel drew the stall/fault distinction on screen before
+  // it drew it in the plotpolish-error event, so a host doing the obvious thing
+  // (the demo did) showed a red error next to a calm "Program running" chip.
+  it("marks a stall in the error event, so a host need not call it a fault", async () => {
+    await attachAndOpen();
+    const seen: (string | null)[] = [];
+    panel.addEventListener("plotpolish-error", (e) => {
+      seen.push(((e as CustomEvent).detail as { stall: string | null }).stall);
+    });
+
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+    expect(seen).toEqual(["busy"]);
+
+    backend.rejectWith = new BackendError("apply_live", "ValueError: bad value");
+    await dragSlider("8");
+    expect(seen[seen.length - 1]).toBeNull();
   });
 
   it("says Python is starting when the interpreter is not up yet", async () => {

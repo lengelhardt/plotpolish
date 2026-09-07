@@ -173,7 +173,10 @@ panel.addEventListener("plotpolish-rerun-needed", (event) => {
 
 panel.addEventListener("plotpolish-error", (event) => {
   const detail = (event as CustomEvent<PanelErrorEventDetail>).detail;
-  setStatus(detail.error.message, true);
+  // `stall` marks the host declining for now rather than a fault, so it gets
+  // the calm status. Without this the demo contradicted the panel beside it:
+  // a quiet "Program running" chip next to a red error line.
+  setStatus(detail.error.message, detail.stall === null);
 });
 
 // ---------------------------------------------------------------------------

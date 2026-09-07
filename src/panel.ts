@@ -78,6 +78,17 @@ export interface RerunNeededEventDetail {
 export interface PanelErrorEventDetail {
   error: Error;
   context: string;
+  /**
+   * Why the call did not land. `"busy"` and `"loading"` are the host declining
+   * for now -- mid-run, or Python not up yet -- which the panel itself shows as
+   * a calm wait rather than a fault. `null` is a real backend fault.
+   *
+   * Additive on purpose: a host that ignores this behaves exactly as before,
+   * and one that reads it can avoid surfacing a transient refusal as an error.
+   * The panel drew that distinction on screen before it drew it in the event,
+   * which meant a host doing the obvious thing contradicted the panel's own UX.
+   */
+  stall: BackendStall | null;
 }
 
 type BackendState = "none" | "connecting" | "ready" | "error";
@@ -1237,9 +1248,9 @@ export class PlotpolishPanel extends HTMLElement {
     this.emit<ChangeEventDetail>("change", { settings: cloneSettings(this.settings), block: generateBlock(this.settings), source });
   }
 
-  private emitError(error: unknown, context: string): void {
+  private emitError(error: unknown, context: string, stall: BackendStall | null = null): void {
     const err = error instanceof Error ? error : new Error(String(error));
-    this.emit<PanelErrorEventDetail>("error", { error: err, context });
+    this.emit<PanelErrorEventDetail>("error", { error: err, context, stall });
   }
 
   /**
@@ -1260,7 +1271,7 @@ export class PlotpolishPanel extends HTMLElement {
       this.backendState = "error";
       this.backendMessage = error instanceof Error ? error.message : String(error);
     }
-    this.emitError(error, context);
+    this.emitError(error, context, stall);
   }
 
   /** The backend answered: whatever it was last showing is over. */

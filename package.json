@@ -1,6 +1,6 @@
 {
   "name": "plotpolish",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Browser panel for matplotlib style defaults that writes one fenced block of ordinary matplotlib code. Framework-free Web Component; Python helper ships inside the bundle.",
   "license": "BSD-3-Clause",
   "type": "module",

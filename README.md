@@ -175,7 +175,11 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   ancestor: `plotpolish-change` (`detail.block` is the fenced block,
   `detail.source` the whole file after the write), `plotpolish-rerun-needed`,
   `plotpolish-auto-update` (the student switched the figure's auto-update on
-  or off), `plotpolish-error`, and `plotpolish-saved`. **`plotpolish-saved` is
+  or off), `plotpolish-error` (whose `detail.stall` is `"busy"` or `"loading"`
+  when the host merely declined for now, so a host need not surface a transient
+  refusal as an error; `null` means only "not a transient refusal", which also
+  covers failures that never reached the backend -- read `detail.context` to
+  tell those apart), and `plotpolish-saved`. **`plotpolish-saved` is
   cancelable:** a host that cannot let a page trigger a download — a sandboxed
   iframe, which is where this actually runs — calls `preventDefault()` and
   delivers `detail.data` (base64 PNG) its own way.

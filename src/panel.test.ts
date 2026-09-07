@@ -5,6 +5,7 @@
  * fresh instance, appends it to document.body, and removes it afterwards.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BackendError } from "./backend";
 import type { AxesDescription, FigureDescription } from "./backend";
 import {
   defaultSettings, FenceError, generateBlock, parseBlock, type StyleSettings,
@@ -17,6 +18,7 @@ import {
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
+import { readFileSync } from "fs";
 
 /**
  * Every control's panelDefault, keyed by rc key: what plotpolish seeds into a
@@ -1648,6 +1650,323 @@ describe("backend", () => {
     await panel.settle();
 
     expect(backend.calls.some((c) => c.fn === "apply_live")).toBe(false);
+  });
+});
+
+/**
+ * A backend that cannot answer used to change nothing on screen: everything it
+ * had to say lived in `pill.title`, a hover tooltip, and the visible error
+ * affordances (`.pill.error`, the `!` mark) were wired to the FENCE error
+ * alone. On Trinket the concrete failure is a program that plots and then keeps
+ * computing: the host rejects every helper call with "A program is running",
+ * the student drags a slider, the figure sits still, and nothing anywhere says
+ * why.
+ *
+ * The split these tests hold to: a wait is quiet, a fault is loud, and neither
+ * is the malformed-fence treatment.
+ */
+describe("backend trouble is visible in the panel", () => {
+  let backend: MockBackend;
+  let sink: MemorySink;
+
+  beforeEach(() => {
+    backend = new MockBackend();
+    backend.figure = figureWithLines(1);
+    sink = new MemorySink("");
+  });
+
+  const chip = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall") as HTMLElement;
+  const word = (): string | null => (chip().querySelector(".stall-word") as HTMLElement).textContent;
+  const note = (): HTMLElement => panel.shadowRoot!.querySelector(".pop-body .banner.stall") as HTMLElement;
+  const shell = (): HTMLElement => panel.shadowRoot!.querySelector(".pill") as HTMLElement;
+  const fenceMark = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .err") as HTMLElement;
+
+  async function dragSlider(value: string): Promise<void> {
+    const lw = input(panel, "linewidth") as HTMLInputElement;
+    lw.value = value;
+    fireInput(lw);
+    await panel.settle();
+  }
+
+  async function attachAndOpen(): Promise<void> {
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+    openTab(panel, "lines");
+  }
+
+  it("has both affordances in the DOM, hidden, while the backend is answering", async () => {
+    // Guards every "hidden === true" below from passing because the element is
+    // missing rather than because it is quiet.
+    await attachAndOpen();
+    await dragSlider("5");
+
+    expect(chip()).not.toBeNull();
+    expect(note()).not.toBeNull();
+    expect(chip().hidden).toBe(true);
+    expect(note().hidden).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(false);
+    expect(shell().classList.contains("bad")).toBe(false);
+  });
+
+  it("says a program is running, in words, when the host refuses a live apply mid-run", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+
+    await dragSlider("7");
+
+    expect(chip().hidden).toBe(false);
+    expect(word()).toBe("Program running");
+    expect(note().hidden).toBe(false);
+    expect(note().textContent).toContain("still running");
+    expect(note().textContent).toContain("run your program again");
+    // The block was still written, which is what makes that advice true.
+    expect(sink.writes.length).toBeGreaterThan(0);
+  });
+
+  it("keeps a busy backend calm: no danger color, and none of the fence treatment", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+
+    expect(chip().classList.contains("bad")).toBe(false);
+    expect(note().classList.contains("bad")).toBe(false);
+    expect(shell().classList.contains("stalled")).toBe(true);
+    expect(shell().classList.contains("bad")).toBe(false);
+    // `.pill.error` and the `!` mark stay the malformed fence's alone.
+    expect(shell().classList.contains("error")).toBe(false);
+    expect(fenceMark().hidden).toBe(true);
+  });
+
+  // Copilot on #20: `.pill.stalled` and `.pill.error` are both `.pill.X`, so at
+  // equal specificity the later rule wins, and the muted stalled border would
+  // have overridden the fence's danger border wherever both applied.
+  //
+  // Reaching both took a correction. A control change cannot do it: a fence
+  // error hides the group containers (`update()`), so there is no slider to
+  // drag. The host's own recovery path can — Trinket calls refresh() from
+  // finishRun, which needs no control, so a refused refresh sets the stall
+  // while the malformed block is still setting the fence error.
+  it("keeps the fence treatment when the backend is stalled at the same time", async () => {
+    await attachAndOpen();
+    sink.setSource("# --- plot style (generated by plotpolish; edit above, not here) ---\nnot python at all\n# --- end plot style ---\n");
+    backend.rejectWith = new Error("A program is running");
+    await panel.refresh();
+
+    expect(shell().classList.contains("error")).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(true);
+    expect(fenceMark().hidden).toBe(false);
+  });
+
+  // The case above proves the two states co-occur, which is what makes the CSS
+  // guard necessary -- but it cannot prove the guard works: the bug is cascade
+  // order and both classes are present either way. A rendered assertion is not
+  // available either, since happy-dom leaves border-color empty when the value
+  // is a var(). So pin the guard in the stylesheet itself, which does go red if
+  // someone drops it.
+  it("guards the stalled border against overriding the fence's, in the stylesheet", () => {
+    // Read from disk rather than the `?inline` import, which vitest resolves to
+    // an empty string -- an assertion against that would pass for the wrong
+    // reason. src/iife.test.ts reads a build artifact the same way.
+    const css = readFileSync("src/panel.css", "utf8");
+    expect(css).toMatch(/\.pill\.stalled:not\(\.error\)/);
+    expect(css).toMatch(/\.rail\.stalled:not\(\.error\)/);
+  });
+
+  // Copilot on #20: the panel drew the stall/fault distinction on screen before
+  // it drew it in the plotpolish-error event, so a host doing the obvious thing
+  // (the demo did) showed a red error next to a calm "Program running" chip.
+  it("marks a stall in the error event, so a host need not call it a fault", async () => {
+    await attachAndOpen();
+    const seen: (string | null)[] = [];
+    panel.addEventListener("plotpolish-error", (e) => {
+      seen.push(((e as CustomEvent).detail as { stall: string | null }).stall);
+    });
+
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+    expect(seen).toEqual(["busy"]);
+
+    backend.rejectWith = new BackendError("apply_live", "ValueError: bad value");
+    await dragSlider("8");
+    expect(seen[seen.length - 1]).toBeNull();
+  });
+
+  // Copilot on #20: backendTrouble() reads backendStall before backendState, so
+  // a refusal arriving after a real fault used to downgrade the loud treatment
+  // to a calm one and hide the fault until the next success.
+  it("keeps a standing fault visible when a later call is merely refused", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new BackendError("apply_live", "ValueError: bad value");
+    await dragSlider("7");
+    expect(word()).toBe("Preview failed");
+
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("8");
+    expect(word()).toBe("Preview failed");
+    expect(chip().classList.contains("bad")).toBe(true);
+  });
+
+  it("says Python is starting when the interpreter is not up yet", async () => {
+    panel.sink = sink;
+    backend.rejectWith = new Error("Python is not loaded yet");
+    panel.backend = backend;
+    await panel.refresh();
+
+    expect(chip().hidden).toBe(false);
+    expect(word()).toBe("Python starting");
+    expect(chip().classList.contains("bad")).toBe(false);
+    expect(note().textContent).toContain("has not started yet");
+  });
+
+  it("takes the danger treatment when the helper itself raises", async () => {
+    await attachAndOpen();
+    backend.failNext = "ValueError: negative linewidth";
+
+    await dragSlider("9");
+
+    expect(chip().hidden).toBe(false);
+    expect(word()).toBe("Preview failed");
+    expect(chip().classList.contains("bad")).toBe(true);
+    expect(note().hidden).toBe(false);
+    expect(note().textContent).toContain("negative linewidth");
+    expect(shell().classList.contains("stalled")).toBe(true);
+    expect(shell().classList.contains("bad")).toBe(true);
+  });
+
+  it("leaves the open category's controls in place, unlike the fence banner", async () => {
+    // A stalled backend does not stop the panel writing, so taking the controls
+    // away (which a malformed fence does) would be wrong.
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+
+    expect(group(panel, "lines").hidden).toBe(false);
+  });
+
+  it("clears as soon as the next change gets through", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+    expect(chip().hidden).toBe(false);
+
+    backend.rejectWith = null;
+    await dragSlider("8");
+
+    expect(chip().hidden).toBe(true);
+    expect(note().hidden).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(false);
+  });
+
+  it("clears on the refresh the host runs when the program finishes", async () => {
+    // Trinket's actual recovery path: finishRun -> panel.refresh().
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+    expect(chip().hidden).toBe(false);
+
+    backend.rejectWith = null;
+    await panel.refresh();
+
+    expect(chip().hidden).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(false);
+  });
+
+  it("clears a helper fault too, once a call succeeds", async () => {
+    await attachAndOpen();
+    backend.failNext = "boom";
+    await dragSlider("7");
+    expect(chip().classList.contains("bad")).toBe(true);
+
+    await dragSlider("8");
+
+    expect(chip().hidden).toBe(true);
+    expect(shell().classList.contains("bad")).toBe(false);
+    expect(shell().classList.contains("stalled")).toBe(false);
+  });
+
+  it("covers the set_style path, not just apply_live", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+
+    const select = input(panel, "style") as HTMLSelectElement;
+    select.value = "ggplot";
+    change(select);
+    await panel.settle();
+
+    expect(chip().hidden).toBe(false);
+    expect(word()).toBe("Program running");
+  });
+
+  it("covers the Save path, so a refused save says why and not just that it failed", async () => {
+    panel.sink = sink;
+    await attachBackend(panel, backend);
+    openTab(panel, "save");
+    backend.rejectWith = new Error("A program is running");
+
+    (input(panel, "save_png") as HTMLButtonElement).click();
+    await flush();
+
+    expect((ctl(panel, "save_png").querySelector(".copy-said") as HTMLElement).textContent).toBe("Save failed");
+    expect(chip().hidden).toBe(false);
+    expect(word()).toBe("Program running");
+  });
+
+  it("stops the tooltip claiming live preview is on while calls are being refused", async () => {
+    await attachAndOpen();
+    expect(shell().getAttribute("title")).toContain("Live preview on");
+
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+
+    expect(shell().getAttribute("title")).not.toContain("Live preview on");
+    expect(shell().getAttribute("title")).toContain("still running");
+  });
+
+  it("stays silent when the host declares it can never preview", async () => {
+    // features.livePreview: false is a worker host that cannot preview at all.
+    // Nothing failed, so nothing is shown.
+    panel.features = { livePreview: false };
+    await attachAndOpen();
+    await dragSlider("6");
+
+    expect(chip().hidden).toBe(true);
+    expect(note().hidden).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(false);
+  });
+
+  it("stays silent with no backend attached at all", () => {
+    panel.sink = sink;
+    expect(chip().hidden).toBe(true);
+    expect(note().hidden).toBe(true);
+    expect(shell().classList.contains("stalled")).toBe(false);
+  });
+
+  it("announces politely, and hides the glyph from the reader", async () => {
+    expect(chip().getAttribute("role")).toBe("status");
+    expect(chip().getAttribute("aria-live")).toBe("polite");
+    expect(note().getAttribute("role")).toBe("status");
+    expect(note().getAttribute("aria-live")).toBe("polite");
+    expect((chip().querySelector(".glyph") as HTMLElement).getAttribute("aria-hidden")).toBe("true");
+
+    // The word carries the meaning, so a reader that skips the glyph still
+    // gets the whole message.
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+    expect(word()).toBe("Program running");
+  });
+
+  it("carries the state on the rail too, where there is no room for the chip", async () => {
+    panel.setAttribute("layout", "rail");
+    await attachAndOpen();
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("7");
+
+    const rail = panel.shadowRoot!.querySelector(".rail") as HTMLElement;
+    expect(rail.hidden).toBe(false);
+    expect(rail.classList.contains("stalled")).toBe(true);
+    expect(rail.classList.contains("bad")).toBe(false);
+    expect(rail.classList.contains("error")).toBe(false);
   });
 });
 

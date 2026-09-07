@@ -17,7 +17,10 @@
  */
 
 import css from "./panel.css?inline";
-import { BackendError, HelperClient, type FigureBackend, type FigureDescription, type StylePreview } from "./backend";
+import {
+  HelperClient, backendStallReason,
+  type BackendStall, type FigureBackend, type FigureDescription, type StylePreview,
+} from "./backend";
 import {
   FenceError, defaultSettings, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
   type StyleSettings,
@@ -75,6 +78,23 @@ export interface RerunNeededEventDetail {
 export interface PanelErrorEventDetail {
   error: Error;
   context: string;
+  /**
+   * Whether the call was merely refused for now. `"busy"` and `"loading"` are
+   * the host declining -- mid-run, or Python not up yet -- which the panel
+   * itself shows as a calm wait rather than a fault.
+   *
+   * `null` means **not a transient refusal**, which is not the same as "a
+   * backend fault": this event also fires for failures that never reached the
+   * backend at all, such as `context: "write"` when the panel could not write
+   * to the source. Read `context` to tell those apart. Only `"busy"` and
+   * `"loading"` carry a positive claim.
+   *
+   * Additive on purpose: a host that ignores this behaves exactly as before,
+   * and one that reads it can avoid surfacing a transient refusal as an error.
+   * The panel drew that distinction on screen before it drew it in the event,
+   * which meant a host doing the obvious thing contradicted the panel's own UX.
+   */
+  stall: BackendStall | null;
 }
 
 type BackendState = "none" | "connecting" | "ready" | "error";
@@ -338,6 +358,14 @@ export class PlotpolishPanel extends HTMLElement {
   private rerunKeys = new Set<string>();
   private backendState: BackendState = "none";
   private backendMessage = "";
+  /**
+   * Set when the last backend call could not be served for a reason that will
+   * pass on its own -- the student's program holds the interpreter, or Python
+   * has not started yet. Deliberately NOT `backendState = "error"`: nothing is
+   * broken, what the panel knows about the figure is still true, and the next
+   * successful call clears it.
+   */
+  private backendStall: BackendStall | null = null;
   private writing = false;
 
   private pendingApply: Record<string, RcValue> = {};
@@ -377,6 +405,12 @@ export class PlotpolishPanel extends HTMLElement {
     pill: HTMLElement;
     pillGrip: HTMLElement;
     errMark: HTMLElement;
+    /** The backend's state in two words, beside the tabs. Hidden while it is fine. */
+    stallMark: HTMLElement;
+    stallGlyph: HTMLElement;
+    stallWord: HTMLElement;
+    /** The same thing as a sentence, inside the popover. */
+    backendNote: HTMLElement;
     /** Everything in the pill but the grip; folded away when collapsed. */
     pillBody: HTMLElement;
     /** The pill's auto-update switch. */
@@ -477,6 +511,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.client = backend ? new HelperClient(backend) : null;
     this.backendState = backend ? "connecting" : "none";
     this.backendMessage = "";
+    this.backendStall = null;
     if (!backend) this.figure = null;
     this.update();
     if (backend) void this.refresh();
@@ -659,10 +694,9 @@ export class PlotpolishPanel extends HTMLElement {
         this.figure = intro.figure;
         this.backendState = "ready";
         this.backendMessage = `matplotlib ${intro.matplotlib}${intro.figure ? "" : ", no figure yet"}`;
+        this.backendStall = null;
       } catch (e) {
-        this.backendState = "error";
-        this.backendMessage = e instanceof Error ? e.message : String(e);
-        this.emitError(e, "refresh");
+        this.noteBackendFailure(e, "refresh");
       }
     }
     this.update();
@@ -1149,6 +1183,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.applyChain = this.applyChain
       .then(() => client.setStyle(name, this.hostRcKeys))
       .then((rc) => {
+        this.noteBackendOk();
         this.baseline = { ...schemaDefaults(), ...rc };
         // canPreview, not _features.livePreview: set_style itself is worth
         // doing either way (it moves the baseline and never redraws), but
@@ -1160,9 +1195,7 @@ export class PlotpolishPanel extends HTMLElement {
         this.update();
       })
       .catch((e: unknown) => {
-        this.backendState = "error";
-        this.backendMessage = e instanceof Error ? e.message : String(e);
-        this.emitError(e, "set_style");
+        this.noteBackendFailure(e, "set_style");
         this.update();
       });
   }
@@ -1193,10 +1226,7 @@ export class PlotpolishPanel extends HTMLElement {
             if (value !== undefined) this.figureRc[key] = value;
           }
           if (result.deferred.length) this.noteRerun(result.deferred);
-          if (this.backendState === "error") {
-            this.backendState = "ready";
-            this.backendMessage = "";
-          }
+          this.noteBackendOk();
           this.update();
           if (legendLocIsNamed) {
             return client.introspect().then((intro) => {
@@ -1207,9 +1237,7 @@ export class PlotpolishPanel extends HTMLElement {
           return undefined;
         })
         .catch((e: unknown) => {
-          this.backendState = "error";
-          this.backendMessage = e instanceof BackendError ? e.message : String(e);
-          this.emitError(e, "apply_live");
+          this.noteBackendFailure(e, "apply_live");
           this.update();
         });
     }, APPLY_DEBOUNCE_MS);
@@ -1226,9 +1254,45 @@ export class PlotpolishPanel extends HTMLElement {
     this.emit<ChangeEventDetail>("change", { settings: cloneSettings(this.settings), block: generateBlock(this.settings), source });
   }
 
-  private emitError(error: unknown, context: string): void {
+  private emitError(error: unknown, context: string, stall: BackendStall | null = null): void {
     const err = error instanceof Error ? error : new Error(String(error));
-    this.emit<PanelErrorEventDetail>("error", { error: err, context });
+    this.emit<PanelErrorEventDetail>("error", { error: err, context, stall });
+  }
+
+  /**
+   * The one place every failed backend call lands, so the panel says the same
+   * thing whichever call it was. Split two ways on purpose: a stall is the
+   * host declining for now (mid-run, or Python not up), which gets a calm
+   * notice and leaves `backendState` alone; anything else is a fault and gets
+   * the error treatment. It never returns quietly -- the student's change did
+   * not reach the figure either way, and until this existed nothing on screen
+   * said so.
+   */
+  private noteBackendFailure(error: unknown, context: string): void {
+    const stall = backendStallReason(error);
+    if (stall) {
+      // A standing fault outranks a transient refusal. backendTrouble() reads
+      // backendStall before backendState, so without this guard a helper
+      // exception followed by one mid-run refusal downgraded a loud "Preview
+      // failed" to a calm "Program running" and the fault stayed invisible
+      // until the next success. The event below still reports the stall
+      // truthfully -- only what the panel shows is ranked.
+      if (this.backendState !== "error") this.backendStall = stall;
+    } else {
+      this.backendStall = null;
+      this.backendState = "error";
+      this.backendMessage = error instanceof Error ? error.message : String(error);
+    }
+    this.emitError(error, context, stall);
+  }
+
+  /** The backend answered: whatever it was last showing is over. */
+  private noteBackendOk(): void {
+    this.backendStall = null;
+    if (this.backendState === "error") {
+      this.backendState = "ready";
+      this.backendMessage = "";
+    }
   }
 
   /** Returns false when a listener canceled it (cancelable events only). */
@@ -1798,6 +1862,20 @@ export class PlotpolishPanel extends HTMLElement {
 
     // --- Tab pill + rail ---
     const errMark = el("span", { class: "err", hidden: true, title: "There is a problem with the generated block." }, "!");
+    // The backend's own state, in words, in the pill. Everything about a
+    // failed helper call used to live in `pill.title` -- a hover tooltip --
+    // so a student whose drag was refused mid-run saw nothing move and
+    // nothing change, and read that as the tool having stopped working.
+    const stallGlyph = el("span", { class: "glyph" });
+    stallGlyph.setAttribute("aria-hidden", "true");
+    const stallWord = el("span", { class: "stall-word" });
+    const stallMark = el("span", { class: "stall", hidden: true }, stallGlyph, stallWord);
+    // role="status" (polite), not role="alert": these follow the student's own
+    // action, and the common one -- "your program is still running" -- is not
+    // something to interrupt anybody over. Matches the fence banner's
+    // role-plus-`hidden` shape.
+    stallMark.setAttribute("role", "status");
+    stallMark.setAttribute("aria-live", "polite");
     const menuToggle = el("button", { type: "button", class: "menu-toggle", title: "Reset menu" }, "↺ ▾");
     menuToggle.setAttribute("aria-haspopup", "menu");
     menuToggle.addEventListener("click", () => this.toggleMenu());
@@ -1841,7 +1919,7 @@ export class PlotpolishPanel extends HTMLElement {
     // Everything but the grip lives in one wrapper, so collapsing is a single
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
-    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, autoBtn, menuToggle);
+    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, autoBtn, menuToggle);
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
@@ -1884,6 +1962,13 @@ export class PlotpolishPanel extends HTMLElement {
     replaceButton.addEventListener("click", () => this.replaceBlock());
     const banner = el("div", { class: "banner error", role: "alert", hidden: true }, fenceMessage, replaceButton);
 
+    // The full sentence the pill's two words stand for. It sits ABOVE the
+    // controls rather than replacing them, unlike the fence banner: a busy
+    // backend does not stop the panel writing, so the controls stay usable.
+    const backendNote = el("div", { class: "banner stall", hidden: true });
+    backendNote.setAttribute("role", "status");
+    backendNote.setAttribute("aria-live", "polite");
+
     const unknownNote = el("p", { class: "unknown-note muted", hidden: true });
 
     const groupViews = new Map<string, GroupView>();
@@ -1910,7 +1995,7 @@ export class PlotpolishPanel extends HTMLElement {
       groupEls.push(container);
     }
 
-    const popBody = el("div", { class: "pop-body" }, banner, ...groupEls, unknownNote);
+    const popBody = el("div", { class: "pop-body" }, banner, backendNote, ...groupEls, unknownNote);
     const popover = el("div", { class: "popover", role: "dialog", hidden: true }, header, caret, popBody);
 
     // --- Reset menu ---
@@ -1941,7 +2026,8 @@ export class PlotpolishPanel extends HTMLElement {
 
     this.root.append(style, pill, rail, popover, menu);
     this.ui = {
-      pill, pillGrip, pillBody, errMark, autoBtn, menuToggle, rail,
+      pill, pillGrip, pillBody, errMark, stallMark, stallGlyph, stallWord, backendNote,
+      autoBtn, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
       groups: groupViews,
@@ -2080,6 +2166,8 @@ export class PlotpolishPanel extends HTMLElement {
           void client
             .saveFigure("png")
             .then((result) => {
+              this.noteBackendOk();
+              this.update();
               if (!result.has_figure) { say("No figure to save"); return; }
               const filename = `plot.${result.format}`;
               // The host gets first refusal, because in an iframe a page-driven
@@ -2099,7 +2187,11 @@ export class PlotpolishPanel extends HTMLElement {
               say(`Saved ${filename}`);
             })
             .catch((e: unknown) => {
-              this.emitError(e, "save_figure");
+              // Same sink as every other backend call: "Save failed" says the
+              // button did nothing, the pill says why (a run in progress reads
+              // very differently from a helper that raised).
+              this.noteBackendFailure(e, "save_figure");
+              this.update();
               say("Save failed");
             })
             .finally(() => { button.disabled = false; });
@@ -2520,6 +2612,46 @@ export class PlotpolishPanel extends HTMLElement {
     return this.root.activeElement === input;
   }
 
+  /**
+   * What the panel has to say about the backend right now, or null when there
+   * is nothing to say. Note what is NOT in here: "no backend" and "connecting"
+   * are ordinary, and `features.livePreview: false` is a host that never
+   * previews, not a host that failed to. None of the three shows anything.
+   *
+   * `bad` separates a fault from a wait. A helper that raised is worth the
+   * danger color; a program still running is the most ordinary thing a physics
+   * student's animation loop does, and painting that red would teach them to
+   * ignore the color by the second lab.
+   */
+  private backendTrouble(): { glyph: string; word: string; sentence: string; bad: boolean } | null {
+    // Only true if the block is being written somewhere; with no sink there is
+    // nothing for a re-run to pick up, so the advice would be a lie.
+    const saved = this._sink !== null;
+    if (this.backendStall === "busy") {
+      return {
+        glyph: "⏳", word: "Program running", bad: false,
+        sentence: "Your program is still running, so the figure did not change."
+          + (saved ? " Your settings are saved in your code — run your program again to see them." : ""),
+      };
+    }
+    if (this.backendStall === "loading") {
+      return {
+        glyph: "⏳", word: "Python starting", bad: false,
+        sentence: "Python has not started yet, so the figure did not change."
+          + (saved ? " Your settings are saved in your code — run your program once to see them." : ""),
+      };
+    }
+    if (this.backendState === "error") {
+      const detail = this.backendMessage.trim().replace(/\.$/, "");
+      return {
+        glyph: "⚠", word: "Preview failed", bad: true,
+        sentence: `Live preview stopped${detail ? `: ${detail}` : ""}.`
+          + (saved ? " Your settings are still saved in your code — run your program again to see them." : ""),
+      };
+    }
+    return null;
+  }
+
   // -------------------------------------------------------------------------
   // DOM: sync with state
   // -------------------------------------------------------------------------
@@ -2528,13 +2660,37 @@ export class PlotpolishPanel extends HTMLElement {
     const { ui } = this;
     if (!ui) return;
 
+    const trouble = this.backendTrouble();
     const statusText =
-      this.backendState === "none" ? "No live preview (no backend)"
+      // A stall leaves backendState at "ready"/"connecting" on purpose (see
+      // backendStall), so the tooltip has to come from the trouble or it would
+      // cheerfully report "Live preview on" over a refused call.
+      trouble && !trouble.bad ? trouble.sentence
+      : this.backendState === "none" ? "No live preview (no backend)"
       : this.backendState === "connecting" ? "Connecting to Python…"
       : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
       : `Live preview on · ${this.backendMessage}`;
     ui.pill.title = statusText;
     ui.rail.title = statusText;
+
+    // Visible, in the pill, without hovering anything.
+    ui.stallMark.hidden = trouble === null;
+    ui.stallMark.classList.toggle("bad", trouble !== null && trouble.bad);
+    if (trouble) {
+      ui.stallGlyph.textContent = trouble.glyph;
+      ui.stallWord.textContent = trouble.word;
+      ui.stallMark.title = trouble.sentence;
+    }
+    // The rail has no room for the chip and the pill can be folded down to its
+    // grip, so the shell itself carries the state too -- the same fallback
+    // `.error` already uses for a malformed fence.
+    for (const shell of [ui.pill, ui.rail]) {
+      shell.classList.toggle("stalled", trouble !== null);
+      shell.classList.toggle("bad", trouble !== null && trouble.bad);
+    }
+    ui.backendNote.hidden = trouble === null;
+    ui.backendNote.classList.toggle("bad", trouble !== null && trouble.bad);
+    if (trouble) ui.backendNote.textContent = trouble.sentence;
     this.updateGroupReset();
     // Shown whenever the HOST could ever preview, not once a backend has
     // actually attached. On the demo's real path -- and on Trinket -- the

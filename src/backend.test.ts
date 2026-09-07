@@ -36,6 +36,20 @@ describe("buildSnippet", () => {
 });
 
 describe("backendStallReason", () => {
+  // Copilot on #20: a bare /\bnot loaded\b/ also matched real faults, and
+  // explaining a fault away as "Python is starting" is the wrong way to fail.
+  it("does not read a fault that merely mentions loading as a stall", () => {
+    expect(backendStallReason(new Error("TypeError: figure is not loaded"))).toBeNull();
+    expect(backendStallReason(new Error("matplotlib backend not loaded correctly"))).toBeNull();
+    expect(backendStallReason(new Error("KeyError: 'axes.grid' not ready"))).toBeNull();
+  });
+
+  it("still reads the interpreter's own messages as loading", () => {
+    expect(backendStallReason(new Error("Python is not loaded yet"))).toBe("loading");
+    expect(backendStallReason(new Error("The interpreter is not ready"))).toBe("loading");
+    expect(backendStallReason(new Error("Pyodide is still loading"))).toBe("loading");
+  });
+
   // The two Trinket actually rejects with, verbatim (docs/trinket-integration.md
   // writes them without the period; the panel must not care either way).
   it.each([

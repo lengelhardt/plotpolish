@@ -1791,6 +1791,21 @@ describe("backend trouble is visible in the panel", () => {
     expect(seen[seen.length - 1]).toBeNull();
   });
 
+  // Copilot on #20: backendTrouble() reads backendStall before backendState, so
+  // a refusal arriving after a real fault used to downgrade the loud treatment
+  // to a calm one and hide the fault until the next success.
+  it("keeps a standing fault visible when a later call is merely refused", async () => {
+    await attachAndOpen();
+    backend.rejectWith = new BackendError("apply_live", "ValueError: bad value");
+    await dragSlider("7");
+    expect(word()).toBe("Preview failed");
+
+    backend.rejectWith = new Error("A program is running");
+    await dragSlider("8");
+    expect(word()).toBe("Preview failed");
+    expect(chip().classList.contains("bad")).toBe(true);
+  });
+
   it("says Python is starting when the interpreter is not up yet", async () => {
     panel.sink = sink;
     backend.rejectWith = new Error("Python is not loaded yet");

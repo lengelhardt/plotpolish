@@ -117,8 +117,18 @@ export type BackendStall = "busy" | "loading";
 // two Trinket rejects with, verbatim, are `new Error("A program is running")`
 // and `new Error("Python is not loaded yet")`; see docs/trinket-integration.md.
 // The neighboring wordings are here because a host is free to phrase its own.
+// Anchored on a subject on purpose. A bare /\bnot loaded\b/ also matched real
+// faults -- "TypeError: figure is not loaded", "matplotlib backend not loaded
+// correctly" -- and explaining a fault away as "Python is starting" is the
+// wrong direction to fail in. Helper exceptions were already safe, since a
+// BackendError short-circuits below before any pattern runs; these only ever
+// see failures the HOST raised, so requiring the interpreter as the subject is
+// enough to separate "come back later" from "something broke".
 const BUSY_PATTERNS = [/\bprogram is running\b/i, /\balready running\b/i, /\bis busy\b/i];
-const LOADING_PATTERNS = [/\bnot loaded\b/i, /\bnot ready\b/i, /\bstill loading\b/i, /\bstarting up\b/i];
+const LOADING_PATTERNS = [
+  /\b(python|interpreter|pyodide)\b[^.!?]*\b(not loaded|not ready|still loading|starting up)\b/i,
+  /\b(not loaded|not ready|still loading|starting up)\b[^.!?]*\b(python|interpreter|pyodide)\b/i,
+];
 
 /**
  * Classify a rejected `runPython`. Returns null for anything not recognized as

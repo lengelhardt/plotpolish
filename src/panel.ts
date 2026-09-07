@@ -1271,7 +1271,13 @@ export class PlotpolishPanel extends HTMLElement {
   private noteBackendFailure(error: unknown, context: string): void {
     const stall = backendStallReason(error);
     if (stall) {
-      this.backendStall = stall;
+      // A standing fault outranks a transient refusal. backendTrouble() reads
+      // backendStall before backendState, so without this guard a helper
+      // exception followed by one mid-run refusal downgraded a loud "Preview
+      // failed" to a calm "Program running" and the fault stayed invisible
+      // until the next success. The event below still reports the stall
+      // truthfully -- only what the panel shows is ranked.
+      if (this.backendState !== "error") this.backendStall = stall;
     } else {
       this.backendStall = null;
       this.backendState = "error";

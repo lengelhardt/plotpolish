@@ -337,8 +337,14 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .pill .stall.bad { border-color: var(--_danger); background: var(--_error-bg); color: var(--_danger); }
 /* The shell's own border, for the two places the chip cannot be read: the rail
    (no chip at all) and a pill folded down to its grip. */
-.pill.stalled, .rail.stalled { border-color: var(--_muted); }
-.pill.stalled.bad, .rail.stalled.bad { border-color: var(--_danger); }
+/* :not(.error) rather than reordering: a malformed fence is the student's own
+   block to fix and outranks a transient stall, and both selectors are .pill.X
+   at equal specificity, so without this the later stalled rule would mute the
+   fence's danger border whenever both applied. Stating it in the selector keeps
+   the intent visible here instead of depending on where the file happens to
+   put these rules. */
+.pill.stalled:not(.error), .rail.stalled:not(.error) { border-color: var(--_muted); }
+.pill.stalled.bad:not(.error), .rail.stalled.bad:not(.error) { border-color: var(--_danger); }
 
 /* The sentence the chip's two words stand for. It sits above the controls
    instead of replacing them (the fence banner replaces them): a stalled

@@ -175,7 +175,11 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   ancestor: `plotpolish-change` (`detail.block` is the fenced block,
   `detail.source` the whole file after the write), `plotpolish-rerun-needed`,
   `plotpolish-auto-update` (the student switched the figure's auto-update on
-  or off), `plotpolish-error`, and `plotpolish-saved`. **`plotpolish-saved` is
+  or off), `plotpolish-error` (whose `detail.stall` is `"busy"` or `"loading"`
+  when the host merely declined for now, so a host need not surface a transient
+  refusal as an error; `null` means only "not a transient refusal", which also
+  covers failures that never reached the backend -- read `detail.context` to
+  tell those apart), and `plotpolish-saved`. **`plotpolish-saved` is
   cancelable:** a host that cannot let a page trigger a download — a sandboxed
   iframe, which is where this actually runs — calls `preventDefault()` and
   delivers `detail.data` (base64 PNG) its own way.
@@ -188,9 +192,14 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
 When the user changes the style dropdown, the panel calls the helper's
 `set_style()`, which resets the interpreter's rcParams to library defaults
 and applies the new style *between* runs, so a previously applied style
-cannot leak into the next run. Hosts that set rcParams once at startup (not
-before every run) should list those keys in `panel.hostRcKeys` so the reset
-preserves them; Trinket re-applies its values on every run and needs nothing.
+cannot leak into the next run. List the rc keys your host owns in
+`panel.hostRcKeys`: the reset preserves them, and so does the block. A style
+sheet may set the very keys you set — 8 of matplotlib's 29 styles set
+`figure.figsize` — and because the block runs after your per-run setup,
+`mpl.style.use` would otherwise discard your value on every re-run. With
+`hostRcKeys` set, a block with a named style saves those keys, applies the
+style and puts them back, before its own `rcParams.update` so a key the
+student set still wins.
 
 ### Plain-script hosts
 

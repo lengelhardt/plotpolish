@@ -110,37 +110,16 @@ how Trinket runs programs, any change to the block format.
 ## Interplay already settled on the plotpolish side
 
 * **`figure.autolayout` and the worker's `figure.figsize`.** Trinket sets both
-  via rcParams before every run (`MATPLOTLIB_SETUP_CODE` on the main thread,
-  `MPL_SETUP` in the worker — note the worker sets *both*, the main thread only
-  `autolayout`). The block therefore never calls `mpl.style.use("default")`.
-  **Corrected 2026-09-07 — this section previously said "nothing for the adapter
-  to do", and that was wrong in two ways.**
-
-  First, there *is* something to do: the adapter must pass these as
-  `panel.hostRcKeys` (the Trinket adapter passes `['figure.autolayout']`).
-  `hostRcKeys` is what `set_style()` receives as its `keep` list, so the values
-  survive its internal `style.use("default")` reset.
-
-  Second — and this is the part that bit — **`hostRcKeys` does not affect the
-  generated block.** `generateBlock()` never consults it. So a named style in
-  the block still runs `mpl.style.use(<name>)` *mid-program*, after the host's
-  per-run setup, and resets whatever rcParams that style sheet happens to set.
-  "The next run's setup restores Trinket's values" is no help: the block runs
-  **after** that setup, not before it.
-
-  Concretely, 8 of matplotlib's style sheets set `figure.figsize` — including
-  `seaborn-v0_8`, one of the eight presets shown by default — so on the worker,
-  which pane-fits `figsize`, choosing one throws the pane fit away. Verified
-  identically on 3.8.4 and 3.10.9. `figure.autolayout` escapes only because it
-  is an exposed control that the panel seeds into the block *after* the
-  `style.use` line; `figure.figsize` is not a control and gets no such luck.
-  **Not fixed on `main` yet.** The fix — having the block save and restore
-  `hostRcKeys` around `mpl.style.use` — is proposed in #22 and is deliberately
-  unreleased while PICUP-Physics/trinket-oss#251 is under review, because
-  re-vendoring the bundle mid-review would invalidate that PR's byte-for-byte
-  reproducibility claim. Until #22 lands, `generateBlock` emits a bare
-  `mpl.style.use(<name>)` and an adapter cannot do anything about it from the
-  host side.
+  via rcParams before every run (`MATPLOTLIB_SETUP_CODE`, `MPL_SETUP`). The
+  block therefore never calls `mpl.style.use("default")`; a style switch is
+  applied between runs with `set_style()`, and the next run's setup restores
+  Trinket's values. That per-run setup runs *before* the block, though, so it
+  does not protect a key the style sheet itself sets — and `seaborn-v0_8`,
+  one of the eight curated style buttons, sets `figure.figsize`, throwing away
+  the worker's pane fit on every re-run. So the adapter should set
+  `panel.hostRcKeys = ["figure.autolayout", "figure.figsize"]` on the worker
+  path (`["figure.autolayout"]` on the main thread): the block then saves those
+  keys, applies the style and puts them back.
 * **Only mount over a matplotlib figure.** A host that shares its output pane
   with other graphics must gate mounting. On Trinket the adapter's
   `hasFigure()` counts a `<canvas>` in `#graphic` — but Web VPython draws its

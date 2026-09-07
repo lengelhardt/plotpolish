@@ -5,7 +5,9 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { PyodideBackend, type PyodideLike } from "./adapters/pyodide";
-import { BackendError, buildSnippet, HELPER_SOURCE, HelperClient, type FigureBackend } from "./backend";
+import {
+  BackendError, backendStallReason, buildSnippet, HELPER_SOURCE, HelperClient, type FigureBackend,
+} from "./backend";
 import { RESULT_VARIABLE } from "./constants";
 import { MockBackend } from "./testing/mock-backend";
 
@@ -30,6 +32,56 @@ describe("buildSnippet", () => {
     // ...whose contents are themselves JSON: the {fn, args} request.
     const request = JSON.parse(innerJson) as { fn: string; args: unknown };
     expect(request).toEqual({ fn: "set_style", args: { name: "ggplot", keep: ["a"] } });
+  });
+});
+
+describe("backendStallReason", () => {
+  // Copilot on #20: a bare /\bnot loaded\b/ also matched real faults, and
+  // explaining a fault away as "Python is starting" is the wrong way to fail.
+  it("does not read a fault that merely mentions loading as a stall", () => {
+    expect(backendStallReason(new Error("TypeError: figure is not loaded"))).toBeNull();
+    expect(backendStallReason(new Error("matplotlib backend not loaded correctly"))).toBeNull();
+    expect(backendStallReason(new Error("KeyError: 'axes.grid' not ready"))).toBeNull();
+  });
+
+  it("still reads the interpreter's own messages as loading", () => {
+    expect(backendStallReason(new Error("Python is not loaded yet"))).toBe("loading");
+    expect(backendStallReason(new Error("The interpreter is not ready"))).toBe("loading");
+    expect(backendStallReason(new Error("Pyodide is still loading"))).toBe("loading");
+  });
+
+  // The two Trinket actually rejects with, verbatim (docs/trinket-integration.md
+  // writes them without the period; the panel must not care either way).
+  it.each([
+    "A program is running",
+    "A program is running.",
+    "a program is running",
+    "Error: A program is running",
+  ])("reads %o as busy", (message) => {
+    expect(backendStallReason(new Error(message))).toBe("busy");
+  });
+
+  it.each([
+    "Python is not loaded yet",
+    "Python is not loaded yet.",
+    "The interpreter is not ready",
+  ])("reads %o as loading", (message) => {
+    expect(backendStallReason(new Error(message))).toBe("loading");
+  });
+
+  it("never calls a helper exception a stall, however its message reads", () => {
+    // The interpreter DID run the snippet; waiting fixes nothing. A helper that
+    // raised while echoing the student's own text back must not be explained
+    // away as "come back in a moment".
+    expect(backendStallReason(new BackendError("apply_live", "A program is running"))).toBeNull();
+    expect(backendStallReason(new BackendError("introspect_figure", "Python is not loaded yet"))).toBeNull();
+  });
+
+  it("returns null for an unrecognized failure, so it keeps the loud treatment", () => {
+    expect(backendStallReason(new Error("dead"))).toBeNull();
+    expect(backendStallReason(new Error("RuntimeError: no display"))).toBeNull();
+    expect(backendStallReason("some string")).toBeNull();
+    expect(backendStallReason(undefined)).toBeNull();
   });
 });
 

@@ -312,6 +312,51 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
   border-top: 2px solid currentColor; transform: rotate(-20deg);
 }
 
+/* The backend status chip. Two states, deliberately unalike:
+
+   A WAIT -- the student's own program holds the interpreter, or Python has not
+   started -- is the ordinary condition an animation loop produces every few
+   seconds, so it is quiet: the muted section fill, no danger color anywhere.
+   Loud styling here would be trained away by the second lab and then be no use
+   for the case that matters.
+
+   A FAULT (the helper raised) takes the danger treatment, which is the same
+   one a malformed fence gets, because it is the same kind of news.
+
+   These rules come after `.pill.float` on purpose: that rule sets its own
+   border-color at equal specificity, so anything meant to recolor a floating
+   pill's border has to be below it. */
+.pill .stall {
+  display: inline-flex; align-items: center; gap: 3px;
+  font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
+  white-space: nowrap; cursor: default;
+  padding: 3px 7px; border-radius: 999px;
+  border: 1px solid var(--_border); background: var(--_section-bg); color: var(--_muted);
+}
+.pill .stall .glyph { font-size: 11px; line-height: 1; }
+.pill .stall.bad { border-color: var(--_danger); background: var(--_error-bg); color: var(--_danger); }
+/* The shell's own border, for the two places the chip cannot be read: the rail
+   (no chip at all) and a pill folded down to its grip. */
+/* :not(.error) rather than reordering: a malformed fence is the student's own
+   block to fix and outranks a transient stall, and both selectors are .pill.X
+   at equal specificity, so without this the later stalled rule would mute the
+   fence's danger border whenever both applied. Stating it in the selector keeps
+   the intent visible here instead of depending on where the file happens to
+   put these rules. */
+.pill.stalled:not(.error), .rail.stalled:not(.error) { border-color: var(--_muted); }
+.pill.stalled.bad:not(.error), .rail.stalled.bad:not(.error) { border-color: var(--_danger); }
+
+/* The sentence the chip's two words stand for. It sits above the controls
+   instead of replacing them (the fence banner replaces them): a stalled
+   backend does not stop the panel writing, so the controls stay usable. */
+.pop-body .banner.stall {
+  margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; font-size: 11.5px;
+  background: var(--_section-bg); border: 1px solid var(--_border); color: var(--_muted);
+}
+.pop-body .banner.stall.bad {
+  background: var(--_error-bg); border-color: var(--_danger); color: var(--_fg);
+}
+
 /* Spans both grid columns: the strip is about the whole control, not a value
    sitting opposite the label. Captions are gone -- no abbreviation fitted the
    46px cell, and the name is in the menu, the title and the aria-label -- so a

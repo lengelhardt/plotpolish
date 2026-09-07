@@ -183,6 +183,120 @@ describe("generateBlock", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Host-owned rc keys across mpl.style.use
+//
+// A style sheet may set the very keys the host sets before every run: 8 of
+// matplotlib's 29 styles set figure.figsize, seaborn-v0_8 among them, and it is
+// one of the eight curated style buttons. Without the save/restore below, a
+// re-run of the block threw the host's pane-fitting figsize away.
+// ---------------------------------------------------------------------------
+
+describe("generateBlock preserves host-owned rc keys across a style", () => {
+  const HOST = ["figure.autolayout", "figure.figsize"];
+
+  it("saves, applies the style, and puts the host's keys back", () => {
+    const block = generateBlock({ style: "seaborn-v0_8", rc: {} }, HOST)!;
+    expect(block).toBe(
+      [
+        FENCE_START,
+        "import matplotlib as mpl",
+        "# Hold on to the values this page set, so the style below does not replace them.",
+        '_plotpolish_host_rc = {k: mpl.rcParams[k] for k in ["figure.autolayout", "figure.figsize"] if k in mpl.rcParams}',
+        'mpl.style.use("seaborn-v0_8")',
+        "mpl.rcParams.update(_plotpolish_host_rc)",
+        "del _plotpolish_host_rc",
+        FENCE_END,
+      ].join("\n"),
+    );
+  });
+
+  it("restores before the student's own keys, so a key they set still wins", () => {
+    const block = generateBlock({ style: "seaborn-v0_8", rc: { "figure.figsize": [4, 3] } }, HOST)!;
+    const lines = splitLines(block);
+    const restore = lines.indexOf("mpl.rcParams.update(_plotpolish_host_rc)");
+    const student = lines.indexOf("mpl.rcParams.update({");
+    // Both present, or the comparison below is -1 < n and proves nothing.
+    expect(restore).toBeGreaterThan(-1);
+    expect(student).toBeGreaterThan(-1);
+    expect(restore).toBeLessThan(student);
+  });
+
+  it("emits nothing extra when there is no named style: nothing would reset the keys", () => {
+    const settings: StyleSettings = { style: "default", rc: { "font.size": 12 } };
+    expect(generateBlock(settings, HOST)).toBe(generateBlock(settings));
+    expect(generateBlock(settings, HOST)).not.toContain("_plotpolish_host_rc");
+  });
+
+  it("emits nothing extra when the host owns no keys", () => {
+    const settings: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12 } };
+    expect(generateBlock(settings, [])).toBe(generateBlock(settings));
+    expect(generateBlock(settings, [])).not.toContain("_plotpolish_host_rc");
+  });
+
+  it("never resets rc wholesale to do it", () => {
+    const block = generateBlock({ style: "seaborn-v0_8", rc: { "font.size": 12 } }, HOST)!;
+    expect(block).not.toContain('mpl.style.use("default")');
+    expect(block).not.toContain("mpl.rcdefaults");
+    expect(block).not.toContain("rcParamsDefault");
+  });
+
+  it("deletes the name it binds, leaving nothing behind in the student's globals", () => {
+    const block = generateBlock({ style: "bmh", rc: {} }, HOST)!;
+    expect(block).toContain("del _plotpolish_host_rc");
+    // Bound once, read once, deleted once.
+    expect(splitLines(block).filter((l) => l.includes("_plotpolish_host_rc"))).toHaveLength(3);
+  });
+
+  it("dedupes the host's keys and drops blanks", () => {
+    const block = generateBlock({ style: "bmh", rc: {} }, ["figure.figsize", "figure.figsize", ""])!;
+    expect(block).toContain('for k in ["figure.figsize"] if k in mpl.rcParams');
+  });
+
+  it("round-trips: parseBlock reads a block that carries host keys", () => {
+    const settings: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12, "axes.grid": true } };
+    const block = generateBlock(settings, HOST)!;
+    // Guard: without the save/restore lines this would be an ordinary block and
+    // the parse below would prove nothing about them.
+    expect(block).toContain("mpl.rcParams.update(_plotpolish_host_rc)");
+    const parsed = parseBlock(block)!;
+    expect(parsed.settings).toEqual(settings);
+    expect(parsed.unknownKeys).toEqual([]);
+    expect(parsed.range).toEqual({ start: 0, end: splitLines(block).length - 1 });
+  });
+
+  it("upsert with host keys is idempotent and leaves the student's lines alone", () => {
+    const settings: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12 } };
+    const user = "import matplotlib.pyplot as plt\n\nplt.plot([1, 2])\nplt.show()\n";
+    const once = upsertBlock(user, settings, HOST);
+    expect(upsertBlock(once, settings, HOST)).toBe(once);
+    expect(once.endsWith(user)).toBe(true);
+    expect(parseBlock(once)!.settings).toEqual(settings);
+  });
+
+  it("regenerating with different host keys replaces the old save line, never stacks them", () => {
+    const settings: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12 } };
+    const first = upsertBlock("plt.show()\n", settings, HOST);
+    const second = upsertBlock(first, settings, ["figure.dpi"]);
+    expect(second).toContain('for k in ["figure.dpi"] if k in mpl.rcParams');
+    expect(second).not.toContain("figure.autolayout");
+    expect(splitLines(second).filter((l) => l.startsWith("_plotpolish_host_rc = "))).toHaveLength(1);
+  });
+
+  it("dropping the host keys removes the save/restore lines again", () => {
+    const settings: StyleSettings = { style: "seaborn-v0_8", rc: { "font.size": 12 } };
+    const withKeys = upsertBlock("plt.show()\n", settings, HOST);
+    expect(upsertBlock(withKeys, settings, [])).toBe(upsertBlock("plt.show()\n", settings, []));
+  });
+
+  it("replaceFence carries the host keys too", () => {
+    const broken = [FENCE_START, "garbage(", FENCE_END, "plt.show()"].join("\n");
+    expect(replaceFence(broken, { style: "seaborn-v0_8", rc: {} }, HOST)).toContain(
+      "mpl.rcParams.update(_plotpolish_host_rc)",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // parseBlock
 // ---------------------------------------------------------------------------
 

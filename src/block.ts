@@ -6,7 +6,7 @@
  * spacing). See README design rule 1.
  */
 
-import { FENCE_END, FENCE_START } from "./constants";
+import { FENCE_END, FENCE_START, HOST_RC_VARIABLE } from "./constants";
 import { formatPyValue, isPyCycler, isPyTuple, parsePyDict, parsePyString, PyLitError, type PyScalar, type PyValue } from "./pylit";
 import { CONTROL_FOR_KEY, isPropCycle, RC_KEYS, type PropCycleValue, type RcValue } from "./schema";
 
@@ -139,15 +139,42 @@ function orderedKeys(rc: Record<string, RcValue>): string[] {
   return [...known, ...unknown];
 }
 
+/** The host's keys, deduped and with blanks dropped, in the order the host gave them. */
+function keepKeys(hostRcKeys: readonly string[]): string[] {
+  return [...new Set(hostRcKeys)].filter((k) => k !== "");
+}
+
+/** Comment above the save line, so the student can see why the name exists. */
+const HOST_RC_COMMENT = "# Hold on to the values this page set, so the style below does not replace them.";
+
 /**
  * The block as text (lines joined with "\n", no trailing newline), or null when
  * the settings are entirely default and there is nothing to say.
+ *
+ * `hostRcKeys` are rc keys the host owns and sets before every run (see
+ * `PlotpolishPanel.hostRcKeys`). A style sheet may set the same keys -- 8 of
+ * matplotlib's 29 styles set `figure.figsize`, `seaborn-v0_8` among them -- and
+ * `mpl.style.use` would then quietly discard the host's value on every re-run.
+ * So when there is a named style AND the host owns keys, the block saves them,
+ * applies the style, and puts them back. The student's own `rcParams.update`
+ * still comes last, so a key they set beats both. With no named style there is
+ * nothing to reset and the block is byte-identical to one with no host keys.
  */
-export function generateBlock(settings: StyleSettings): string | null {
+export function generateBlock(settings: StyleSettings, hostRcKeys: readonly string[] = []): string | null {
   if (isDefaultSettings(settings)) return null;
   const lines = [FENCE_START, "import matplotlib as mpl"];
   if (settings.style && settings.style !== "default") {
+    const keep = keepKeys(hostRcKeys);
+    if (keep.length) {
+      lines.push(HOST_RC_COMMENT);
+      const list = keep.map((k) => JSON.stringify(k)).join(", ");
+      lines.push(`${HOST_RC_VARIABLE} = {k: mpl.rcParams[k] for k in [${list}] if k in mpl.rcParams}`);
+    }
     lines.push(`mpl.style.use(${JSON.stringify(settings.style)})`);
+    if (keep.length) {
+      lines.push(`mpl.rcParams.update(${HOST_RC_VARIABLE})`);
+      lines.push(`del ${HOST_RC_VARIABLE}`);
+    }
   }
   const keys = orderedKeys(settings.rc);
   if (keys.length) {
@@ -166,6 +193,17 @@ export function generateBlock(settings: StyleSettings): string | null {
 // ---------------------------------------------------------------------------
 
 const STYLE_RE = /^\s*mpl\.style\.use\((.*)\)\s*$/;
+
+// The three lines generateBlock writes around mpl.style.use to carry the host's
+// rc keys across it. They are recognized and skipped rather than read back: the
+// host, not the block, is the authority on which keys it owns, so a regenerate
+// takes them from `hostRcKeys` again. HOST_RC_VARIABLE is letters and
+// underscores only, so it needs no regex escaping.
+const HOST_SAVE_RE = new RegExp(
+  `^\\s*${HOST_RC_VARIABLE} = \\{k: mpl\\.rcParams\\[k\\] for k in \\[[^\\]]*\\] if k in mpl\\.rcParams\\}\\s*$`
+);
+const HOST_RESTORE_RE = new RegExp(`^\\s*mpl\\.rcParams\\.update\\(${HOST_RC_VARIABLE}\\)\\s*$`);
+const HOST_DEL_RE = new RegExp(`^\\s*del ${HOST_RC_VARIABLE}\\s*$`);
 
 function fromPyValue(key: string, value: PyValue, line: number): RcValue {
   if (isPyCycler(value)) {
@@ -216,6 +254,13 @@ export function parseBlock(source: string): ParsedBlock | null {
     }
     if (t === "import matplotlib as mpl") {
       sawImport = true;
+      i++;
+      continue;
+    }
+    // Must come before the rcParams.update branch below: the restore line
+    // starts with "mpl.rcParams.update(" too, but its argument is a name, not
+    // a dict literal, so the dict parser would reject it.
+    if (HOST_SAVE_RE.test(line) || HOST_RESTORE_RE.test(line) || HOST_DEL_RE.test(line)) {
       i++;
       continue;
     }
@@ -348,8 +393,8 @@ function lastHeaderIsOnlyComments(lines: string[], upto: number): boolean {
  * the fence when the settings are entirely default. Throws FenceError if the
  * existing fence is malformed (use `removeBlock`/`replaceFence` explicitly).
  */
-export function upsertBlock(source: string, settings: StyleSettings): string {
-  const block = generateBlock(settings);
+export function upsertBlock(source: string, settings: StyleSettings, hostRcKeys: readonly string[] = []): string {
+  const block = generateBlock(settings, hostRcKeys);
   const range = findFence(source);
   if (block === null) return range ? removeRange(source, range) : source;
   const eol = detectEol(source);
@@ -378,7 +423,7 @@ export function removeBlock(source: string): string {
  * FENCE_END with a fresh block. For recovering from a malformed fence when
  * the user has explicitly asked for it.
  */
-export function replaceFence(source: string, settings: StyleSettings): string {
+export function replaceFence(source: string, settings: StyleSettings, hostRcKeys: readonly string[] = []): string {
   const lines = splitLines(source);
   const eol = detectEol(source);
   const start = lines.findIndex((l) => l.trim() === FENCE_START);
@@ -392,9 +437,9 @@ export function replaceFence(source: string, settings: StyleSettings): string {
   if (start === -1 || end === -1 || end < start) {
     // Nothing coherent to replace: strip stray markers, then insert normally.
     const cleaned = lines.filter((l) => l.trim() !== FENCE_START && l.trim() !== FENCE_END).join(eol);
-    return upsertBlock(cleaned, settings);
+    return upsertBlock(cleaned, settings, hostRcKeys);
   }
-  const block = generateBlock(settings);
+  const block = generateBlock(settings, hostRcKeys);
   lines.splice(start, end - start + 1, ...(block === null ? [] : block.split("\n")));
   return lines.join(eol);
 }

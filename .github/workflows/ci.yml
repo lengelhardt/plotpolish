@@ -51,6 +51,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # src/iife.test.ts reads dist/ and SKIPS itself when dist/ is absent, so
+      # `npm test` above -- which runs before the build -- silently skipped all
+      # six of its cases on every push: the no-sourceMappingURL guard and the
+      # license-notice check among them. Run it again now that dist/ exists, the
+      # same way release.yml does. Without this, a regression to either guard
+      # reaches CI green and is only caught at tag time.
+      - run: npx vitest run src/iife.test.ts
       - run: |
           if ! grep -q "def introspect_figure" dist/plotpolish.js; then
             echo "Error: Python helper not found in bundle"

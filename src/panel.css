@@ -383,15 +383,21 @@ button.stall.stale.act {
   font: inherit; font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em;
   display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
   padding: 3px 7px; border-radius: 999px;
-  border: 1px solid var(--_border); background: var(--_section-bg); color: var(--_muted);
+  border: 1px solid var(--_border); background: var(--_section-bg); color: var(--_fg);
   cursor: default;
 }
-button.stall.stale.act .glyph { font-size: 12px; }
+/* --_fg, NOT --_muted. Larry, 2026-09-10: "That appears to be empty now."
+   Muted text at 11.5px on --_section-bg reads as an EMPTY BOX at a glance --
+   the words were there and measured 328x30, and it still looked blank. What
+   the inactive state dials down is URGENCY, not legibility: the sentence is
+   information the student needs either way, so only the fill and the weight
+   step back. The glyph may stay quiet; it is decoration next to the words. */
+button.stall.stale.act .glyph { font-size: 12px; color: var(--_muted); }
 .pop-body button.banner.stall.stale.act {
   display: block; width: 100%; text-align: left;
   font: inherit; font-size: 11.5px; font-weight: 600;
   margin: 0 0 6px; padding: 6px 8px; border-radius: 6px;
-  background: var(--_section-bg); border: 1px solid var(--_border); color: var(--_muted);
+  background: var(--_section-bg); border: 1px solid var(--_border); color: var(--_fg);
   cursor: default;
 }
 

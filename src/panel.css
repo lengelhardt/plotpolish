@@ -346,6 +346,27 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .pill.stalled:not(.error), .rail.stalled:not(.error) { border-color: var(--_muted); }
 .pill.stalled.bad:not(.error), .rail.stalled.bad:not(.error) { border-color: var(--_danger); }
 
+/* The "cannot preview" notice takes the ACCENT, not the danger treatment.
+   Eye-catching was the requirement, and accent is the loudest thing here that
+   is not a fault: this state is true for the whole lab, and the comment above
+   applies with more force to it than to a stall -- a red chip that never goes
+   away is a red chip the student stops seeing. It reads as an instruction
+   ("do this") rather than a warning ("something broke"), which is what it is.
+
+   Bolder and a shade larger than the stall chip it shares a class with,
+   because unlike a stall it is not competing with anything: the auto-update
+   switch is hidden in exactly the state this appears in, so the slot is free.
+
+   After the .stall rules on purpose -- .pill .stall.stale is one class more
+   specific, so ordering is belt-and-braces rather than load-bearing. */
+.pill .stall.stale {
+  border-color: var(--_accent); background: var(--_accent-tint); color: var(--_accent);
+  font-weight: 700; font-size: 11.5px; letter-spacing: 0.01em;
+}
+/* The Run glyph carries the meaning for anyone scanning rather than reading,
+   so it gets to be bigger than the stall chip's ⏳. */
+.pill .stall.stale .glyph { font-size: 12px; }
+
 /* The sentence the chip's two words stand for. It sits above the controls
    instead of replacing them (the fence banner replaces them): a stalled
    backend does not stop the panel writing, so the controls stay usable. */
@@ -355,6 +376,11 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 }
 .pop-body .banner.stall.bad {
   background: var(--_error-bg); border-color: var(--_danger); color: var(--_fg);
+}
+/* Matches the chip, so the two read as one message rather than two. */
+.pop-body .banner.stall.stale {
+  background: var(--_accent-tint); border-color: var(--_accent); color: var(--_fg);
+  font-weight: 600;
 }
 
 /* Spans both grid columns: the strip is about the whole control, not a value

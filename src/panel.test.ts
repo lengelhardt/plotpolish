@@ -1675,9 +1675,13 @@ describe("backend trouble is visible in the panel", () => {
     sink = new MemorySink("");
   });
 
-  const chip = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall") as HTMLElement;
+  // `:not(.stale)` because the "cannot preview" notice shares the .stall class
+  // for its styling. Without it these selectors resolve by DOM ORDER, which
+  // happens to be right today and would silently retarget every assertion in
+  // this block if the pill's children were ever reordered.
+  const chip = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall:not(.stale)") as HTMLElement;
   const word = (): string | null => (chip().querySelector(".stall-word") as HTMLElement).textContent;
-  const note = (): HTMLElement => panel.shadowRoot!.querySelector(".pop-body .banner.stall") as HTMLElement;
+  const note = (): HTMLElement => panel.shadowRoot!.querySelector(".pop-body .banner.stall:not(.stale)") as HTMLElement;
   const shell = (): HTMLElement => panel.shadowRoot!.querySelector(".pill") as HTMLElement;
   const fenceMark = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .err") as HTMLElement;
 
@@ -1969,6 +1973,133 @@ describe("backend trouble is visible in the panel", () => {
     expect(rail.classList.contains("error")).toBe(false);
   });
 });
+
+/**
+ * The "Re-run to update plot" notice. On the worker runtime there is no second
+ * interpreter to preview against, so `features.livePreview` is false and the
+ * student's slider appears to do nothing until they Run. The panel still
+ * writes its rcParams block, so nothing is lost but the immediacy -- the harm
+ * is a control that LOOKS broken, and a sentence fixes it.
+ *
+ * The distinction these tests hold to: this is not trouble. A host that can
+ * never preview has not failed, so the notice must not take the `bad`
+ * treatment and must not recolor the shell border the way a fault does. Those
+ * are asserted here rather than left to the eye.
+ */
+describe("the cannot-preview notice", () => {
+  let sink: MemorySink;
+
+  beforeEach(() => {
+    sink = new MemorySink("");
+  });
+
+  const staleChip = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall.stale") as HTMLElement;
+  const staleWord = (): string | null => (staleChip().querySelector(".stale-word") as HTMLElement).textContent;
+  const staleNote = (): HTMLElement => panel.shadowRoot!.querySelector(".pop-body .banner.stall.stale") as HTMLElement;
+  const autoBtn = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .auto-update") as HTMLElement;
+  const shell = (): HTMLElement => panel.shadowRoot!.querySelector(".pill") as HTMLElement;
+
+  it("says nothing at all while live updating works", () => {
+    panel.sink = sink;
+    expect(staleChip().hidden).toBe(true);
+    expect(staleNote().hidden).toBe(true);
+  });
+
+  it("appears when the host declares it can never preview", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false };
+    expect(staleChip().hidden).toBe(false);
+    expect(staleNote().hidden).toBe(false);
+    expect(staleWord()).toBe("Re-run");
+    expect(staleNote().textContent).toBe("Re-run to update plot.");
+  });
+
+  it("takes the slot the auto-update switch vacates, never both at once", () => {
+    panel.sink = sink;
+    expect(autoBtn().hidden).toBe(false);
+    expect(staleChip().hidden).toBe(true);
+
+    panel.features = { livePreview: false };
+    expect(autoBtn().hidden).toBe(true);
+    expect(staleChip().hidden).toBe(false);
+  });
+
+  it("stays quiet with no sink, because then a re-run would pick up nothing", () => {
+    // The advice would be a lie: with no sink the block goes nowhere, so
+    // running again cannot show the student their own settings. backendTrouble
+    // gates its own re-run advice the same way.
+    panel.features = { livePreview: false };
+    expect(panel.sink).toBe(null);
+    expect(staleChip().hidden).toBe(true);
+    expect(staleNote().hidden).toBe(true);
+  });
+
+  it("is not a fault: no bad class, and the shell border is untouched", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false };
+    expect(staleChip().classList.contains("bad")).toBe(false);
+    expect(staleNote().classList.contains("bad")).toBe(false);
+    expect(shell().classList.contains("stalled")).toBe(false);
+    expect(shell().classList.contains("bad")).toBe(false);
+  });
+
+  it("announces politely, and hides the glyph from the reader", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false };
+    expect(staleChip().getAttribute("role")).toBe("status");
+    expect(staleChip().getAttribute("aria-live")).toBe("polite");
+    expect(staleNote().getAttribute("role")).toBe("status");
+    expect(staleChip().querySelector(".glyph")!.getAttribute("aria-hidden")).toBe("true");
+    // The sentence is on the chip too, for a student who hovers the pill
+    // rather than opening the popover.
+    expect(staleChip().title).toBe("Re-run to update plot.");
+  });
+
+  it("lets the host supply its own glyph and wording, partially", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false, staleNotice: { glyph: "\u25B8", sentence: "Press Run to update the plot." } };
+    expect(staleChip().querySelector(".glyph")!.textContent).toBe("\u25B8");
+    expect(staleNote().textContent).toBe("Press Run to update the plot.");
+    // `word` was not supplied, so it falls back rather than going blank.
+    expect(staleWord()).toBe("Re-run");
+  });
+
+  it("defaults the glyph to a Unicode character, not host icon markup", () => {
+    // The panel is a shadow root: a host's `<i class="fa fa-play">` would
+    // render as an EMPTY element, because the document stylesheet defining
+    // `.fa` does not cross the shadow boundary. A plain character always draws.
+    panel.sink = sink;
+    panel.features = { livePreview: false };
+    const glyph = staleChip().querySelector(".glyph") as HTMLElement;
+    expect(glyph.textContent).toBe("\u25B6");
+    expect(glyph.children.length).toBe(0);
+  });
+
+  it("takes the accent treatment, not the danger treatment", () => {
+    // From disk, not the `?inline` import, which vitest resolves to an empty
+    // string -- and `not.toContain("--_danger")` would then pass for the wrong
+    // reason. Same reasoning as the stalled-border guard above.
+    const css = readFileSync("src/panel.css", "utf8");
+    const rule = css.match(/\.pill \.stall\.stale \{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toContain("--_accent");
+    expect(rule![0]).not.toContain("--_danger");
+    // The permanent state must never recolor the shell, the way a fault does.
+    expect(css).not.toMatch(/\.pill\.stale\b/);
+    expect(css).not.toMatch(/\.rail\.stale\b/);
+  });
+
+  it("goes away again when a host that can preview attaches", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false };
+    expect(staleChip().hidden).toBe(false);
+    panel.features = { livePreview: true };
+    expect(staleChip().hidden).toBe(true);
+    expect(staleNote().hidden).toBe(true);
+    expect(autoBtn().hidden).toBe(false);
+  });
+});
+
 
 describe("fontsize display", () => {
   it("is a range input (6-40, step 0.5), with a readout showing the resolved pt value for a relative default, mentioning the name in the title", () => {

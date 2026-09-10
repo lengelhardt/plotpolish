@@ -41,9 +41,43 @@ export interface PanelFeatures {
   showCode: boolean;
   /** Group ids to render (see controls.json); null renders all. */
   groups: string[] | null;
+  /**
+   * What the panel says when it cannot preview -- see `staleAdvice()`. The host
+   * supplies it so the wording can be re-tuned, and the glyph swapped for one
+   * that matches its own Run button, WITHOUT cutting a plotpolish release.
+   *
+   * Plain text in all three fields, deliberately: the panel lives in a shadow
+   * root, so a host's icon markup (`<i class="fa fa-play">`, which is what
+   * Trinket's Run button uses) renders as an EMPTY element -- the document
+   * stylesheet that defines `.fa` does not cross the shadow boundary. A Unicode
+   * glyph needs no stylesheet and cannot inject markup. `⚠` and `⏳` in
+   * `backendTrouble()` are the same choice.
+   *
+   * Partial objects are fine; anything omitted falls back to DEFAULT_STALE.
+   */
+  staleNotice: Partial<StaleNotice> | null;
 }
 
-const DEFAULT_FEATURES: PanelFeatures = { livePreview: true, showCode: true, groups: null };
+/** The three parts of the "cannot preview" notice, mirroring `backendTrouble()`. */
+export interface StaleNotice {
+  /** Shown in the pill, in the slot the auto-update switch vacates. */
+  glyph: string;
+  /** The pill chip's word. Kept to one or two words; the pill is narrow. */
+  word: string;
+  /** The full sentence, shown above the controls in the popover. */
+  sentence: string;
+}
+
+/** U+25B6 stands in for a host Run glyph the shadow root cannot reach. */
+const DEFAULT_STALE: StaleNotice = {
+  glyph: "\u25B6",
+  word: "Re-run",
+  sentence: "Re-run to update plot.",
+};
+
+const DEFAULT_FEATURES: PanelFeatures = {
+  livePreview: true, showCode: true, groups: null, staleNotice: null,
+};
 
 export interface ChangeEventDetail {
   settings: StyleSettings;
@@ -407,10 +441,16 @@ export class PlotpolishPanel extends HTMLElement {
     errMark: HTMLElement;
     /** The backend's state in two words, beside the tabs. Hidden while it is fine. */
     stallMark: HTMLElement;
+    /** The "cannot preview" chip, in the slot autoBtn vacates. */
+    staleMark: HTMLElement;
+    staleGlyph: HTMLElement;
+    staleWord: HTMLElement;
     stallGlyph: HTMLElement;
     stallWord: HTMLElement;
     /** The same thing as a sentence, inside the popover. */
     backendNote: HTMLElement;
+    /** The "cannot preview" sentence, above the controls in the popover. */
+    staleNote: HTMLElement;
     /** Everything in the pill but the grip; folded away when collapsed. */
     pillBody: HTMLElement;
     /** The pill's auto-update switch. */
@@ -1876,6 +1916,18 @@ export class PlotpolishPanel extends HTMLElement {
     // role-plus-`hidden` shape.
     stallMark.setAttribute("role", "status");
     stallMark.setAttribute("aria-live", "polite");
+    // The "cannot preview" chip, built like stallMark and sitting in the slot
+    // autoBtn vacates -- the student loses a control and gains the reason in
+    // its place. Not a `backendTrouble` variant: that reports transient faults
+    // and waits, and this is a permanent property of the host. It never takes
+    // the `bad` treatment and never recolors the shell border, because a state
+    // that is true for the whole lab would train the color away.
+    const staleGlyph = el("span", { class: "glyph" });
+    staleGlyph.setAttribute("aria-hidden", "true");
+    const staleWord = el("span", { class: "stale-word" });
+    const staleMark = el("span", { class: "stall stale", hidden: true }, staleGlyph, staleWord);
+    staleMark.setAttribute("role", "status");
+    staleMark.setAttribute("aria-live", "polite");
     const menuToggle = el("button", { type: "button", class: "menu-toggle", title: "Reset menu" }, "↺ ▾");
     menuToggle.setAttribute("aria-haspopup", "menu");
     menuToggle.addEventListener("click", () => this.toggleMenu());
@@ -1919,7 +1971,7 @@ export class PlotpolishPanel extends HTMLElement {
     // Everything but the grip lives in one wrapper, so collapsing is a single
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
-    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, autoBtn, menuToggle);
+    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, staleMark, autoBtn, menuToggle);
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
@@ -1969,6 +2021,15 @@ export class PlotpolishPanel extends HTMLElement {
     backendNote.setAttribute("role", "status");
     backendNote.setAttribute("aria-live", "polite");
 
+    // The sentence the chip's word stands for. Above the controls for the same
+    // reason backendNote is: the panel still writes its block, so the controls
+    // stay usable. This is also the ONLY place the notice is readable in
+    // "rail" layout, where the pill is hidden outright (see update()) -- and
+    // the student has to open the popover to move a control anyway.
+    const staleNote = el("div", { class: "banner stall stale", hidden: true });
+    staleNote.setAttribute("role", "status");
+    staleNote.setAttribute("aria-live", "polite");
+
     const unknownNote = el("p", { class: "unknown-note muted", hidden: true });
 
     const groupViews = new Map<string, GroupView>();
@@ -1995,7 +2056,7 @@ export class PlotpolishPanel extends HTMLElement {
       groupEls.push(container);
     }
 
-    const popBody = el("div", { class: "pop-body" }, banner, backendNote, ...groupEls, unknownNote);
+    const popBody = el("div", { class: "pop-body" }, banner, backendNote, staleNote, ...groupEls, unknownNote);
     const popover = el("div", { class: "popover", role: "dialog", hidden: true }, header, caret, popBody);
 
     // --- Reset menu ---
@@ -2027,6 +2088,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.root.append(style, pill, rail, popover, menu);
     this.ui = {
       pill, pillGrip, pillBody, errMark, stallMark, stallGlyph, stallWord, backendNote,
+      staleMark, staleGlyph, staleWord, staleNote,
       autoBtn, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
@@ -2616,7 +2678,13 @@ export class PlotpolishPanel extends HTMLElement {
    * What the panel has to say about the backend right now, or null when there
    * is nothing to say. Note what is NOT in here: "no backend" and "connecting"
    * are ordinary, and `features.livePreview: false` is a host that never
-   * previews, not a host that failed to. None of the three shows anything.
+   * previews, not a host that failed to. None of the three is TROUBLE.
+   *
+   * `livePreview: false` does now get a message, but through `staleAdvice()`
+   * rather than here -- it is a permanent property of the host rather than a
+   * fault or a wait, so it takes neither the `bad` treatment nor the shell
+   * border. Keep the two apart: a host that can never preview must not report
+   * a failure.
    *
    * `bad` separates a fault from a wait. A helper that raised is worth the
    * danger color; a program still running is the most ordinary thing a physics
@@ -2650,6 +2718,29 @@ export class PlotpolishPanel extends HTMLElement {
       };
     }
     return null;
+  }
+
+  /**
+   * What to say when this host can never preview, or null when there is
+   * nothing to say. Larry's decision, 2026-09-09: on the worker runtime there
+   * is no second interpreter to preview against, so the slider appears to do
+   * nothing until the student runs. The panel still writes its block, so
+   * nothing is lost but the immediacy -- and the harm is a control that looks
+   * broken, which a sentence fixes.
+   *
+   * Two conditions, both required:
+   *
+   * - `!features.livePreview`. Nothing at all when live updating works, which
+   *   is the spec: the notice appears ONLY when it does not. A host that CAN
+   *   preview but is momentarily stalled is `backendTrouble()`'s business.
+   * - A sink to write to. With `_sink === null` the block goes nowhere, so
+   *   there is nothing for a re-run to pick up and "re-run to update" would be
+   *   a lie. `backendTrouble()` gates its own re-run advice the same way.
+   */
+  private staleAdvice(): StaleNotice | null {
+    if (this._features.livePreview) return null;
+    if (this._sink === null) return null;
+    return { ...DEFAULT_STALE, ...(this._features.staleNotice ?? {}) };
   }
 
   // -------------------------------------------------------------------------
@@ -2700,6 +2791,17 @@ export class PlotpolishPanel extends HTMLElement {
     // computation would reach for it. `features.livePreview` is the host's
     // own declaration, so a worker host that can never preview still hides it.
     ui.autoBtn.hidden = !this._features.livePreview;
+    // The chip takes the slot the switch just vacated. Mutually exclusive by
+    // construction: both are keyed to `features.livePreview`.
+    const stale = this.staleAdvice();
+    ui.staleMark.hidden = stale === null;
+    ui.staleNote.hidden = stale === null;
+    if (stale) {
+      ui.staleGlyph.textContent = stale.glyph;
+      ui.staleWord.textContent = stale.word;
+      ui.staleMark.title = stale.sentence;
+      ui.staleNote.textContent = stale.sentence;
+    }
     ui.autoBtn.setAttribute("aria-pressed", String(this._autoUpdate));
     ui.autoBtn.classList.toggle("off", !this._autoUpdate);
     ui.autoBtn.title = this._autoUpdate

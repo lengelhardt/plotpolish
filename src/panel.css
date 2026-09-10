@@ -367,6 +367,77 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
    so it gets to be bigger than the stall chip's ⏳. */
 .pill .stall.stale .glyph { font-size: 12px; }
 
+/* `.act` is the CLICKABLE variant, shown when features.canRerun says the host
+   will service a re-run. Two states, and the difference between them is the
+   whole point (Larry, 2026-09-10): INACTIVE while nothing is waiting, ACTIVE
+   the moment the student changes something they have not seen yet.
+
+   Inactive borrows the stall chip's quiet treatment rather than the accent,
+   because with nothing pending there is nothing to do and an accent-bordered
+   pill in the slot the Auto switch vacated reads as a button — which is
+   exactly how the first version of this misled: it looked pressable and did
+   nothing. Here it looks unpressable and IS, via a real `disabled`. */
+button.stall.stale.act {
+  /* The pill's reset gives buttons no font; match the inert chip exactly so
+     swapping between the two variants moves nothing. */
+  font: inherit; font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+  padding: 3px 7px; border-radius: 999px;
+  border: 1px solid var(--_border); background: var(--_section-bg); color: var(--_muted);
+  cursor: default;
+}
+button.stall.stale.act .glyph { font-size: 12px; }
+.pop-body button.banner.stall.stale.act {
+  display: block; width: 100%; text-align: left;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  margin: 0 0 6px; padding: 6px 8px; border-radius: 6px;
+  background: var(--_section-bg); border: 1px solid var(--_border); color: var(--_muted);
+  cursor: default;
+}
+
+/* ACTIVE: the student has changed something and has not seen it yet. Fills
+   rather than outlining — the same escalation `p.next-run.pending` already
+   makes for the style preset, one step further because there is something to
+   press. `:enabled` and `.pending` are set together by update(), so either
+   selector alone would do; both are stated so the rule cannot come apart. */
+button.stall.stale.act:enabled,
+.pop-body button.banner.stall.stale.act:enabled {
+  cursor: pointer;
+  background: var(--_accent); border-color: var(--_accent); color: #fff;
+}
+.pill button.stall.stale.act:enabled .glyph { color: #fff; }
+.pop-body button.banner.stall.stale.act:enabled { font-weight: 700; }
+button.stall.stale.act:enabled:hover,
+.pop-body button.banner.stall.stale.act:enabled:hover {
+  background: var(--_accent-tint); color: var(--_accent);
+}
+button.stall.stale.act:enabled:active { transform: scale(0.97); }
+.pop-body button.banner.stall.stale.act:enabled:active { transform: scale(0.995); }
+button.stall.stale.act:focus-visible { outline: 2px solid var(--_accent); outline-offset: 1px; }
+
+/* The INERT variants (a host with no `canRerun`) get the same two-step, since
+   the escalation is information, not just affordance. */
+.pill span.stall.stale.pending,
+.pop-body div.banner.stall.stale.pending {
+  background: var(--_accent); border-color: var(--_accent); color: #fff;
+}
+.pill span.stall.stale.pending .glyph { color: #fff; }
+
+/* The pulse fires ONCE, when the class lands, never on a loop: a control that
+   throbs forever is one the student learns to look past — the same argument
+   the stall chip's comment makes about colour. */
+@keyframes pp-rerun-wake {
+  0%   { box-shadow: 0 0 0 0 var(--_accent-tint); }
+  40%  { box-shadow: 0 0 0 4px var(--_accent-tint); }
+  100% { box-shadow: 0 0 0 0 var(--_accent-tint); }
+}
+.stall.stale.pending { animation: pp-rerun-wake 620ms ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .stall.stale.pending { animation: none; }
+  button.stall.stale.act:enabled:active,
+  .pop-body button.banner.stall.stale.act:enabled:active { transform: none; }
+}
+
 /* The sentence the chip's two words stand for. It sits above the controls
    instead of replacing them (the fence banner replaces them): a stalled
    backend does not stop the panel writing, so the controls stay usable. */

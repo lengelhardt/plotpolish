@@ -56,6 +56,16 @@ export interface PanelFeatures {
    * Partial objects are fine; anything omitted falls back to DEFAULT_STALE.
    */
   staleNotice: Partial<StaleNotice> | null;
+  /**
+   * Whether the host can service a re-run request. When true, the notice
+   * becomes a BUTTON that emits `plotpolish-rerun-requested`; the host listens
+   * and triggers its own Run. Default false, deliberately: the panel cannot
+   * know whether anything is listening, and a control that says "Re-run" and
+   * does nothing is worse than a plain sentence -- which is exactly what the
+   * first version of this notice shipped as, and what Larry caught in ten
+   * seconds of using it.
+   */
+  canRerun: boolean;
 }
 
 /** The three parts of the "cannot preview" notice, mirroring `backendTrouble()`. */
@@ -76,7 +86,7 @@ const DEFAULT_STALE: StaleNotice = {
 };
 
 const DEFAULT_FEATURES: PanelFeatures = {
-  livePreview: true, showCode: true, groups: null, staleNotice: null,
+  livePreview: true, showCode: true, groups: null, staleNotice: null, canRerun: false,
 };
 
 export interface ChangeEventDetail {
@@ -102,6 +112,17 @@ export interface SavedEventDetail {
 /** Fired when the student turns the figure's auto-update on or off. */
 export interface AutoUpdateEventDetail {
   autoUpdate: boolean;
+}
+
+/**
+ * Fired when the student asks for a re-run from the notice. The panel cannot
+ * run anything itself -- it is host-agnostic by design -- so it asks. Only
+ * fired when `features.canRerun` is on, so a host that never wired a listener
+ * never renders the button that would emit this.
+ */
+export interface RerunRequestedEventDetail {
+  /** rc keys (or "style") waiting on the run, for a host that wants to log it. */
+  keys: string[];
 }
 
 export interface RerunNeededEventDetail {
@@ -195,8 +216,19 @@ interface DragStart {
   left: number;
   top: number;
   pointerId: number;
-  /** True once the pointer has moved past the drag threshold and capture began. */
+  /**
+   * True once pointer capture is held. Taken on pointerDOWN, not after the
+   * threshold: the pill's grip is its first child and only a few pixels wide,
+   * so a leftward drag leaves it before 4px of travel, `pointermove` stops
+   * being delivered to the grip, and the drag never starts -- while a
+   * rightward drag stays on the grip long enough to capture and then works in
+   * both directions. That is the "drag right first to release it" behaviour
+   * Larry hit on 2026-09-10, and the file already described the shape of it in
+   * onPillGripPointerMove's `buttons === 0` comment.
+   */
   captured: boolean;
+  /** True once past the drag threshold, i.e. this is a drag and not a click. */
+  moved: boolean;
 }
 
 const APPLY_DEBOUNCE_MS = 60;
@@ -445,12 +477,23 @@ export class PlotpolishPanel extends HTMLElement {
     staleMark: HTMLElement;
     staleGlyph: HTMLElement;
     staleWord: HTMLElement;
+    /**
+     * The clickable variants, shown instead of the inert ones when
+     * `features.canRerun`. Built up front and swapped by `hidden` rather than
+     * created on demand: an element cannot be both a `role="status"` live
+     * region and a control, so there are genuinely two of each, and swapping
+     * markup at runtime is how listeners get silently dropped.
+     */
+    staleBtn: HTMLButtonElement;
+    staleBtnGlyph: HTMLElement;
+    staleBtnWord: HTMLElement;
     stallGlyph: HTMLElement;
     stallWord: HTMLElement;
     /** The same thing as a sentence, inside the popover. */
     backendNote: HTMLElement;
     /** The "cannot preview" sentence, above the controls in the popover. */
     staleNote: HTMLElement;
+    staleNoteBtn: HTMLButtonElement;
     /** Everything in the pill but the grip; folded away when collapsed. */
     pillBody: HTMLElement;
     /** The pill's auto-update switch. */
@@ -1426,8 +1469,19 @@ export class PlotpolishPanel extends HTMLElement {
     const rect = this.ui.popover.getBoundingClientRect();
     this.dragStart = {
       x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
-      pointerId: e.pointerId, captured: false,
+      pointerId: e.pointerId, captured: false, moved: false,
     };
+    // Capture on pointerdown, for the same reason the pill's grip does: the
+    // header's grip is at its left edge, so a leftward drag can leave the
+    // element before the 4px threshold and stop delivering moves. Less
+    // reachable here than on the pill -- the whole header row is draggable,
+    // not just the dots -- but it is the same bug and the same fix.
+    try {
+      this.ui.header.setPointerCapture?.(e.pointerId);
+      this.dragStart.captured = true;
+    } catch {
+      /* not every environment supports pointer capture */
+    }
   }
 
   private onHeaderPointerMove(e: PointerEvent): void {
@@ -1441,16 +1495,12 @@ export class PlotpolishPanel extends HTMLElement {
     }
     const dx = (e.clientX ?? 0) - start.x;
     const dy = (e.clientY ?? 0) - start.y;
-    if (!start.captured) {
-      // Only becomes a drag once the pointer clears the threshold, so a plain
-      // click (e.g. on the header background) never captures the pointer.
+    if (!start.moved) {
+      // Only becomes a DRAG once the pointer clears the threshold, so a plain
+      // click on the header background still reads as a click. Capture is
+      // already held either way; `moved` is what distinguishes the two.
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      start.captured = true;
-      try {
-        this.ui.header.setPointerCapture?.(start.pointerId);
-      } catch {
-        /* not every environment supports pointer capture */
-      }
+      start.moved = true;
     }
     let left = start.left + dx;
     let top = start.top + dy;
@@ -1481,14 +1531,16 @@ export class PlotpolishPanel extends HTMLElement {
   private endHeaderDrag(pointerId?: number): void {
     const start = this.dragStart;
     if (!start) return;
+    // Released even when the gesture never became a drag: capture is taken on
+    // pointerdown now, so a plain click would otherwise leave it held.
     if (start.captured) {
       try {
         this.ui.header.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
-      this.ui.popover.classList.remove("dragging");
     }
+    if (start.moved) this.ui.popover.classList.remove("dragging");
     this.dragStart = null;
   }
 
@@ -1637,8 +1689,19 @@ export class PlotpolishPanel extends HTMLElement {
     const rect = this.ui.pill.getBoundingClientRect();
     this.pillDragStart = {
       x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
-      pointerId: e.pointerId, captured: false,
+      pointerId: e.pointerId, captured: false, moved: false,
     };
+    // Capture NOW, before any movement. Without this the only pointermoves we
+    // ever see are the ones that happen to stay over the grip, which biases
+    // the gesture to whichever direction keeps the cursor on it. Capturing
+    // does not commit to a drag: `moved` still decides whether this becomes a
+    // drag or the click that tucks the pill away.
+    try {
+      this.ui.pillGrip.setPointerCapture?.(e.pointerId);
+      this.pillDragStart.captured = true;
+    } catch {
+      /* not every environment supports pointer capture */
+    }
   }
 
   private onPillGripPointerMove(e: PointerEvent): void {
@@ -1657,14 +1720,9 @@ export class PlotpolishPanel extends HTMLElement {
     }
     const dx = (e.clientX ?? 0) - start.x;
     const dy = (e.clientY ?? 0) - start.y;
-    if (!start.captured) {
+    if (!start.moved) {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      start.captured = true;
-      try {
-        this.ui.pillGrip.setPointerCapture?.(start.pointerId);
-      } catch {
-        /* not every environment supports pointer capture */
-      }
+      start.moved = true;
       // Freeze the pill as a fixed-position element at its current rect, even
       // when it started out inline (layout="pill") in the toolbar row.
       this.ui.pill.style.position = "fixed";
@@ -1690,8 +1748,11 @@ export class PlotpolishPanel extends HTMLElement {
 
   private onPillGripPointerUp(e: PointerEvent): void {
     // A press and release that never cleared the drag threshold is a click,
-    // not a drag, so the grip doubles as the collapse toggle.
-    const wasClick = !!this.pillDragStart && !this.pillDragStart.captured;
+    // not a drag, so the grip doubles as the collapse toggle. `moved`, NOT
+    // `captured`: capture is taken on pointerdown now, so `captured` is true
+    // for a plain click too and testing it here suppressed the collapse
+    // entirely.
+    const wasClick = !!this.pillDragStart && !this.pillDragStart.moved;
     this.endPillDrag(e.pointerId);
     if (wasClick) this.togglePillCollapsed();
   }
@@ -1784,14 +1845,18 @@ export class PlotpolishPanel extends HTMLElement {
   private endPillDrag(pointerId?: number): void {
     const start = this.pillDragStart;
     if (!start) return;
+    // Capture is now taken on pointerdown, so it has to be released even when
+    // the gesture never became a drag -- otherwise a plain click on the grip
+    // leaves the pointer captured and the next gesture anywhere on the page
+    // is delivered to the grip instead.
     if (start.captured) {
       try {
         this.ui.pillGrip.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
-      this.ui.pill.classList.remove("dragging");
     }
+    if (start.moved) this.ui.pill.classList.remove("dragging");
     this.pillDragStart = null;
   }
 
@@ -1928,6 +1993,17 @@ export class PlotpolishPanel extends HTMLElement {
     const staleMark = el("span", { class: "stall stale", hidden: true }, staleGlyph, staleWord);
     staleMark.setAttribute("role", "status");
     staleMark.setAttribute("aria-live", "polite");
+    // The clickable twin. No role="status" and no aria-live: a control cannot
+    // be a live region, and its label already says what it does.
+    const staleBtnGlyph = el("span", { class: "glyph" });
+    staleBtnGlyph.setAttribute("aria-hidden", "true");
+    const staleBtnWord = el("span", { class: "stale-word" });
+    const staleBtn = el(
+      "button",
+      { type: "button", class: "stall stale act", hidden: true },
+      staleBtnGlyph, staleBtnWord
+    ) as HTMLButtonElement;
+    staleBtn.addEventListener("click", () => this.requestRerun());
     const menuToggle = el("button", { type: "button", class: "menu-toggle", title: "Reset menu" }, "↺ ▾");
     menuToggle.setAttribute("aria-haspopup", "menu");
     menuToggle.addEventListener("click", () => this.toggleMenu());
@@ -1971,7 +2047,7 @@ export class PlotpolishPanel extends HTMLElement {
     // Everything but the grip lives in one wrapper, so collapsing is a single
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
-    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, staleMark, autoBtn, menuToggle);
+    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, staleMark, staleBtn, autoBtn, menuToggle);
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
@@ -2029,6 +2105,12 @@ export class PlotpolishPanel extends HTMLElement {
     const staleNote = el("div", { class: "banner stall stale", hidden: true });
     staleNote.setAttribute("role", "status");
     staleNote.setAttribute("aria-live", "polite");
+    // The sentence as a control: the comfortable click target of the two, at
+    // the full width of the popover.
+    const staleNoteBtn = el(
+      "button", { type: "button", class: "banner stall stale act", hidden: true }
+    ) as HTMLButtonElement;
+    staleNoteBtn.addEventListener("click", () => this.requestRerun());
 
     const unknownNote = el("p", { class: "unknown-note muted", hidden: true });
 
@@ -2056,7 +2138,7 @@ export class PlotpolishPanel extends HTMLElement {
       groupEls.push(container);
     }
 
-    const popBody = el("div", { class: "pop-body" }, banner, backendNote, staleNote, ...groupEls, unknownNote);
+    const popBody = el("div", { class: "pop-body" }, banner, backendNote, staleNote, staleNoteBtn, ...groupEls, unknownNote);
     const popover = el("div", { class: "popover", role: "dialog", hidden: true }, header, caret, popBody);
 
     // --- Reset menu ---
@@ -2089,6 +2171,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.ui = {
       pill, pillGrip, pillBody, errMark, stallMark, stallGlyph, stallWord, backendNote,
       staleMark, staleGlyph, staleWord, staleNote,
+      staleBtn, staleBtnGlyph, staleBtnWord, staleNoteBtn,
       autoBtn, menuToggle, rail,
       popover, header, title, reanchorBtn, closeBtn, caret, popBody, banner, fenceMessage, unknownNote,
       menu, resetCategoryItem, resetAllItem, showCodeItem, codePre,
@@ -2743,6 +2826,22 @@ export class PlotpolishPanel extends HTMLElement {
     return { ...DEFAULT_STALE, ...(this._features.staleNotice ?? {}) };
   }
 
+  /**
+   * Ask the host to run the program again. The panel cannot do it itself and
+   * must not try to: it is host-agnostic, and "run" means something different
+   * in every embed. Trinket's adapter answers this by firing its own
+   * `trinket.code.run`.
+   *
+   * No optimism afterwards: the notice stays exactly as it is. The host clears
+   * it by calling `refresh()` when the run actually finishes, which it already
+   * does, and which already clears `rerunKeys` and `stale`. Hiding the notice
+   * on click would claim a run happened when the host may have declined it --
+   * mid-run, say.
+   */
+  private requestRerun(): void {
+    this.emit<RerunRequestedEventDetail>("rerun-requested", { keys: [...this.rerunKeys] });
+  }
+
   // -------------------------------------------------------------------------
   // DOM: sync with state
   // -------------------------------------------------------------------------
@@ -2794,13 +2893,42 @@ export class PlotpolishPanel extends HTMLElement {
     // The chip takes the slot the switch just vacated. Mutually exclusive by
     // construction: both are keyed to `features.livePreview`.
     const stale = this.staleAdvice();
-    ui.staleMark.hidden = stale === null;
-    ui.staleNote.hidden = stale === null;
+    // Exactly one of each pair is ever shown: the button when the host can
+    // service a re-run, the inert status element when it cannot.
+    const asButton = stale !== null && this._features.canRerun;
+    ui.staleMark.hidden = stale === null || asButton;
+    ui.staleBtn.hidden = !asButton;
+    ui.staleNote.hidden = stale === null || asButton;
+    ui.staleNoteBtn.hidden = !asButton;
+    // Larry, 2026-09-10: once the student has actually changed something, the
+    // button has to escalate -- resting it says "you will need to re-run",
+    // pending it says "you have unseen work waiting on a click". `rerunKeys`
+    // already tracks exactly this and is already cleared by refresh() when a
+    // run completes, so the button drops back on its own. The per-tab and
+    // per-control `↻` marks key off the same set.
+    const rerunPending = stale !== null && this.rerunKeys.size > 0;
+    for (const node of [ui.staleMark, ui.staleBtn, ui.staleNote, ui.staleNoteBtn]) {
+      node.classList.toggle("pending", rerunPending);
+    }
+    // Larry, 2026-09-10: inactive until there is something to see, then active.
+    // A real `disabled`, not a muted look over a live control -- pressing it
+    // with nothing pending would run the program to redraw an identical
+    // figure, and the affordance is meant to READ as progress: dim means
+    // nothing is waiting on you, lit means something is. The host's own Run
+    // button is still right there for an unconditional run.
+    ui.staleBtn.disabled = !rerunPending;
+    ui.staleNoteBtn.disabled = !rerunPending;
     if (stale) {
       ui.staleGlyph.textContent = stale.glyph;
       ui.staleWord.textContent = stale.word;
       ui.staleMark.title = stale.sentence;
       ui.staleNote.textContent = stale.sentence;
+      ui.staleBtnGlyph.textContent = stale.glyph;
+      ui.staleBtnWord.textContent = stale.word;
+      ui.staleBtn.title = stale.sentence;
+      // The sentence IS the button's label, so it needs no separate title and
+      // no aria-label -- both would only repeat it to a screen reader.
+      ui.staleNoteBtn.textContent = stale.sentence;
     }
     ui.autoBtn.setAttribute("aria-pressed", String(this._autoUpdate));
     ui.autoBtn.classList.toggle("off", !this._autoUpdate);

@@ -1298,6 +1298,79 @@ describe("draggable pill", () => {
     expect(pill(panel).classList.contains("dragging")).toBe(false);
   });
 
+  /**
+   * Larry, 2026-09-10: "If I grab the pill and try to drag it to the left, it
+   * won't drag. If I drag to the right first, that releases it to drag to the
+   * left."
+   *
+   * The cause was capture TIMING. `setPointerCapture` was called only after the
+   * pointer had travelled 4px, and until capture is held the only pointermoves
+   * delivered are the ones over the grip itself -- which is the pill's first
+   * child and a few pixels wide. Moving left leaves it before 4px, so the
+   * threshold was never reached and the drag never began; moving right stayed
+   * on the grip long enough to capture, after which everything worked.
+   *
+   * NOTE what these tests can and cannot do. They CANNOT reproduce the symptom:
+   * dispatching pointermove directly at the grip bypasses the hit-testing that
+   * caused it, which is why "a held drag still moves the pill in both
+   * directions" above passed throughout. So they pin the MECHANISM -- capture
+   * is requested on pointerdown, before any movement -- which is the thing that
+   * makes the browser deliver those moves at all.
+   */
+  it("captures the pointer on pointerdown, before any movement", () => {
+    const grip = pillGrip(panel);
+    const calls: number[] = [];
+    (grip as HTMLElement & { setPointerCapture: (id: number) => void }).setPointerCapture =
+      (id: number) => { calls.push(id); };
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 100, clientY: 100, pointerId: 7, buttons: 1 }));
+
+    expect(calls).toEqual([7]);
+    // And not as a side effect of becoming a drag: nothing has moved yet.
+    expect(pill(panel).classList.contains("dragging")).toBe(false);
+  });
+
+  it("releases the pointer on a plain click, which never became a drag", () => {
+    const grip = pillGrip(panel);
+    const released: number[] = [];
+    (grip as HTMLElement & { setPointerCapture: (id: number) => void }).setPointerCapture = () => {};
+    (grip as HTMLElement & { releasePointerCapture: (id: number) => void }).releasePointerCapture =
+      (id: number) => { released.push(id); };
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 3, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 3, buttons: 0 }));
+
+    // Without this the pointer stays captured after a click and every later
+    // gesture on the page is delivered to the grip.
+    expect(released).toEqual([3]);
+    // The click still does its own job.
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+  });
+
+  it("drags LEFT as the first movement, with no rightward move to unstick it", () => {
+    const grip = pillGrip(panel);
+    const px = () => parseFloat(pill(panel).style.left || "NaN");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 300, clientY: 100, pointerId: 1, buttons: 1 }));
+    // Straight left, past the 4px threshold, as the very first move. Small
+    // deltas on purpose: happy-dom reports zero-size rects, so the pill's
+    // measured width falls back to 100 and the "keep 40px on screen" clamp
+    // floors `left` at -60. A 60px move lands exactly on that floor and a
+    // second one cannot go further, which reads as a failure of the drag
+    // rather than of the clamp.
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 290, clientY: 100, pointerId: 1, buttons: 1 }));
+
+    expect(pill(panel).classList.contains("dragging")).toBe(true);
+    const afterLeft = px();
+    expect(Number.isNaN(afterLeft)).toBe(false);
+    expect(afterLeft).toBeLessThan(0);
+
+    // And keeps going left.
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 275, clientY: 100, pointerId: 1, buttons: 1 }));
+    expect(px()).toBeLessThan(afterLeft);
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 180, clientY: 100, pointerId: 1, buttons: 0 }));
+  });
+
   it("a second pointer ending does not cancel a drag in progress", () => {
     const grip = pillGrip(panel);
 

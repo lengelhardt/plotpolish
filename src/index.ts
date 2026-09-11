@@ -18,7 +18,8 @@ export { MemorySink, ClipboardSink } from "./sink";
 export type { CodeSink, ClipboardSinkOptions } from "./sink";
 export { PlotpolishPanel, registerPanel } from "./panel";
 export type {
-  PanelFeatures, ChangeEventDetail, RerunNeededEventDetail, PanelErrorEventDetail,
+  PanelFeatures, StaleNotice, ChangeEventDetail, RerunNeededEventDetail,
+  RerunRequestedEventDetail, PanelErrorEventDetail,
   AutoUpdateEventDetail, SavedEventDetail,
 } from "./panel";
 export { PyodideBackend } from "./adapters/pyodide";

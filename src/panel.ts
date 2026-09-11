@@ -54,8 +54,13 @@ export interface PanelFeatures {
    * `backendTrouble()` are the same choice.
    *
    * Partial objects are fine; anything omitted falls back to DEFAULT_STALE.
+   *
+   * OPTIONAL, and it has to stay that way: this field and `canRerun` arrived
+   * in 0.3.3 as REQUIRED, which broke every typed host that built a complete
+   * `PanelFeatures` object out of the three fields that existed before --
+   * a compile error in what was advertised as a patch release.
    */
-  staleNotice: Partial<StaleNotice> | null;
+  staleNotice?: Partial<StaleNotice> | null;
   /**
    * Whether the host can service a re-run request. When true, the notice
    * becomes a BUTTON that emits `plotpolish-rerun-requested`; the host listens
@@ -64,8 +69,10 @@ export interface PanelFeatures {
    * does nothing is worse than a plain sentence -- which is exactly what the
    * first version of this notice shipped as, and what Larry caught in ten
    * seconds of using it.
+   *
+   * Optional for the same reason `staleNotice` is.
    */
-  canRerun: boolean;
+  canRerun?: boolean;
 }
 
 /** The three parts of the "cannot preview" notice, mirroring `backendTrouble()`. */
@@ -85,7 +92,9 @@ const DEFAULT_STALE: StaleNotice = {
   sentence: "Re-run to update plot.",
 };
 
-const DEFAULT_FEATURES: PanelFeatures = {
+// `Required<>`, so every read inside the class sees a value and the optional
+// public fields cost nothing at the call sites.
+const DEFAULT_FEATURES: Required<PanelFeatures> = {
   livePreview: true, showCode: true, groups: null, staleNotice: null, canRerun: false,
 };
 
@@ -394,7 +403,7 @@ export class PlotpolishPanel extends HTMLElement {
   private client: HelperClient | null = null;
   private _sink: CodeSink | null = null;
   private unsubscribeSink: (() => void) | null = null;
-  private _features: PanelFeatures = { ...DEFAULT_FEATURES };
+  private _features: Required<PanelFeatures> = { ...DEFAULT_FEATURES };
   /**
    * Whether the figure follows every change, or waits for the next run. The
    * student's switch, not the host's: `features.livePreview` says whether this
@@ -634,7 +643,16 @@ export class PlotpolishPanel extends HTMLElement {
     return { ...this._features, groups: this._features.groups ? [...this._features.groups] : null };
   }
   set features(partial: Partial<PanelFeatures>) {
-    this._features = { ...this._features, ...partial };
+    // Skip undefined rather than spreading it. Now that `staleNotice` and
+    // `canRerun` are optional, `{ ...features, canRerun: undefined }` is a
+    // thing a host can hand us -- from an options object with the key absent,
+    // say -- and a plain spread would write undefined over the default and
+    // strand `_features` off its `Required<>` type.
+    const next = { ...this._features } as Record<string, unknown>;
+    for (const [key, value] of Object.entries(partial)) {
+      if (value !== undefined) next[key] = value;
+    }
+    this._features = next as unknown as Required<PanelFeatures>;
     this.update();
   }
 

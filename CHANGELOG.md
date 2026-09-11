@@ -5,9 +5,12 @@ project is pre-1.0, so minor versions may change behavior.
 
 ## 0.3.4 — 2026-09-11
 
-Everything here is a fix to v0.3.3, cut the same day from a code review of it.
-No new features, and nothing a student sees differently except the inactive
-notice being legible.
+Everything here is a fix to v0.3.3, cut the same day from two code reviews and
+a consult on it. No new features — but it is **not** invisible to a student:
+the inactive notice becomes legible, the shell title stops claiming live preview
+is on when the host has declared it off, and the "your settings are saved in
+your code" clause stops appearing where it is not true. The earlier draft of
+this entry claimed nothing visible changed, which its own body contradicted.
 
 - **Fixed, and the reason for the hurry: `staleNotice` and `canRerun` shipped as
   REQUIRED members of the exported `PanelFeatures`.** Any typed host that built
@@ -65,6 +68,51 @@ notice being legible.
   `{ livePreview, showCode, groups }` and listed five events, so everything
   v0.3.3 added was undiscoverable outside the source.
 
+- **Fixed, and it is a correction to this release's own first draft: a
+  write-only sink must not silence the notice.** An earlier v0.3.4 draft
+  suppressed the "Re-run to update plot." notice whenever `getSource()` was
+  null, reasoning that a re-run picks up nothing. Built and looked at, that made
+  a `ClipboardSink` student's screen strictly worse than v0.3.3: the chip, the
+  sentence and the button all vanished while every per-control `↻` badge stayed
+  up saying "Re-run your program to see this change." — leaving the slider
+  looking broken with the explanation back in a hover title, which is the exact
+  failure the notice was added to cure. The gate is gone.
+
+  What it was reaching for belongs one layer over. **"Run your program again" is
+  ADVICE and survives being incomplete** — a clipboard student pastes, then
+  runs. **"Your settings are saved in your code" is a factual CLAIM**, and for a
+  write-only sink it is false: the block is on the clipboard until the student
+  pastes it. So `backendTrouble()`'s appended clause is now gated on the block
+  actually reaching readable source, with no fence error — stricter than the
+  `_sink !== null` it used before, and stricter than the fence case it also got
+  wrong. The notice keeps the looser gate, as it should.
+
+- **Fixed: a backend error no longer disappears behind the notice.** v0.3.4's
+  first draft put the stale arm above the error arm in the shell title, so
+  "Backend error: …" was replaced by "Re-run to update plot." on both the pill
+  and the rail — and in rail layout, which has no chip, the title was the only
+  surface still carrying the raw message. The error arm now outranks it, while
+  the notice still outranks "no backend", which is the worker-runtime path.
+
+- **New: "Live preview off."** covers the states where the host has declared it
+  cannot preview but the notice has nothing to add — no sink, or a malformed
+  fence. Without it a ready backend fell through to "Live preview on" beside a
+  hidden auto-update switch. It deliberately says nothing more: a longer
+  "changes wait for the next run" would be false with no sink, because the
+  change goes nowhere.
+
+- **The compile-time barrel guard now points at the barrel.** As first written
+  it imported the types from `./panel`, so deleting either export from
+  `src/index.ts` left `tsc` green — it could not see the regression it existed
+  to catch. It imports from `./index` now; deleting the exports produces two
+  errors.
+
+- **The `undefined` filter in the features setter is tested.** Reverting it to a
+  plain spread previously passed the entire suite. Two tests now pin it, and the
+  second records that `{ groups: undefined }` threw
+  `TypeError: Cannot read properties of undefined (reading 'includes')` in every
+  version before this one, so no host could have been relying on it.
+
 ## 0.3.3 — 2026-09-11
 
 - **New: the panel says "Re-run to update plot" when the host cannot preview.**
@@ -94,7 +142,7 @@ notice being legible.
   says it before the student touches anything.
 
 - **Fixed: the pill would not drag left until you dragged it right first.**
-  `setPointerCapture` was called only after the pointer had travelled
+  `setPointerCapture` was called only after the pointer had traveled
   `DRAG_THRESHOLD_PX`, and until capture is held the only `pointermove` events
   delivered are those landing on the grip itself — the pill's first child, a few
   pixels wide. Moving left leaves the grip before 4 px of travel, so the

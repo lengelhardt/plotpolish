@@ -15,7 +15,10 @@ import {
   PlotpolishPanel, shortStyleName, type AutoUpdateEventDetail, type ChangeEventDetail,
   type PanelErrorEventDetail, type RerunNeededEventDetail, type SavedEventDetail,
 } from "./panel";
-import type { PanelFeatures, StaleNotice, RerunRequestedEventDetail } from "./panel";
+// From "./index", the PUBLIC barrel -- NOT from "./panel". v0.3.4 imported
+// these from "./panel", so deleting either export from src/index.ts left tsc
+// green and the guard could not see the regression it was written for.
+import type { PanelFeatures, StaleNotice, RerunRequestedEventDetail } from "./index";
 
 // Compile-time regression guard, not a runtime test. 0.3.3 shipped `staleNotice`
 // and `canRerun` as REQUIRED members of the exported `PanelFeatures`, so every
@@ -1320,7 +1323,7 @@ describe("draggable pill", () => {
    * left."
    *
    * The cause was capture TIMING. `setPointerCapture` was called only after the
-   * pointer had travelled 4px, and until capture is held the only pointermoves
+   * pointer had traveled 4px, and until capture is held the only pointermoves
    * delivered are the ones over the grip itself -- which is the pill's first
    * child and a few pixels wide. Moving left leaves it before 4px, so the
    * threshold was never reached and the drag never began; moving right stayed
@@ -2189,20 +2192,10 @@ describe("the cannot-preview notice", () => {
   });
 
   // ---------------------------------------------------------------------
-  // Copilot's review of #24, all three confirmed against the source. Each of
-  // these is the notice telling the student something that is not true.
+  // The notice must not tell the student something untrue. A third gate lived
+  // here in v0.3.4 -- suppress the notice for a write-only sink -- and was
+  // removed again; see the 0.3.4 changelog entry for why.
   // ---------------------------------------------------------------------
-
-  it("says nothing for a WRITE-ONLY sink, whose source a re-run cannot pick up", () => {
-    // `_sink !== null` was the gate and it was half the question. ClipboardSink
-    // is attached and working, and its getSource() is null BY DESIGN -- the
-    // block goes to the clipboard, never into the source, so the next run reads
-    // exactly what the last one did.
-    panel.sink = new ClipboardSink({ clipboard: undefined });
-    panel.features = { livePreview: false };
-    expect(staleChip().hidden).toBe(true);
-    expect(staleNote().hidden).toBe(true);
-  });
 
   it("yields to a malformed fence, which is the error the student can act on", () => {
     const src = [
@@ -2331,14 +2324,6 @@ describe("the cannot-preview notice as a re-run button", () => {
     expect(rule![0]).toContain("color: var(--_fg)");
   });
 
-  it("emits nothing when the notice itself is suppressed", () => {
-    // canRerun does not resurrect a notice the gates turned off: a write-only
-    // sink has no source for the re-run to read.
-    panel.sink = new ClipboardSink({ clipboard: undefined });
-    panel.features = { livePreview: false, canRerun: true };
-    expect(staleBtn().hidden).toBe(true);
-    expect(staleMark().hidden).toBe(true);
-  });
 });
 
 
@@ -4068,5 +4053,119 @@ describe("Save PNG", () => {
     expect(said(panel)).toBe("Save failed");
     expect(errors.map((e) => e.context)).toContain("save_figure");
     expect(saveBtn(panel).disabled).toBe(false); // usable again
+  });
+});
+
+
+/**
+ * The shell title, and the two statements that are NOT the same statement.
+ *
+ * All of this came out of the v0.3.4 consult. The title arm ordering and the
+ * `blockReachesSource()` gate both shipped in v0.3.4 with no coverage at all --
+ * a mutation moving the stale arm below every backendState arm passed 236/236.
+ */
+describe("the shell title, and where the block actually lands", () => {
+  const railEl = (): HTMLElement => panel.shadowRoot!.querySelector(".rail") as HTMLElement;
+  const pillEl = (): HTMLElement => panel.shadowRoot!.querySelector(".pill") as HTMLElement;
+  const troubleNote = (): HTMLElement =>
+    panel.shadowRoot!.querySelector(".pop-body .banner.stall:not(.stale)") as HTMLElement;
+  const BROKEN_FENCE = [
+    FENCE_START, FENCE_START, "import matplotlib as mpl",
+    "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
+  ].join("\n");
+
+  it("lets a real backend error outrank the standing notice", async () => {
+    panel.sink = new MemorySink("");
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    backend.failNext = "dead interpreter";
+    await panel.refresh().catch(() => undefined);
+    panel.features = { livePreview: false };
+
+    // In rail layout there is no chip, so the title is the ONLY surface left
+    // carrying the raw message -- and v0.3.4 put the stale arm above it.
+    expect(pillEl().title).toContain("dead interpreter");
+    expect(railEl().title).toContain("dead interpreter");
+  });
+
+  it("still lets the notice outrank 'no backend', which is Trinket's worker path", () => {
+    panel.sink = new MemorySink("");
+    panel.features = { livePreview: false };
+    expect(pillEl().title).toBe("Re-run to update plot.");
+    expect(pillEl().title).not.toContain("No live preview");
+  });
+
+  it("says 'Live preview off.' rather than 'Live preview on' when the host cannot preview", async () => {
+    // No sink, so staleAdvice() is null -- but a READY backend meant
+    // backendState was "ready" and the title claimed live preview was on, with
+    // the auto-update switch hidden right beside it.
+    await attachBackend(panel, new MockBackend());
+    panel.features = { livePreview: false };
+    expect(pillEl().title).toBe("Live preview off.");
+    expect(railEl().title).toBe("Live preview off.");
+  });
+
+  it("says 'Live preview off.' on a malformed fence too, and nothing it cannot back up", () => {
+    panel.sink = new MemorySink(BROKEN_FENCE);
+    panel.features = { livePreview: false };
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+    // Deliberately says nothing about the fence: the `!` mark, `.error` and the
+    // banner carry that. A longer "changes wait for the next run" would be
+    // false here, because the panel is refusing to write.
+    expect(pillEl().title).toBe("Live preview off.");
+  });
+
+  it("does not claim the settings are saved in your code for a WRITE-ONLY sink", async () => {
+    // "Run your program again" is ADVICE and survives being incomplete.
+    // "Your settings are saved in your code" is a factual CLAIM, and for a
+    // clipboard sink the block is on the clipboard -- nothing is in the code
+    // until the student pastes. v0.3.4 applied the readable-source distinction
+    // to the advice and not to the claim, which was exactly backwards.
+    panel.sink = new ClipboardSink({ clipboard: undefined });
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    backend.rejectWith = new Error("A program is running");
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    await panel.settle();
+
+    expect(troubleNote().hidden).toBe(false);
+    expect(troubleNote().textContent).toContain("still running");
+    expect(troubleNote().textContent).not.toContain("saved in your code");
+  });
+
+  it("does not claim it while a malformed fence is refusing the write either", async () => {
+    panel.sink = new MemorySink(BROKEN_FENCE);
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    backend.rejectWith = new Error("A program is running");
+    await panel.settle();
+
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+    if (!troubleNote().hidden) {
+      expect(troubleNote().textContent).not.toContain("saved in your code");
+    }
+  });
+});
+
+describe("features setter: an explicit undefined must not erase a default", () => {
+  it("keeps an existing canRerun:true when handed { canRerun: undefined }", () => {
+    panel.features = { livePreview: false, canRerun: true };
+    expect(panel.features.canRerun).toBe(true);
+    // A host builds this from an options object whose key is absent. Under a
+    // plain spread it wrote undefined straight over the default, which also
+    // stranded _features off its Required<> type.
+    panel.features = { canRerun: undefined };
+    expect(panel.features.canRerun).toBe(true);
+  });
+
+  it("does not throw on { groups: undefined }, which crashed every version before 0.3.4", () => {
+    panel.features = { groups: ["look"] };
+    // Pre-0.3.4 this reached isGroupVisible as undefined and threw
+    // "Cannot read properties of undefined (reading 'includes')".
+    expect(() => { panel.features = { groups: undefined }; }).not.toThrow();
+    expect(panel.features.groups).toEqual(["look"]);
   });
 });

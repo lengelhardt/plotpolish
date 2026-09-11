@@ -2792,10 +2792,28 @@ export class PlotpolishPanel extends HTMLElement {
    * student's animation loop does, and painting that red would teach them to
    * ignore the color by the second lab.
    */
+  /**
+   * Did the block actually land somewhere the NEXT RUN will read?
+   *
+   * This is a FACTUAL claim, and it is a different question from whether to
+   * advise a re-run. "Run your program again" is advice and survives being
+   * incomplete; "Your settings are saved in your code" asserts where the block
+   * is, and for a write-only sink it is simply false -- the block is on the
+   * clipboard, or in a fallback textarea, and nothing is in the code until the
+   * student pastes. A malformed fence is the same shape: `writeToSink()`
+   * refused, so nothing landed.
+   *
+   * Keeping the two kinds of statement on separate gates is the whole lesson of
+   * v0.3.4: one review finding about the readable-source distinction got
+   * applied to the ADVICE (`staleAdvice()`), where it silently deleted the
+   * notice, and not to the CLAIM here, where it belonged.
+   */
+  private blockReachesSource(): boolean {
+    return this._sink !== null && this._sink.getSource() !== null && this.fenceError === null;
+  }
+
   private backendTrouble(): { glyph: string; word: string; sentence: string; bad: boolean } | null {
-    // Only true if the block is being written somewhere; with no sink there is
-    // nothing for a re-run to pick up, so the advice would be a lie.
-    const saved = this._sink !== null;
+    const saved = this.blockReachesSource();
     if (this.backendStall === "busy") {
       return {
         glyph: "⏳", word: "Program running", bad: false,
@@ -2841,14 +2859,6 @@ export class PlotpolishPanel extends HTMLElement {
   private staleAdvice(): StaleNotice | null {
     if (this._features.livePreview) return null;
     if (this._sink === null) return null;
-    // A sink is not the same as a READABLE sink, which is what the gate above
-    // was reaching for and half-wrote. `CodeSink` explicitly allows write-only
-    // sinks -- `ClipboardSink.getSource()` returns null by design -- and for
-    // one of those the block lands on the clipboard, never in the source, so
-    // the next run reads exactly what the last one did. "Re-run to update the
-    // plot" is then false in precisely the way `_sink === null` was added to
-    // prevent.
-    if (this._sink.getSource() === null) return null;
     // A malformed fence stops the panel writing at all ("The panel will not
     // write until this is fixed"), so a re-run has nothing new to pick up
     // either. The fence error already owns the shell: `.error`, the `!` mark
@@ -2895,10 +2905,20 @@ export class PlotpolishPanel extends HTMLElement {
       // backendStall), so the tooltip has to come from the trouble or it would
       // cheerfully report "Live preview on" over a refused call.
       trouble && !trouble.bad ? trouble.sentence
+      // A real fault outranks the standing notice. v0.3.4 put the stale arm
+      // above this one and the raw backend message vanished from both shells --
+      // and in rail layout, which has no chip, the title was the only surface
+      // still carrying it.
+      : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
       : stale !== null ? stale.sentence
+      // The host declared it cannot preview and staleAdvice() had nothing to
+      // add (no sink, or a malformed fence). Without this arm a ready backend
+      // fell through to "Live preview on" beside a hidden auto-update switch.
+      // Deliberately says only what is known: a longer "changes wait for the
+      // next run" would be false with no sink, because the change goes nowhere.
+      : !this._features.livePreview ? "Live preview off."
       : this.backendState === "none" ? "No live preview (no backend)"
       : this.backendState === "connecting" ? "Connecting to Python…"
-      : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
       : `Live preview on · ${this.backendMessage}`;
     ui.pill.title = statusText;
     ui.rail.title = statusText;

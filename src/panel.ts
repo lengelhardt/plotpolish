@@ -2841,6 +2841,20 @@ export class PlotpolishPanel extends HTMLElement {
   private staleAdvice(): StaleNotice | null {
     if (this._features.livePreview) return null;
     if (this._sink === null) return null;
+    // A sink is not the same as a READABLE sink, which is what the gate above
+    // was reaching for and half-wrote. `CodeSink` explicitly allows write-only
+    // sinks -- `ClipboardSink.getSource()` returns null by design -- and for
+    // one of those the block lands on the clipboard, never in the source, so
+    // the next run reads exactly what the last one did. "Re-run to update the
+    // plot" is then false in precisely the way `_sink === null` was added to
+    // prevent.
+    if (this._sink.getSource() === null) return null;
+    // A malformed fence stops the panel writing at all ("The panel will not
+    // write until this is fixed"), so a re-run has nothing new to pick up
+    // either. The fence error already owns the shell: `.error`, the `!` mark
+    // and the banner. Two contradictory instructions in one pill is worse than
+    // one, and the fence error is the one the student can act on.
+    if (this.fenceError !== null) return null;
     return { ...DEFAULT_STALE, ...(this._features.staleNotice ?? {}) };
   }
 
@@ -2869,11 +2883,19 @@ export class PlotpolishPanel extends HTMLElement {
     if (!ui) return;
 
     const trouble = this.backendTrouble();
+    // Computed before the title, because the title must not contradict it. A
+    // host can attach a working backend and still declare livePreview:false --
+    // it wants set_style() and save, not per-control preview -- and then
+    // backendState is "ready", so the last arm below reported "Live preview
+    // on" while the chip beside it said the opposite. The rail, which has no
+    // room for the chip, showed only the wrong half.
+    const stale = this.staleAdvice();
     const statusText =
       // A stall leaves backendState at "ready"/"connecting" on purpose (see
       // backendStall), so the tooltip has to come from the trouble or it would
       // cheerfully report "Live preview on" over a refused call.
       trouble && !trouble.bad ? trouble.sentence
+      : stale !== null ? stale.sentence
       : this.backendState === "none" ? "No live preview (no backend)"
       : this.backendState === "connecting" ? "Connecting to Python…"
       : this.backendState === "error" ? `Backend error: ${this.backendMessage}`
@@ -2909,8 +2931,8 @@ export class PlotpolishPanel extends HTMLElement {
     // own declaration, so a worker host that can never preview still hides it.
     ui.autoBtn.hidden = !this._features.livePreview;
     // The chip takes the slot the switch just vacated. Mutually exclusive by
-    // construction: both are keyed to `features.livePreview`.
-    const stale = this.staleAdvice();
+    // construction: both are keyed to `features.livePreview`. (`stale` is
+    // computed at the top of update(), beside the title it now feeds.)
     // Exactly one of each pair is ever shown: the button when the host can
     // service a re-run, the inert status element when it cannot.
     const asButton = stale !== null && this._features.canRerun;

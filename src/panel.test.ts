@@ -32,7 +32,7 @@ const _detail: RerunRequestedEventDetail = { keys: [] };
 void _notice; void _detail;
 
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
-import { MemorySink, type CodeSink } from "./sink";
+import { ClipboardSink, MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";
 import { readFileSync } from "fs";
 
@@ -2186,6 +2186,142 @@ describe("the cannot-preview notice", () => {
     expect(staleChip().hidden).toBe(true);
     expect(staleNote().hidden).toBe(true);
     expect(autoBtn().hidden).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------
+  // Copilot's review of #24, all three confirmed against the source. Each of
+  // these is the notice telling the student something that is not true.
+  // ---------------------------------------------------------------------
+
+  it("says nothing for a WRITE-ONLY sink, whose source a re-run cannot pick up", () => {
+    // `_sink !== null` was the gate and it was half the question. ClipboardSink
+    // is attached and working, and its getSource() is null BY DESIGN -- the
+    // block goes to the clipboard, never into the source, so the next run reads
+    // exactly what the last one did.
+    panel.sink = new ClipboardSink({ clipboard: undefined });
+    panel.features = { livePreview: false };
+    expect(staleChip().hidden).toBe(true);
+    expect(staleNote().hidden).toBe(true);
+  });
+
+  it("yields to a malformed fence, which is the error the student can act on", () => {
+    const src = [
+      FENCE_START, FENCE_START, "import matplotlib as mpl",
+      "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
+      "print('kept')",
+    ].join("\n");
+    panel.sink = new MemorySink(src);
+    panel.features = { livePreview: false };
+
+    expect(panel.currentFenceError).toBeInstanceOf(FenceError);
+    // The panel will not write until the fence is fixed, so a re-run has
+    // nothing new to pick up. Two contradictory instructions in one pill is
+    // worse than one.
+    expect(staleChip().hidden).toBe(true);
+    expect(staleNote().hidden).toBe(true);
+    expect(shell().classList.contains("error")).toBe(true);
+  });
+
+  it("puts its sentence in the pill and rail titles, which used to contradict it", async () => {
+    // A host can attach a WORKING backend and still declare livePreview:false
+    // -- it wants set_style() and save, not per-control preview. backendState
+    // is then "ready", and the title said "Live preview on" beside a chip
+    // saying the opposite. The rail has no chip, so it showed only the wrong
+    // half.
+    panel.sink = sink;
+    await attachBackend(panel, new MockBackend());
+    panel.features = { livePreview: false };
+
+    const rail = panel.shadowRoot!.querySelector(".rail") as HTMLElement;
+    expect(shell().title).toBe("Re-run to update plot.");
+    expect(rail.title).toBe("Re-run to update plot.");
+    expect(shell().title).not.toContain("Live preview on");
+  });
+});
+
+/**
+ * `features.canRerun`. The notice stops being a sentence and becomes a BUTTON
+ * that asks the host to run the program. Every test above leaves canRerun at
+ * its default false -- and Trinket's adapter sets it TRUE on the worker
+ * runtime, which is the only consumer there is, so the whole button path went
+ * out in 0.3.3 with no coverage at all. Copilot caught that; it was filed as a
+ * nit and is not one.
+ */
+describe("the cannot-preview notice as a re-run button", () => {
+  let sink: MemorySink;
+
+  beforeEach(() => {
+    sink = new MemorySink("");
+  });
+
+  const staleMark = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall.stale:not(.act)") as HTMLElement;
+  const staleBtn = (): HTMLButtonElement => panel.shadowRoot!.querySelector(".pill .stall.stale.act") as HTMLButtonElement;
+  const staleNoteBtn = (): HTMLButtonElement =>
+    panel.shadowRoot!.querySelector(".pop-body .banner.stall.stale.act") as HTMLButtonElement;
+
+  it("swaps the inert sentence for a button, never showing both", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false, canRerun: true };
+    expect(staleBtn().hidden).toBe(false);
+    expect(staleMark().hidden).toBe(true);
+
+    panel.features = { canRerun: false };
+    expect(staleBtn().hidden).toBe(true);
+    expect(staleMark().hidden).toBe(false);
+  });
+
+  it("starts disabled, because pressing it with nothing pending would redraw an identical figure", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false, canRerun: true };
+    expect(staleBtn().disabled).toBe(true);
+    expect(staleNoteBtn().disabled).toBe(true);
+  });
+
+  it("enables once the student changes something, and emits the pending keys on click", () => {
+    panel.sink = sink;
+    panel.features = { livePreview: false, canRerun: true };
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+
+    expect(staleBtn().disabled).toBe(false);
+
+    const seen: RerunRequestedEventDetail[] = [];
+    panel.addEventListener("plotpolish-rerun-requested", (e) => {
+      seen.push((e as CustomEvent<RerunRequestedEventDetail>).detail);
+    });
+    staleBtn().click();
+
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.keys).toContain("axes.grid");
+  });
+
+  it("stays exactly as it is after the click -- only refresh() stands it down", async () => {
+    // No optimism: the host may have declined the run. Hiding the notice on
+    // click would claim a run happened.
+    panel.sink = sink;
+    await attachBackend(panel, new MockBackend());
+    panel.features = { livePreview: false, canRerun: true };
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    staleBtn().click();
+    expect(staleBtn().disabled).toBe(false);
+
+    await panel.refresh();
+    expect(staleBtn().disabled).toBe(true);
+    expect(staleBtn().hidden).toBe(false);
+  });
+
+  it("emits nothing when the notice itself is suppressed", () => {
+    // canRerun does not resurrect a notice the gates turned off: a write-only
+    // sink has no source for the re-run to read.
+    panel.sink = new ClipboardSink({ clipboard: undefined });
+    panel.features = { livePreview: false, canRerun: true };
+    expect(staleBtn().hidden).toBe(true);
+    expect(staleMark().hidden).toBe(true);
   });
 });
 

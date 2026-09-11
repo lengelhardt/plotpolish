@@ -4069,6 +4069,8 @@ describe("the shell title, and where the block actually lands", () => {
   const pillEl = (): HTMLElement => panel.shadowRoot!.querySelector(".pill") as HTMLElement;
   const troubleNote = (): HTMLElement =>
     panel.shadowRoot!.querySelector(".pop-body .banner.stall:not(.stale)") as HTMLElement;
+  const staleChip = (): HTMLElement => panel.shadowRoot!.querySelector(".pill .stall.stale") as HTMLElement;
+  const staleNote = (): HTMLElement => panel.shadowRoot!.querySelector(".pop-body .banner.stall.stale") as HTMLElement;
   const BROKEN_FENCE = [
     FENCE_START, FENCE_START, "import matplotlib as mpl",
     "mpl.rcParams.update({", '    "font.size": 12,', "})", "# --- end plot style ---",
@@ -4124,13 +4126,26 @@ describe("the shell title, and where the block actually lands", () => {
     panel.sink = new ClipboardSink({ clipboard: undefined });
     const backend = new MockBackend();
     await attachBackend(panel, backend);
+    panel.features = { livePreview: false };
     backend.rejectWith = new Error("A program is running");
 
     const grid = input(panel, "grid") as HTMLInputElement;
     grid.checked = true;
     change(grid);
     await panel.settle();
+    // With livePreview:false nothing calls apply_live, so the stall has to come
+    // from a refresh -- a control change alone never reaches the backend here.
+    await panel.refresh().catch(() => undefined);
 
+    // The ADVICE is shown. Without this pair the test passed with the removed
+    // `getSource() === null` gate restored -- it exercised only the trouble
+    // sentence, so the headline change of the release it belongs to was
+    // covered by nothing.
+    expect(staleChip().hidden).toBe(false);
+    expect(staleNote().hidden).toBe(false);
+    expect(staleNote().textContent).toBe("Re-run to update plot.");
+
+    // The CLAIM is not.
     expect(troubleNote().hidden).toBe(false);
     expect(troubleNote().textContent).toContain("still running");
     expect(troubleNote().textContent).not.toContain("saved in your code");
@@ -4141,12 +4156,51 @@ describe("the shell title, and where the block actually lands", () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);
     backend.rejectWith = new Error("A program is running");
-    await panel.settle();
+    // A refresh, not just settle(): nothing calls the backend after rejectWith
+    // is assigned, so the stall never arrived and this test used to assert
+    // behind an `if` that was always false -- pinning nothing at all.
+    await panel.refresh().catch(() => undefined);
 
     expect(panel.currentFenceError).toBeInstanceOf(FenceError);
-    if (!troubleNote().hidden) {
-      expect(troubleNote().textContent).not.toContain("saved in your code");
-    }
+    expect(troubleNote().hidden).toBe(false);
+    expect(troubleNote().textContent).not.toContain("saved in your code");
+  });
+
+  it("does not claim it for a readable sink that has no block in it yet", async () => {
+    // `new MemorySink("")` reads back "" -- not null -- so a readable-source
+    // check alone says yes. If the very first backend call fails before any
+    // control has written, the sentence claimed settings were saved into a
+    // file that has none.
+    panel.sink = new MemorySink("print('hello')\n");
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    backend.rejectWith = new Error("A program is running");
+    await panel.refresh().catch(() => undefined);
+
+    expect(troubleNote().hidden).toBe(false);
+    expect(troubleNote().textContent).toContain("still running");
+    expect(troubleNote().textContent).not.toContain("saved in your code");
+  });
+
+  it("does claim it once a block has actually landed in a readable sink", async () => {
+    // The other side of the gate: after a control change writes the block, the
+    // sentence is true and must still appear.
+    const sink = new MemorySink("print('hello')\n");
+    panel.sink = sink;
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+
+    const grid = input(panel, "grid") as HTMLInputElement;
+    grid.checked = true;
+    change(grid);
+    await panel.settle();
+    expect(sink.writes.length).toBeGreaterThan(0);
+
+    backend.rejectWith = new Error("A program is running");
+    await panel.refresh().catch(() => undefined);
+
+    expect(troubleNote().hidden).toBe(false);
+    expect(troubleNote().textContent).toContain("saved in your code");
   });
 });
 

@@ -207,7 +207,7 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
     after the click — it cannot know whether you honored the request — and
     stands the button down when your next `panel.refresh()` lands. Left
     `false`, the notice is an inert sentence, which is the safe default: a
-    control labelled "Re-run" that does nothing is worse than no control.
+    control labeled "Re-run" that does nothing is worse than no control.
 * **Theme:** `theme="light"|"dark"` attribute, or leave unset to follow
   `prefers-color-scheme`. Override `--sf-bg`, `--sf-fg`, `--sf-accent`,
   `--sf-border`, `--sf-muted`, `--sf-font` and friends on the element.

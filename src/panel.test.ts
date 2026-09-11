@@ -2315,6 +2315,22 @@ describe("the cannot-preview notice as a re-run button", () => {
     expect(staleBtn().hidden).toBe(false);
   });
 
+  it("does not let button:disabled halve the text back toward the empty box", () => {
+    // From disk, not the `?inline` import, which vitest resolves to an empty
+    // string -- the same reasoning as the accent guard above.
+    const css = readFileSync("src/panel.css", "utf8");
+    // The inactive notice is a REAL disabled button, so the global
+    // `button:disabled { opacity: 0.5 }` applied to it and halved the --_fg
+    // that e32e5a9 switched to precisely to stop it reading as an empty box.
+    expect(css).toMatch(/button\.stall\.stale\.act:disabled[^{]*\{[^}]*opacity:\s*1/);
+    expect(css).toMatch(/\.pop-body button\.banner\.stall\.stale\.act:disabled[^{]*\{[^}]*opacity:\s*1/);
+    // Inactivity is still carried, just not by dimming the words.
+    const rule = css.match(/button\.stall\.stale\.act \{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toContain("cursor: default");
+    expect(rule![0]).toContain("color: var(--_fg)");
+  });
+
   it("emits nothing when the notice itself is suppressed", () => {
     // canRerun does not resurrect a notice the gates turned off: a write-only
     // sink has no source for the re-run to read.

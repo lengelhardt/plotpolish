@@ -231,7 +231,7 @@ interface DragStart {
    * so a leftward drag leaves it before 4px of travel, `pointermove` stops
    * being delivered to the grip, and the drag never starts -- while a
    * rightward drag stays on the grip long enough to capture and then works in
-   * both directions. That is the "drag right first to release it" behaviour
+   * both directions. That is the "drag right first to release it" behavior
    * Larry hit on 2026-09-10, and the file already described the shape of it in
    * onPillGripPointerMove's `buttons === 0` comment.
    */

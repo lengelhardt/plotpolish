@@ -171,7 +171,7 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
 * **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
   figure transport needs pumping (a worker with Agg plus a hand-rolled
   webagg_core bridge, say) should trigger their redraw on `plotpolish-change`.
-* **Events.** Five, all bubbling and composed so a host can listen on an
+* **Events.** Six, all bubbling and composed so a host can listen on an
   ancestor: `plotpolish-change` (`detail.block` is the fenced block,
   `detail.source` the whole file after the write), `plotpolish-rerun-needed`,
   `plotpolish-auto-update` (the student switched the figure's auto-update on
@@ -183,8 +183,31 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   cancelable:** a host that cannot let a page trigger a download — a sandboxed
   iframe, which is where this actually runs — calls `preventDefault()` and
   delivers `detail.data` (base64 PNG) its own way.
-* **`panel.features`**: `{ livePreview, showCode, groups }`. Set
-  `livePreview: false` to disable backend calls on control changes.
+  The sixth is **`plotpolish-rerun-requested`** (`detail.keys` is the set of
+  rcParams the student has changed since the last run) — see `canRerun` below.
+* **`panel.features`**: `{ livePreview, showCode, groups, staleNotice, canRerun }`.
+  The last two are optional; all five can be set individually, since the setter
+  merges a `Partial`. Set `livePreview: false` to disable backend calls on
+  control changes.
+* **When the host can never preview.** With `livePreview: false` the panel
+  shows a "Re-run to update plot." notice — a chip in the slot the auto-update
+  switch vacates, and the full sentence above the controls in the popover — so
+  a slider that cannot move the figure yet does not read as broken. It appears
+  only when there is a **readable** sink to write to and no fence error; with a
+  write-only sink (`ClipboardSink`) or a malformed fence a re-run would pick up
+  nothing, so the notice stays away rather than lie.
+  * **`staleNotice`**: `{ glyph, word, sentence }`, any subset, to re-tune the
+    wording or match your own Run button's glyph without waiting on a
+    plotpolish release. **All three are plain text** — the panel lives in a
+    shadow root, so a host's icon markup (`<i class="fa fa-play">`) renders as
+    an empty element, and a Unicode glyph needs no stylesheet.
+  * **`canRerun`**: default `false`. Set it `true` only if you are listening
+    for `plotpolish-rerun-requested`, and the notice becomes a button that
+    emits it; the host triggers its own run. The panel stays exactly as it is
+    after the click — it cannot know whether you honored the request — and
+    stands the button down when your next `panel.refresh()` lands. Left
+    `false`, the notice is an inert sentence, which is the safe default: a
+    control labelled "Re-run" that does nothing is worse than no control.
 * **Theme:** `theme="light"|"dark"` attribute, or leave unset to follow
   `prefers-color-scheme`. Override `--sf-bg`, `--sf-fg`, `--sf-accent`,
   `--sf-border`, `--sf-muted`, `--sf-font` and friends on the element.

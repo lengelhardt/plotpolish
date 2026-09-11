@@ -54,6 +54,13 @@ behind it is worse than no number):
   *apply*, so with no backend a change was written to the block, not applied,
   and not marked — the student moved a slider and nothing happened, with no
   explanation. Fixed in plotpolish v0.1.4.
+* **On the worker path, set `canRerun` and listen for the event.** The adapter
+  declares `features = { livePreview: wantLive, canRerun: !wantLive }`, so on
+  the worker the "Re-run to update plot." notice is a BUTTON rather than a
+  sentence, and clicking it emits `plotpolish-rerun-requested`. The adapter
+  answers by firing Trinket's own run. Setting `canRerun: true` without a
+  listener is the one way to get this wrong: the button would look pressable
+  and do nothing, which is the failure the notice exists to prevent.
 * **`session.replace` on the minimal differing range, never `setValue`.**
   `setValue(text, -1)` moves the cursor to 0,0, drops the selection, scrolls
   to the top and loses folds — on every slider tick, while the student may be

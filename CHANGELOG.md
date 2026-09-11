@@ -3,6 +3,68 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.4 — 2026-09-11
+
+Everything here is a fix to v0.3.3, cut the same day from a code review of it.
+No new features, and nothing a student sees differently except the inactive
+notice being legible.
+
+- **Fixed, and the reason for the hurry: `staleNotice` and `canRerun` shipped as
+  REQUIRED members of the exported `PanelFeatures`.** Any typed host that built
+  a complete features object out of the three fields that existed before —
+  `livePreview`, `showCode`, `groups` — stopped compiling, in what was
+  advertised as a patch release. Both are optional again, with
+  `DEFAULT_FEATURES` and the internal state typed `Required<PanelFeatures>` so
+  no call site changed. The setter now skips `undefined` rather than spreading
+  it, since with optional fields a host can hand us `{ canRerun: undefined }`
+  from an options object and a plain spread would write that over the default.
+  A compile-time guard in the test suite fails if either is ever made required
+  again.
+
+- **Fixed: `StaleNotice` and `RerunRequestedEventDetail` were missing from the
+  public barrel.** Both were exported from `panel.ts` but not from
+  `src/index.ts`, so a consumer of `dist/index.d.ts` could type neither the
+  notice it is meant to configure nor the handler for the event it is meant to
+  listen for.
+
+- **Fixed: the notice promised a re-run in two states where a re-run picks up
+  nothing.** Its gate was `_sink !== null`, which is half the question its own
+  docstring asks. `CodeSink` permits write-only sinks and
+  `ClipboardSink.getSource()` returns `null` by design, so with one attached the
+  block goes to the clipboard and the next run reads exactly what the last one
+  did; and while a malformed fence is set the panel refuses to write at all —
+  the banner says so — leaving the pill carrying two contradictory
+  instructions. The notice now requires a readable source and yields to the
+  fence error, which is the one the student can act on.
+
+- **Fixed: the pill and rail titles contradicted the notice.** A host can attach
+  a working backend and still declare `livePreview: false` — wanting
+  `set_style()` and save, not per-control preview — and `backendState` is then
+  `ready`, so the title reported "Live preview on" beside a chip saying the
+  opposite. The rail, which has no room for the chip, showed only the wrong
+  half. `staleAdvice()` now runs before the title and feeds it.
+
+- **Fixed: `button:disabled { opacity: 0.5 }` was halving the inactive notice
+  back toward the empty box v0.3.3 fixed.** The inactive notice is a real
+  disabled button, deliberately, so the global rule applied to it and rendered
+  `--_fg` at half strength over `--_section-bg` — undoing most of what that fix
+  bought, for every host that sets `canRerun`. Inactivity is carried by the
+  quiet fill, the border, the muted glyph and `cursor: default`; it does not
+  also need the words dimmed.
+
+- **The `canRerun` button path is now tested at all.** Every notice test in
+  v0.3.3 left `canRerun` at its default `false`, so the only path a real
+  consumer uses shipped with no coverage. Five tests cover the swap from inert
+  sentence to button, the disabled-until-something-is-pending start, the click
+  emitting `plotpolish-rerun-requested` with the pending keys, the button NOT
+  standing itself down on click (the host may have declined the run — only
+  `refresh()` clears it), and `canRerun` not resurrecting a notice the gates
+  above turned off.
+
+- **Documented.** The README described `panel.features` as
+  `{ livePreview, showCode, groups }` and listed five events, so everything
+  v0.3.3 added was undiscoverable outside the source.
+
 ## 0.3.3 — 2026-09-11
 
 - **New: the panel says "Re-run to update plot" when the host cannot preview.**

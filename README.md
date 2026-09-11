@@ -193,9 +193,18 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   shows a "Re-run to update plot." notice — a chip in the slot the auto-update
   switch vacates, and the full sentence above the controls in the popover — so
   a slider that cannot move the figure yet does not read as broken. It appears
-  only when there is a **readable** sink to write to and no fence error; with a
-  write-only sink (`ClipboardSink`) or a malformed fence a re-run would pick up
-  nothing, so the notice stays away rather than lie.
+  whenever there is a sink to write to and no fence error — **including a
+  write-only sink such as `ClipboardSink`**, where the student's workflow is
+  paste-then-run and the advice is incomplete rather than wrong. It stays away
+  with no sink at all, and while a malformed fence is stopping the panel from
+  writing, because a re-run would then pick up nothing.
+
+  Distinct from that, and gated more tightly: the *"Your settings are saved in
+  your code — run your program again to see them."* clause appended to a stall
+  or backend error. That is a **factual claim about where the block is**, not
+  advice, so it appears only when the block has actually landed in a readable
+  source — never for a write-only sink, never during a fence error, and never
+  before the first write.
   * **`staleNotice`**: `{ glyph, word, sentence }`, any subset, to re-tune the
     wording or match your own Run button's glyph without waiting on a
     plotpolish release. **All three are plain text** — the panel lives in a

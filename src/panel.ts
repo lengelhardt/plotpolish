@@ -22,7 +22,7 @@ import {
   type BackendStall, type FigureBackend, type FigureDescription, type StylePreview,
 } from "./backend";
 import {
-  FenceError, defaultSettings, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
+  FenceError, defaultSettings, findFence, generateBlock, isDefaultSettings, parseBlock, replaceFence, upsertBlock,
   type StyleSettings,
 } from "./block";
 import { ELEMENT_TAG, EVENT_PREFIX, VERSION } from "./constants";
@@ -2809,7 +2809,22 @@ export class PlotpolishPanel extends HTMLElement {
    * notice, and not to the CLAIM here, where it belonged.
    */
   private blockReachesSource(): boolean {
-    return this._sink !== null && this._sink.getSource() !== null && this.fenceError === null;
+    if (this._sink === null || this.fenceError !== null) return false;
+    const source = this._sink.getSource();
+    if (source === null) return false;
+    // A readable sink is still not a BLOCK. `new MemorySink("")` reads back ""
+    // -- not null, so the first two checks pass -- and if the very first
+    // backend call fails before any control has written, the sentence claimed
+    // settings were saved into a file that has none. The old `_sink !== null`
+    // gate had the same hole and a wider one.
+    try {
+      return findFence(source) !== null;
+    } catch {
+      // A fence that will not parse is not a block the next run can use. This
+      // is reachable even with `fenceError === null`, because the source can
+      // change under us between load and now.
+      return false;
+    }
   }
 
   private backendTrouble(): { glyph: string; word: string; sentence: string; bad: boolean } | null {

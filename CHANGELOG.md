@@ -3,6 +3,33 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## Unreleased
+
+- **Fixed: the "saved in your code" clause could appear before anything was
+  written.** v0.3.4 narrowed its gate from "a sink exists" to "a readable source
+  exists", and stopped one step short: `new MemorySink("")` reads back `""`,
+  which is not null, so a backend failure arriving before any control had
+  written still claimed the student's settings were in a file that had none.
+  It now requires an actual block — `findFence()` on the current source — and
+  treats a fence that will not parse as no block, which is reachable even with
+  no recorded fence error because the source can change between load and now.
+
+- **Fixed: the README documented the opposite of the shipped behavior.** It
+  still said the notice "stays away" for a write-only sink, which v0.3.4's own
+  changelog entry explains at length was wrong. It now describes both gates and
+  the difference between them: the notice is advice and appears for a
+  `ClipboardSink`; the "saved in your code" clause is a factual claim and does
+  not.
+
+- **Tests: the write-only-sink case pinned the wrong half.** It never entered
+  the cannot-preview state and never asserted the notice was visible, so
+  restoring the gate v0.3.4 removed left the suite green — the headline change
+  of that release was covered by nothing. It now asserts the chip and the
+  sentence are shown. The fence-error case asserted behind an `if` that was
+  always false, because nothing called the backend after `rejectWith` was set;
+  it drives a real stall through `refresh()` and asserts unconditionally. Two
+  further tests pin both sides of the new block check.
+
 ## 0.3.4 — 2026-09-11
 
 Everything here is a fix to v0.3.3, cut the same day from two code reviews and

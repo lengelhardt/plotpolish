@@ -3,6 +3,58 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.3.3 — 2026-09-11
+
+- **New: the panel says "Re-run to update plot" when the host cannot preview.**
+  On a Web Worker runtime there is no second interpreter to preview against, so
+  the adapter sets `features.livePreview: false` and the student's slider appears
+  to do nothing until they Run. The panel still writes its rcParams block, so
+  nothing is lost but the immediacy — the harm is a control that *looks* broken,
+  and a sentence fixes it. The notice appears in three places, mirroring how
+  `backendTrouble()` already reports a stall: a chip in the slot `autoBtn`
+  vacates (the two are mutually exclusive by construction, both keyed off
+  `features.livePreview`), the full sentence above the controls in the popover,
+  and the same sentence on the chip's `title`.
+
+  It is deliberately not a `backendTrouble()` variant. A host that can never
+  preview has not failed, so the notice takes the accent rather than the `bad`
+  treatment or the shell-border recolor — a fault color that holds for a whole
+  lab trains itself away. It is also gated on `_sink !== null`: with no sink the
+  block goes nowhere, so there is nothing for a re-run to pick up and the advice
+  would be a lie. `features.staleNotice` lets a host re-tune the wording and the
+  glyph without a plotpolish release; all three fields are **plain text**,
+  because the panel lives in a shadow root where a host's `<i class="fa">` would
+  render as an empty element.
+
+  This is not redundant with the `↻` badges. Those mark *which* controls are
+  pending, but their explanation lives in a hover `title` — the same failure the
+  stall chip was fixed for in 0.3.2. The notice says *why* nothing moves, and
+  says it before the student touches anything.
+
+- **Fixed: the pill would not drag left until you dragged it right first.**
+  `setPointerCapture` was called only after the pointer had travelled
+  `DRAG_THRESHOLD_PX`, and until capture is held the only `pointermove` events
+  delivered are those landing on the grip itself — the pill's first child, a few
+  pixels wide. Moving left leaves the grip before 4 px of travel, so the
+  threshold was never reached and the drag never began; moving right kept the
+  cursor on the grip long enough to capture, after which both directions worked.
+
+  Capture now happens on `pointerdown`, and `DragStart` gains `moved` to carry
+  what `captured` used to conflate: `captured` means the pointer capture is held
+  (true from `pointerdown`, so it must now be released even when the gesture
+  never became a drag, or a plain click on the grip swallows every later gesture
+  on the page), and `moved` means past the threshold. `onPillGripPointerUp` tests
+  `moved` to decide whether the press was the collapse toggle. The popover header
+  had the same bug and gets the same fix.
+
+- **Fixed: the inactive re-run notice rendered as an empty box.** It used
+  `--_muted` text on `--_section-bg`, which at 11.5 px is unreadable — the
+  element measured 328×30 with the words present and still looked blank. What the
+  inactive state dials down is urgency, not legibility: the sentence is
+  information the student needs whether or not a change is waiting, so only the
+  fill and the weight step back now. The text takes `--_fg`; the glyph stays
+  muted, being decoration beside the words.
+
 ## 0.3.2 — 2026-09-07
 
 - **Fixed: the block threw away the host's `figure.figsize` whenever the style

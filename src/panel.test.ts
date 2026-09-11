@@ -15,6 +15,22 @@ import {
   PlotpolishPanel, shortStyleName, type AutoUpdateEventDetail, type ChangeEventDetail,
   type PanelErrorEventDetail, type RerunNeededEventDetail, type SavedEventDetail,
 } from "./panel";
+import type { PanelFeatures, StaleNotice, RerunRequestedEventDetail } from "./panel";
+
+// Compile-time regression guard, not a runtime test. 0.3.3 shipped `staleNotice`
+// and `canRerun` as REQUIRED members of the exported `PanelFeatures`, so every
+// typed host that built a complete object out of the three fields that existed
+// before it stopped compiling -- in a patch release. This line fails to compile
+// if either is ever made required again.
+const _preV033Features: PanelFeatures = { livePreview: true, showCode: true, groups: null };
+void _preV033Features;
+
+// Both types must stay on the public barrel too (src/index.ts): a host cannot
+// configure the notice or type the event handler without them.
+const _notice: Partial<StaleNotice> = { word: "Re-run" };
+const _detail: RerunRequestedEventDetail = { keys: [] };
+void _notice; void _detail;
+
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
 import { MemorySink, type CodeSink } from "./sink";
 import { MockBackend } from "./testing/mock-backend";

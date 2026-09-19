@@ -304,6 +304,65 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+/**
+ * The paintbrush shown in the collapsed pill. 16x16, three shapes: a tapered
+ * handle, a ferrule band, and the painting head.
+ *
+ * THE PROPORTIONS ARE THE WHOLE THING and took four attempts. What finally
+ * read as a brush, in order of how much each mattered:
+ *   1. The handle is much longer than the painting end -- 10.8 against 4.0 in
+ *      viewBox units, so 2.7x. Near-equal halves read as a pen, a scalpel, or
+ *      nothing. The brief said 3-4x and the shape that actually matched the
+ *      reference came in under it; the picture won, and this note records that
+ *      the number was the approximation and not the target.
+ *   2. The handle TAPERS into the join -- 2.8 units at the butt, 1.3 at the
+ *      ferrule. A parallel-sided handle reads as a stylus however long it is.
+ *   3. The head is SWEPT: a shallow S along its spine, a belly just past the
+ *      ferrule, and a drawn-out point. A symmetric teardrop reads as a bud and
+ *      a sphere reads as a matchstick -- attempts three and four.
+ * Geometry is laid out along a 45-degree axis and was generated rather than
+ * hand-tuned, so those numbers are measured, not guessed.
+ *
+ * Colour: the handle follows `currentColor` and inverts with the theme; the
+ * head uses --_accent, which the host stylesheet already theme-switches
+ * (#0969da / #4493f8). The colour is load-bearing -- it is what separates a
+ * brush from a cursor arrow at this size -- so it is not decoration. The
+ * ferrule uses --_muted so it reads as metal between the two.
+ */
+function buildBrushGlyph(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("grip-brush");
+
+  const handle = document.createElementNS(SVG_NS, "path");
+  handle.setAttribute("d", "M13.66 4.32 L5.49 11.43 L4.57 10.51 L11.68 2.34 A1.40 1.40 0 0 1 13.66 4.32 Z");
+  handle.setAttribute("fill", "currentColor");
+
+  const ferrule = document.createElementNS(SVG_NS, "path");
+  ferrule.setAttribute("d", "M5.49 11.43 L4.57 10.51");
+  ferrule.setAttribute("stroke", "var(--_muted, #59636e)");
+  ferrule.setAttribute("stroke-width", "1.8");
+
+  // Generated, not drawn: a curved SPINE with a width profile, sampled to a
+  // polygon. Hand-written beziers gave a wide belly meeting a short tip, which
+  // reads as a notch rather than a point (attempt four). Here the point is
+  // simply where the width profile reaches zero, and the S is in the spine, so
+  // both are parameters rather than a lucky pair of control points.
+  // spine = 1.7*sin(0.92*pi*u) - 2.1*u^2.1: the first term is the belly, the
+  // second swings the run-out off the 45-degree axis so the point finishes
+  // nearly horizontal, which is what the reference does and what four earlier
+  // attempts missed. halfWidth tapers by (1-u)^0.38 to zero at the tip.
+  const head = document.createElementNS(SVG_NS, "path");
+  head.setAttribute("d", "M5.60 11.32 L5.85 11.76 L6.01 12.12 L6.14 12.44 L6.24 12.73 L6.32 12.99 L6.37 13.22 L6.39 13.44 L6.38 13.62 L6.36 13.78 L6.30 13.92 L6.23 14.03 L6.13 14.12 L6.00 14.18 L5.86 14.22 L5.69 14.24 L5.50 14.24 L5.29 14.22 L5.06 14.18 L4.81 14.12 L4.55 14.04 L4.27 13.95 L3.97 13.85 L3.66 13.72 L3.34 13.59 L3.01 13.45 L2.66 13.29 L2.31 13.13 L1.95 12.96 L1.58 12.77 L1.12 12.51 L1.12 12.51 L1.28 12.48 L1.51 12.51 L1.73 12.55 L1.94 12.57 L2.14 12.58 L2.32 12.58 L2.50 12.56 L2.66 12.53 L2.81 12.49 L2.94 12.44 L3.06 12.37 L3.18 12.30 L3.28 12.21 L3.37 12.11 L3.45 12.01 L3.52 11.89 L3.59 11.77 L3.65 11.64 L3.71 11.51 L3.76 11.38 L3.82 11.24 L3.87 11.11 L3.93 10.97 L3.99 10.85 L4.06 10.73 L4.13 10.62 L4.22 10.52 L4.33 10.44 L4.47 10.38 L4.68 10.40 Z");
+  head.setAttribute("fill", "var(--_accent, #0969da)");
+
+  svg.append(handle, ferrule, head);
+  return svg;
+}
+
 /** Styles shown before "Show all": a spread of the range, not the first eight. */
 const CURATED_STYLES: readonly string[] = [
   "default", "ggplot", "seaborn-v0_8", "seaborn-v0_8-colorblind",
@@ -2040,7 +2099,17 @@ export class PlotpolishPanel extends HTMLElement {
       railTabs.push(railTab.btn);
     }
 
-    const pillGrip = el("span", { class: "grip", title: "Drag to move, click to tuck away" }, "⋮⋮");
+    // COLLAPSED, THE GRIP IS THE WHOLE PANEL -- 23 px of it, tucked into the
+    // figure's corner -- and "⋮⋮" tells a student nothing about what it opens.
+    // So it carries a paintbrush while collapsed and the drag dots while
+    // expanded; CSS swaps them, because the grip is also the drag handle and
+    // the dots are the affordance for that.
+    //
+    // Inline SVG rather than an icon font, deliberately: this panel lives in a
+    // shadow root and cannot reach the host page's Font Awesome. Same shape as
+    // the step debugger's pill, which carries a bug glyph the same way.
+    const pillGrip = el("span", { class: "grip", title: "Drag to move, click to tuck away" },
+      el("span", { class: "grip-dots" }, "⋮⋮"), buildBrushGlyph());
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));

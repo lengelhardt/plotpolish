@@ -1162,6 +1162,32 @@ describe("draggable pill", () => {
     expect(pill(panel).firstElementChild).toBe(grip);
   });
 
+  it("the grip carries both a drag glyph and a paintbrush, and CSS decides which shows", () => {
+    const grip = pillGrip(panel);
+    const dots = grip.querySelector(".grip-dots");
+    const brush = grip.querySelector("svg.grip-brush");
+    // Both live in the DOM permanently. Building one on collapse and throwing
+    // it away on expand would rebuild an SVG on every fold, and the fold is a
+    // 140 ms transition -- see FOLD_MS.
+    expect(dots).not.toBeNull();
+    expect(brush).not.toBeNull();
+    // Collapsed, the grip IS the panel, and "⋮⋮" says nothing about what it
+    // opens. The brush is the only affordance a student gets at that size.
+    expect(dots!.textContent).toBe("⋮⋮");
+    expect(brush!.getAttribute("aria-hidden")).toBe("true");
+    // Inline, not an icon font: this component lives in a shadow root and
+    // cannot reach the host page's font. A missing glyph would be silent.
+    expect(brush!.querySelectorAll("path").length).toBe(3);
+    // Theme-following: the handle takes currentColor, the head and ferrule take
+    // variables the host stylesheet switches. A hardcoded fill would be
+    // invisible in one theme and nobody would notice until someone looked.
+    const fills = [...brush!.querySelectorAll("path")].map(
+      (n) => n.getAttribute("fill") ?? n.getAttribute("stroke"));
+    expect(fills[0]).toBe("currentColor");
+    expect(fills[1]).toContain("--_muted");
+    expect(fills[2]).toContain("--_accent");
+  });
+
   it("a click on the grip collapses the pill to the grip alone, and again expands it", async () => {
     const backend = new MockBackend();
     await attachBackend(panel, backend);

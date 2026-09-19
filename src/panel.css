@@ -280,6 +280,13 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
   transition: max-width 140ms ease, opacity 100ms ease, visibility 0s linear 140ms;
 }
 .pill.collapsed .grip { padding: 2px 3px; }
+/* The grip shows drag dots when expanded and a paintbrush when collapsed: the
+   dots are the drag affordance and are meaningless once the pill IS the button,
+   and collapsed it is the only surface a student sees. Both are always in the
+   DOM so nothing is rebuilt on a fold. */
+.pill .grip-brush { display: none; }
+.pill.collapsed .grip-dots { display: none; }
+.pill.collapsed .grip-brush { display: block; color: inherit; }
 /* A pill mid-drag must track the pointer exactly, not ease toward it. */
 .pill.dragging { transition: none; }
 @media (prefers-reduced-motion: reduce) {

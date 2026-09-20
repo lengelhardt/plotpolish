@@ -2156,7 +2156,13 @@ export class PlotpolishPanel extends HTMLElement {
     // to reclaim the figure's corner, and the paintbrush added for the
     // collapsed state gives the return trip an affordance the outward one
     // never had. This is that affordance: a chevron immediately right of the
-    // drag dots, pointing the way the body folds.
+    // drag dots.
+    //
+    // It points RIGHT, which is Larry's call and the right one. The first
+    // version pointed left, at the grip -- that is, at the one part that
+    // STAYS, which reads as "go back" rather than "put away". Pointing right
+    // points at the corner the pill tucks into (see togglePillCollapsed) and
+    // away from the strip being hidden, which is what the gesture does.
     //
     // A SIBLING of the grip, not a child of it. Inside the grip every press
     // would enter the drag gesture, so the "button" would only ever fire
@@ -2170,7 +2176,7 @@ export class PlotpolishPanel extends HTMLElement {
     const collapseBtn = el(
       "button",
       { type: "button", class: "pill-collapse", title: "Tuck the panel away" },
-      "\u2039"
+      "\u203A"
     );
     collapseBtn.setAttribute("aria-label", "Tuck the panel away");
     collapseBtn.addEventListener("click", () => this.togglePillCollapsed());

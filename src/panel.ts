@@ -1764,9 +1764,19 @@ export class PlotpolishPanel extends HTMLElement {
       pill.style.right = "";
       return;
     }
+    // BOTH branches below have to clear `left`, and forgetting it is not a
+    // cosmetic slip: these are the paths taken when the pill STOPS following a
+    // dragged position, and a dragged pill has an inline `left`. Leaving it
+    // beside the `right` set below pins both edges of a positioned box, so the
+    // pill stretches from the drop point to the corner instead of shrinking --
+    // which is exactly what a collapse after a drag did (measured at 633px
+    // wide with its body at 0, a wide empty capsule holding one glyph).
+    // Nothing collapses wrongly; the fold is fine. The box simply cannot
+    // narrow while it is nailed down at both ends.
     if (this._layoutMode !== "float") {
       pill.style.top = "";
       pill.style.right = "";
+      pill.style.left = "";
       return;
     }
     const rect = this._figureElement?.getBoundingClientRect();
@@ -1775,6 +1785,7 @@ export class PlotpolishPanel extends HTMLElement {
     const right = Math.max(0, vw - (rect?.right ?? vw)) + FLOAT_INSET_PX;
     pill.style.top = `${top}px`;
     pill.style.right = `${right}px`;
+    pill.style.left = "";
   }
 
   private onPillGripPointerDown(e: PointerEvent): void {

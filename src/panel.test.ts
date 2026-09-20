@@ -18,7 +18,9 @@ import {
 // From "./index", the PUBLIC barrel -- NOT from "./panel". v0.3.4 imported
 // these from "./panel", so deleting either export from src/index.ts left tsc
 // green and the guard could not see the regression it was written for.
-import type { PanelFeatures, StaleNotice, RerunRequestedEventDetail } from "./index";
+import type {
+  PanelFeatures, StaleNotice, RerunRequestedEventDetail, SaveRequestedEventDetail,
+} from "./index";
 
 // Compile-time regression guard, not a runtime test. 0.3.3 shipped `staleNotice`
 // and `canRerun` as REQUIRED members of the exported `PanelFeatures`, so every
@@ -32,6 +34,10 @@ void _preV033Features;
 // configure the notice or type the event handler without them.
 const _notice: Partial<StaleNotice> = { word: "Re-run" };
 const _detail: RerunRequestedEventDetail = { keys: [] };
+// Same for the save request a backendless host has to answer (#30): without
+// it on the barrel, that host cannot type the listener that makes Save work.
+const _saveDetail: SaveRequestedEventDetail = { format: "png", filename: "plot.png" };
+void _saveDetail;
 void _notice; void _detail;
 
 import { CONTROLS, GROUPS, isPropCycle, type PropCycleValue } from "./schema";
@@ -4045,10 +4051,54 @@ describe("Save PNG", () => {
     expect(said(panel)).toBe("Saved");
   });
 
-  it("says what to do when there is no interpreter, rather than failing quietly", () => {
+  // This test USED to assert "Run your code first", which pinned issue #30: on a
+  // host that attached no backend -- Trinket's worker runtime, every run -- that
+  // message named the one action that could never help, and the button saved
+  // nothing no matter how many times the student ran. The gate is `!client`,
+  // which says nothing about whether the code ran. Both halves below replace it.
+  it("asks the host to save when it has no backend of its own", () => {
+    const asked: SaveRequestedEventDetail[] = [];
+    panel.addEventListener("plotpolish-save-requested", (e) => {
+      asked.push((e as CustomEvent<SaveRequestedEventDetail>).detail);
+      e.preventDefault();
+    });
     openTab(panel, "save");
     saveBtn(panel).click();
-    expect(said(panel)).toBe("Run your code first");
+
+    expect(asked.length).toBe(1);
+    expect(asked[0]!.format).toBe("png");
+    expect(asked[0]!.filename).toBe("plot.png");
+    expect(said(panel)).toBe("Saved");
+  });
+
+  it("says saving is unavailable -- not 'run your code' -- when nobody answers", () => {
+    // Uncanceled: nothing is listening, so the panel must not claim a save. The
+    // wording must also not send the student back to the Run button, which is
+    // what made #30 a dead end rather than a visible failure.
+    const seen: string[] = [];
+    panel.addEventListener("plotpolish-save-requested", () => seen.push("fired"));
+    openTab(panel, "save");
+    saveBtn(panel).click();
+
+    expect(seen.length).toBe(1);
+    expect(said(panel)).toBe("Saving isn't available here");
+    expect(said(panel)).not.toContain("Run your code");
+  });
+
+  it("puts the transient message on the side of the button with room (#31)", () => {
+    // `.row .control` is flex-end, so a span after the button renders past its
+    // right edge against the panel border. The message must precede the button.
+    openTab(panel, "save");
+    // `.control` is the flex row itself; `ctl()` returns the `.row` around it,
+    // and the span/button are not direct children of that.
+    const control = ctl(panel, "save_png").querySelector(".control") as HTMLElement;
+    const kids = [...control.children];
+    const spanAt = kids.indexOf(control.querySelector(".copy-said")!);
+    const buttonAt = kids.indexOf(saveBtn(panel));
+    // Both must be siblings of that flex row, or the ordering claim is vacuous.
+    expect(spanAt).toBeGreaterThanOrEqual(0);
+    expect(buttonAt).toBeGreaterThanOrEqual(0);
+    expect(spanAt).toBeLessThan(buttonAt);
   });
 
   it("says so when the interpreter has no figure", async () => {

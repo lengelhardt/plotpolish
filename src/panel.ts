@@ -118,6 +118,25 @@ export interface SavedEventDetail {
   filename: string;
 }
 
+/**
+ * Fired when the student asks to save and there is NO backend to run savefig
+ * in -- a host that attached none, which is Trinket's Web Worker runtime on
+ * every run. The panel cannot produce the file itself there, so it asks the
+ * side that has the figure, the same shape as `plotpolish-rerun-requested`.
+ *
+ * Cancelable, and that is load-bearing: `preventDefault()` is how the host
+ * says it took the request, so the panel can tell an answered ask from an
+ * unheard one and word the message accordingly. That is why this needs no
+ * `features` flag -- `canRerun` exists only because a plain (non-cancelable)
+ * request cannot be detected.
+ */
+export interface SaveRequestedEventDetail {
+  /** Always "png" today; the Save tab offers no other format. */
+  format: string;
+  /** Suggested download name, so the host need not invent one. */
+  filename: string;
+}
+
 /** Fired when the student turns the figure's auto-update on or off. */
 export interface AutoUpdateEventDetail {
   autoUpdate: boolean;
@@ -2393,7 +2412,26 @@ export class PlotpolishPanel extends HTMLElement {
         };
         button.addEventListener("click", () => {
           const client = this.client;
-          if (!client) { say("Run your code first"); return; }
+          // No backend is NOT "the code has not run yet". `client` is set once,
+          // from whatever the host attached (see the `backend` setter), so it is
+          // null for the whole session on a host that attached none -- which is
+          // Trinket's worker runtime, where the program runs off the main thread
+          // and there is nothing here to call into (see `canPreview`). Telling
+          // the student to run their code there named the one action that cannot
+          // help, and no number of runs ever made the button save anything.
+          //
+          // So ask the host, which does have the figure. Cancelable: a host that
+          // takes the request calls preventDefault(), which is also how the panel
+          // knows anyone was listening at all.
+          if (!client) {
+            const taken = !this.emit<SaveRequestedEventDetail>(
+              "save-requested",
+              { format: "png", filename: "plot.png" },
+              true
+            );
+            say(taken ? "Saved" : "Saving isn't available here");
+            return;
+          }
           button.disabled = true;
           void client
             .saveFigure("png")
@@ -2428,7 +2466,12 @@ export class PlotpolishPanel extends HTMLElement {
             })
             .finally(() => { button.disabled = false; });
         });
-        control.append(button, said);
+        // `said` BEFORE the button, not after. `.row .control` is a flex row with
+        // `justify-content: flex-end`, so a span appended after the button lays
+        // out past its right edge -- against the panel's own border, where there
+        // is no room and the message is clipped. The space is on the left, and
+        // that is where every message this button shows now goes.
+        control.append(said, button);
         break;
       }
       case "bool": {

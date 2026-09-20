@@ -171,7 +171,7 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
 * **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
   figure transport needs pumping (a worker with Agg plus a hand-rolled
   webagg_core bridge, say) should trigger their redraw on `plotpolish-change`.
-* **Events.** Six, all bubbling and composed so a host can listen on an
+* **Events.** Seven, all bubbling and composed so a host can listen on an
   ancestor: `plotpolish-change` (`detail.block` is the fenced block,
   `detail.source` the whole file after the write), `plotpolish-rerun-needed`,
   `plotpolish-auto-update` (the student switched the figure's auto-update on
@@ -185,6 +185,17 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   delivers `detail.data` (base64 PNG) its own way.
   The sixth is **`plotpolish-rerun-requested`** (`detail.keys` is the set of
   rcParams the student has changed since the last run) — see `canRerun` below.
+
+  The seventh is **`plotpolish-save-requested`** (`detail.format`,
+  `detail.filename`), fired when the student clicks **Save PNG** and the panel
+  has **no backend at all** — the state a host puts it in by never setting
+  `panel.backend`, which is what a worker runtime does, since the program runs
+  off the main thread and there is nothing on the page to call into. The panel
+  cannot produce the file there, so it asks the host, which has the figure.
+  **It is cancelable, and `preventDefault()` is the contract:** call it and the
+  panel reports "Saved"; leave it alone and the panel tells the student saving
+  is not available here. Unlike `canRerun`, this needs no feature flag — a
+  cancelable event tells the panel by itself whether anyone was listening.
 * **`panel.features`**: `{ livePreview, showCode, groups, staleNotice, canRerun }`.
   The last two are optional; all five can be set individually, since the setter
   merges a `Partial`. Set `livePreview: false` to disable backend calls on

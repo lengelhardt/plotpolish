@@ -104,6 +104,19 @@ button.small { padding: 0 6px; font-size: 11px; line-height: 20px; }
 }
 .pill.dragging .grip { cursor: grabbing; }
 
+/* The visible half of "click the grip to tuck it away". Quiet on purpose: it
+   sits between the drag dots and the first tab, and a bordered control there
+   would read as a fourth category. Sized to the tabs' 22px so the strip keeps
+   one baseline. */
+.pill-collapse {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 22px; padding: 0; flex: none;
+  border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 15px; line-height: 1;
+  color: var(--_muted); border-radius: 4px;
+}
+.pill-collapse:hover { background: var(--_field-bg); color: var(--_fg); }
+
 button.tab {
   position: relative; height: 22px; padding: 0 9px; border: 0; border-radius: 999px;
   background: transparent; color: var(--_fg); font-size: 12px; line-height: 22px;

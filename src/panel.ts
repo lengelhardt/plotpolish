@@ -2150,10 +2150,35 @@ export class PlotpolishPanel extends HTMLElement {
     autoBtn.addEventListener("click", () => {
       this.autoUpdate = !this._autoUpdate;
     });
+    // The grip has doubled as the collapse toggle since the fold shipped -- a
+    // press and release that never cleared the drag threshold tucks the pill
+    // away -- but NOTHING SAYS SO. A student who never discovers it has no way
+    // to reclaim the figure's corner, and the paintbrush added for the
+    // collapsed state gives the return trip an affordance the outward one
+    // never had. This is that affordance: a chevron immediately right of the
+    // drag dots, pointing the way the body folds.
+    //
+    // A SIBLING of the grip, not a child of it. Inside the grip every press
+    // would enter the drag gesture, so the "button" would only ever fire
+    // through the click-that-was-not-a-drag path -- which is not a button:
+    // keyboard activation would do nothing and the drag threshold would eat
+    // slow presses. As pill-body's FIRST child it still sits immediately right
+    // of the grip, and it folds away with the rest of the body for free,
+    // which is what we want: collapsed, the pill IS the grip, and a "collapse"
+    // control on it would be a contradiction. foldPillBody() measures the body
+    // rather than assuming a width, so the extra child needs no new number.
+    const collapseBtn = el(
+      "button",
+      { type: "button", class: "pill-collapse", title: "Tuck the panel away" },
+      "\u2039"
+    );
+    collapseBtn.setAttribute("aria-label", "Tuck the panel away");
+    collapseBtn.addEventListener("click", () => this.togglePillCollapsed());
+
     // Everything but the grip lives in one wrapper, so collapsing is a single
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
-    const pillBody = el("div", { class: "pill-body" }, ...pillTabs, errMark, stallMark, staleMark, staleBtn, autoBtn, menuToggle);
+    const pillBody = el("div", { class: "pill-body" }, collapseBtn, ...pillTabs, errMark, stallMark, staleMark, staleBtn, autoBtn, menuToggle);
     const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 

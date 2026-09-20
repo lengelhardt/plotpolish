@@ -1222,6 +1222,46 @@ describe("draggable pill", () => {
     expect((panel.shadowRoot!.querySelector(".caret") as HTMLElement).hidden).toBe(false);
   });
 
+  it("puts a collapse chevron immediately right of the grip, inside the body", () => {
+    const body = panel.shadowRoot!.querySelector(".pill-body") as HTMLElement;
+    const btn = panel.shadowRoot!.querySelector("button.pill-collapse") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    // Immediately right of the grip means: the grip is the pill's first child,
+    // and this is the first thing in the body that follows it.
+    expect(pill(panel).firstElementChild).toBe(pillGrip(panel));
+    expect(body.firstElementChild).toBe(btn);
+    // A real button, not a glyph with a click handler: the grip already fires
+    // through a pointer gesture, and that path is unreachable from a keyboard.
+    expect(btn.tagName).toBe("BUTTON");
+    expect(btn.type).toBe("button");
+    expect(btn.getAttribute("aria-label")).toBe("Tuck the panel away");
+    expect(btn.title).toBe("Tuck the panel away");
+  });
+
+  it("collapses on a plain click of that chevron, with no pointer gesture at all", async () => {
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    openTab(panel, "text");
+    const btn = panel.shadowRoot!.querySelector("button.pill-collapse") as HTMLButtonElement;
+
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    btn.click();
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // Same contract as the grip: tucking the strip away is not putting the
+    // student's work away, so the open category survives it.
+    expect(panel.category).toBe("text");
+  });
+
+  // It lives in the body, so the fold takes it with everything else -- rather
+  // than needing a rule of its own. Collapsed, the pill IS the grip, and a
+  // "collapse" control sitting on it would be a contradiction.
+  it("folds away with the body, so it never offers to collapse a collapsed pill", () => {
+    const btn = panel.shadowRoot!.querySelector("button.pill-collapse") as HTMLButtonElement;
+    const body = panel.shadowRoot!.querySelector(".pill-body") as HTMLElement;
+    expect(btn.closest(".pill-body")).toBe(body);
+    expect(btn.closest(".grip")).toBeNull();
+  });
+
   it("folds the strip to a measured width rather than hiding it outright", async () => {
     // The fold animates an inline max-width, because the width to animate to is
     // a number CSS cannot know (and an inline value outranks any rule, so the

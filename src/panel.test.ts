@@ -1313,7 +1313,7 @@ describe("draggable pill", () => {
     expect(pill(panel).style.left).not.toBe("");
   });
 
-  it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", () => {
+  it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", async () => {
     const grip = pillGrip(panel);
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
@@ -1334,6 +1334,17 @@ describe("draggable pill", () => {
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    // DURING the unfold the pill hangs off its pre-collapse RIGHT edge, so the
+    // strip unrolls right to left instead of running its right edge out across
+    // the figure. Anchoring by the dragged `left` immediately would mirror the
+    // animation purely because of a gesture the student made earlier.
+    expect(pill(panel).style.left).toBe("");
+    expect(pill(panel).style.right).not.toBe("");
+
+    // And it is handed back to the dragged position once the fold is over.
+    // Same final geometry either way -- only the edge that stays still while
+    // the width changes differs -- so the swap is invisible.
+    await new Promise((r) => setTimeout(r, 200));
     expect(pill(panel).style.left).toBe(dragged);
   });
 

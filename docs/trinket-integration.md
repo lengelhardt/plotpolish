@@ -66,11 +66,21 @@ behind it is worse than no number):
   `savefig` in a backend, and on the worker there is no backend, so the panel
   asks. The adapter is the side that has the figure — the worker posts it back
   as `img.worker-figure`, an `<img>` sitting in `#graphic` — so it takes the
-  request, calls `preventDefault()` (which is how the panel knows the ask was
-  heard) and downloads that image. It is a screen-resolution PNG and the Save
-  tab's `savefig.dpi` / `transparent` / `bbox` do NOT apply to it, which is a
-  real gap versus the main thread, not a wording problem. Before this the
-  button answered "Run your code first" forever (plotpolish #30).
+  request and calls `preventDefault()`, which is how the panel knows the ask
+  was heard. Before this the button answered "Run your code first" forever
+  (plotpolish #30).
+
+  **It sends the same `{type:'save'}` message the mpl toolbar's own Save button
+  sends** — the one the worker swallows and answers with real `savefig` bytes
+  (trinket-oss #252) — so the Save tab's `savefig.dpi`, `transparent` and
+  `bbox` DO apply, and the panel's button and the toolbar's button end at one
+  implementation. A canvas grab in the adapter would have honored none of them.
+
+  The one lower-fidelity case is the fallback: when `mpl.js` never loads, the
+  worker paints a static `<img class="worker-figure">` instead and there is no
+  socket to ask, so the adapter downloads that image — a real save of what the
+  student sees, at whatever dpi the preview used. It is reached last, and only
+  then.
 * **`session.replace` on the minimal differing range, never `setValue`.**
   `setValue(text, -1)` moves the cursor to 0,0, drops the selection, scrolls
   to the top and loses folds — on every slider tick, while the student may be

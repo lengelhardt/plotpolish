@@ -40,11 +40,15 @@ accumulated behind v0.3.4.
   detected, and a cancelable one tells the panel by itself whether anyone
   listened. `SaveRequestedEventDetail` is exported from the public barrel.
 
-  **Known gap:** a host-answered save is whatever image the host has, which on
-  a worker runtime is a screen-resolution PNG. The Save tab's `savefig.dpi`,
-  `transparent` and `bbox` do **not** apply to it, because there is no
-  matplotlib in the page to run `savefig` in. The button now works everywhere;
-  it honors the Save category only where a backend exists.
+  **What the host delivers is the host's business, and it is not necessarily
+  worse.** The first draft of this entry said a host-answered save is "a
+  screen-resolution PNG" honoring none of the Save tab's keys. That is wrong as
+  a general claim and wrong for the case that prompted the fix: Trinket's
+  worker already has a full `savefig` round trip of its own, so its adapter
+  answers by asking the worker's matplotlib, and `savefig.dpi`, `transparent`
+  and `bbox` apply exactly as they do on the main thread. The fidelity of a
+  host-answered save depends on what the host does, which is why the event
+  carries a request rather than a promise.
 
 - **Tests: the suite pinned this bug rather than the requirement.** It asserted
   `said(panel)` was exactly "Run your code first" for the no-backend case, so

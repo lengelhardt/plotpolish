@@ -535,6 +535,9 @@ export class PlotpolishPanel extends HTMLElement {
   /** Pending "take the folded strip out of layout" timer, if any. */
   private foldTimer: number | null = null;
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
+  /** Distance from the viewport's right edge to the pill's, recorded at collapse. */
+  private pillRightBeforeCollapse: number | null = null;
+  private unfoldAnchorTimer: number | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
   private _codeOpen = false;
@@ -1873,6 +1876,11 @@ export class PlotpolishPanel extends HTMLElement {
     this.pillCollapsed = !this.pillCollapsed;
     if (this.pillCollapsed) {
       this.pillPosBeforeCollapse = this.pillPos;
+      // Recorded here, while the strip is still at full width, for the unfold
+      // to anchor against -- see anchorUnfoldToRightEdge().
+      const rect = this.ui.pill.getBoundingClientRect();
+      const vw = window.innerWidth || 0;
+      this.pillRightBeforeCollapse = vw ? vw - rect.right : null;
       this.pillPos = null;
       // The open category stays open. Tucking the strip away is for reclaiming
       // the figure's corner, not for putting your work away, and closing the
@@ -1893,9 +1901,51 @@ export class PlotpolishPanel extends HTMLElement {
     this.foldPillBody();
     this.measureLayout();
     this.positionFloatPill();
+    if (!this.pillCollapsed) this.anchorUnfoldToRightEdge();
     // The window it left open was anchored to a tab that has just folded away
     // (or come back), so it needs re-hanging either way.
     if (this._open && !this.dragPos) this.positionPopover();
+  }
+
+  /**
+   * Unroll the strip RIGHT TO LEFT, even when it is returning to a dragged
+   * position.
+   *
+   * A pill that was never dragged already does this for free: with no
+   * `pillPos` it is anchored by `right`, so a growing body pushes its left
+   * edge outward and the right edge stays put. Measured: right pinned at
+   * 1006px while x ran 984 -> 568.
+   *
+   * A DRAGGED pill did the opposite, because expanding restores `pillPos`,
+   * which anchors by `left` -- so the same growth ran the right edge out
+   * instead. Measured: left pinned at 373px while the right edge ran 395 ->
+   * 811. Same animation, mirrored, and only because of a gesture the student
+   * made earlier.
+   *
+   * So for the length of the fold the pill is pinned by the right edge it had
+   * BEFORE it collapsed, then handed back to the normal `left` anchoring. The
+   * final geometry is identical either way, so the swap is invisible -- it
+   * only decides which edge stays still while the width changes.
+   */
+  private anchorUnfoldToRightEdge(): void {
+    const right = this.pillRightBeforeCollapse;
+    this.pillRightBeforeCollapse = null;
+    if (this.unfoldAnchorTimer !== null) {
+      clearTimeout(this.unfoldAnchorTimer);
+      this.unfoldAnchorTimer = null;
+    }
+    // Nothing to mirror unless the pill is coming back to a dragged position:
+    // without one it is already right-anchored, and overriding that would
+    // fight positionFloatPill() for no gain.
+    if (right === null || !this.pillPos) return;
+    const pill = this.ui.pill;
+    pill.style.right = `${right}px`;
+    pill.style.left = "";
+    // FOLD_MS + a frame, matching the unfold's own hand-back of max-width.
+    this.unfoldAnchorTimer = window.setTimeout(() => {
+      this.unfoldAnchorTimer = null;
+      if (!this.pillCollapsed) this.positionFloatPill();
+    }, FOLD_MS + 20);
   }
 
   /**

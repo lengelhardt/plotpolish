@@ -1387,6 +1387,92 @@ describe("draggable pill", () => {
     expect(pill(panel).style.left).toBe(dragged);
   });
 
+  // The top handle exists because of WHICH END overflows. The pill is pinned by
+  // its right edge and grows leftward, so when the strip is wider than the
+  // space it is the LEFT end that leaves the screen -- and the grip and the
+  // collapse chevron both live there. Measured in a real browser at a 400px
+  // viewport: elementFromPoint at the grip's centre and at the chevron's
+  // centre both returned NOTHING, while the top handle returned itself and a
+  // real click on it collapsed the pill to 33px fully on screen.
+  function topHandle(p: PlotpolishPanel): HTMLElement {
+    return p.shadowRoot!.querySelector(".pill .top-handle") as HTMLElement;
+  }
+
+  it("has a second drag handle, centred above the strip and outside the folding body", () => {
+    const h = topHandle(panel);
+    expect(h).not.toBeNull();
+    // A child of the pill, NOT of pill-body: the body folds to zero width, so
+    // a handle inside it would be centred on nothing.
+    expect(h.parentElement).toBe(pill(panel));
+    expect(h.closest(".pill-body")).toBeNull();
+    // Operable, and announced as such -- it is a span, so none of this is free.
+    expect(h.getAttribute("role")).toBe("button");
+    expect(h.getAttribute("tabindex")).toBe("0");
+    expect(h.getAttribute("aria-label")).toBe("Drag to move, click to tuck away");
+  });
+
+  it("drags the pill from the top handle, exactly as the grip does", () => {
+    const h = topHandle(panel);
+    h.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    h.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 1 }));
+    h.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 0 }));
+
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+    expect(pill(panel).style.left).not.toBe("");
+  });
+
+  it("collapses on a click of the top handle that never became a drag", () => {
+    const h = topHandle(panel);
+    h.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 1 }));
+    h.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 10, clientY: 10, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+  });
+
+  // The capture has to follow the handle that received the pointerdown. Held
+  // on the grip instead, the OTHER handle stays captured and every later
+  // gesture anywhere on the page is delivered to it.
+  it("takes and releases pointer capture on the handle that was pressed", () => {
+    const h = topHandle(panel);
+    const grip = pillGrip(panel);
+    const took: string[] = [];
+    const gave: string[] = [];
+    for (const [name, el] of [["handle", h], ["grip", grip]] as const) {
+      (el as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture =
+        () => { took.push(name); };
+      (el as unknown as { releasePointerCapture: (id: number) => void }).releasePointerCapture =
+        () => { gave.push(name); };
+    }
+
+    h.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    h.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 0 }));
+    expect(took).toEqual(["handle"]);
+    expect(gave).toEqual(["handle"]);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 2, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 0, clientY: 0, pointerId: 2, buttons: 0 }));
+    expect(took).toEqual(["handle", "grip"]);
+    expect(gave).toEqual(["handle", "grip"]);
+  });
+
+  // The pointer path above is unreachable from a keyboard, which is the same
+  // gap the collapse chevron exists to close.
+  it("collapses on Enter and on Space, and stops Space scrolling the host page", () => {
+    const h = topHandle(panel);
+    for (const key of ["Enter", " "]) {
+      const before = pill(panel).classList.contains("collapsed");
+      const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      h.dispatchEvent(e);
+      expect(pill(panel).classList.contains("collapsed")).toBe(!before);
+      expect(e.defaultPrevented).toBe(true);
+    }
+  });
+
+  it("ignores keys that are not Enter or Space", () => {
+    const h = topHandle(panel);
+    h.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(false);
+  });
+
   it("a pointerdown on a tab button does not start a drag", () => {
     const tab = pillTab(panel, "text");
     const before = pill(panel).style.left;

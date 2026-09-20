@@ -544,14 +544,7 @@ export class PlotpolishPanel extends HTMLElement {
   /** Where the pill was dragged to before collapsing, restored on expand. */
   /** Pending "take the folded strip out of layout" timer, if any. */
   private foldTimer: number | null = null;
-  private pillPosBeforeCollapse: { x: number; y: number } | null = null;
-  /**
-   * The pill's full width, measured during the unfold while `max-width: none`
-   * is set -- so it is the width the strip is about to BE, not a number
-   * remembered from earlier. See foldPillBody() and anchorUnfoldToRightEdge().
-   */
-  private pillUnfoldWidth = 0;
-  private unfoldAnchorTimer: number | null = null;
+  private pillPosBeforeCollapse: { right: number; y: number } | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
   private _codeOpen = false;
@@ -563,7 +556,19 @@ export class PlotpolishPanel extends HTMLElement {
   private dragPos: { x: number; y: number } | null = null;
   private dragStart: DragStart | null = null;
   /** The pill's own dragged position, session-only; while set it overrides the top-right float anchor. */
-  private pillPos: { x: number; y: number } | null = null;
+  /**
+   * A dragged position, stored as the offset from the VIEWPORT'S RIGHT EDGE to
+   * the pill's right edge -- not as a left coordinate.
+   *
+   * That choice is the point of this design. Everything else about a floating
+   * pill is right-anchored, and storing the one exception as `left` is what
+   * forced a temporary anchor swap during the unfold to exist at all: the
+   * unfold has to keep the right edge still, and a left-anchored pill does the
+   * opposite. Stored this way the direction is correct by construction -- no
+   * swap, no handback timer, and no need to know the width the strip is
+   * heading for, which is the number three separate bugs came from.
+   */
+  private pillPos: { right: number; y: number } | null = null;
   private pillDragStart: DragStart | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private docClickHandler: ((e: Event) => void) | null = null;
@@ -1779,9 +1784,9 @@ export class PlotpolishPanel extends HTMLElement {
     const pill = this.ui?.pill;
     if (!pill) return;
     if (this.pillPos) {
-      pill.style.left = `${this.pillPos.x}px`;
+      pill.style.right = `${this.pillPos.right}px`;
       pill.style.top = `${this.pillPos.y}px`;
-      pill.style.right = "";
+      pill.style.left = "";
       return;
     }
     // BOTH branches below have to clear `left`, and forgetting it is not a
@@ -1890,9 +1895,12 @@ export class PlotpolishPanel extends HTMLElement {
     // Clamp so at least 40px of the pill stays within the viewport.
     if (vw > 0) left = Math.max(40 - pw, Math.min(left, vw - 40));
     if (vh > 0) top = Math.max(40 - ph, Math.min(top, vh - 40));
-    this.pillPos = { x: left, y: top };
+    // Converted to a right offset here, while `left` and the width are both
+    // known and current -- the one moment they reliably are.
+    this.pillPos = { right: vw > 0 ? vw - (left + pw) : 0, y: top };
     this.ui.pill.classList.add("dragging");
-    this.ui.pill.style.left = `${left}px`;
+    this.ui.pill.style.right = `${this.pillPos.right}px`;
+    this.ui.pill.style.left = "";
     this.ui.pill.style.top = `${top}px`;
     // The pill moved: the open popover follows its tab, unless it was itself dragged.
     if (this._open && !this.dragPos) this.positionPopover();
@@ -1944,7 +1952,6 @@ export class PlotpolishPanel extends HTMLElement {
     this.foldPillBody();
     this.measureLayout();
     this.positionFloatPill();
-    if (!this.pillCollapsed) this.anchorUnfoldToRightEdge();
     // Collapsing from the keyboard hides the control that was focused -- the
     // chevron folds away with the body, the top handle goes display:none -- so
     // without this the caret lands on <body> and the panel is unreachable.
@@ -1954,90 +1961,6 @@ export class PlotpolishPanel extends HTMLElement {
     // The window it left open was anchored to a tab that has just folded away
     // (or come back), so it needs re-hanging either way.
     if (this._open && !this.dragPos) this.positionPopover();
-  }
-
-  /**
-   * Unroll the strip RIGHT TO LEFT, even when it is returning to a dragged
-   * position.
-   *
-   * A pill that was never dragged already does this for free: with no
-   * `pillPos` it is anchored by `right`, so a growing body pushes its left
-   * edge outward and the right edge stays put. Measured: right pinned at
-   * 1006px while x ran 984 -> 568.
-   *
-   * A DRAGGED pill did the opposite, because expanding restores `pillPos`,
-   * which anchors by `left` -- so the same growth ran the right edge out
-   * instead. Measured: left pinned at 373px while the right edge ran 395 ->
-   * 811. Same animation, mirrored, and only because of a gesture the student
-   * made earlier.
-   *
-   * So for the length of the fold the pill is pinned by the right edge it is
-   * heading for, then handed back to the normal `left` anchoring. The final
-   * geometry is identical either way, so the swap is invisible -- it only
-   * decides which edge stays still while the width changes.
-   *
-   * BEST-EFFORT, deliberately. Any scroll or resize inside those 160ms runs
-   * onWindowReflow -> positionFloatPill(), which takes the pillPos branch and
-   * puts `left` straight back, so the rest of that one animation mirrors again.
-   * (The scroll listener is `capture: true` on window, so scrolling anything on
-   * the host page does it.) Nothing is left corrupt -- the end state is the
-   * same either way -- and fighting the reflow to protect 140ms of easing is a
-   * worse trade than losing it.
-   */
-  private anchorUnfoldToRightEdge(): void {
-    if (this.unfoldAnchorTimer !== null) {
-      clearTimeout(this.unfoldAnchorTimer);
-      this.unfoldAnchorTimer = null;
-    }
-    // Nothing to mirror unless the pill is coming back to a dragged position:
-    // without one it is already right-anchored, and overriding that would
-    // fight positionFloatPill() for no gain.
-    //
-    // And only in float mode. positionFloatPill() checks the mode before it
-    // touches `right` at all, and this has to agree with it: in "pill" mode a
-    // collapsed pill sits INLINE, so pinning it to a viewport-relative `right`
-    // threw the 33px stub 536px across the page to unroll there and snapped it
-    // back afterwards. Measured, on a host that forces layout="pill".
-    if (!this.pillPos || this._layoutMode !== "float") return;
-    const pill = this.ui.pill;
-    // Derived NOW, not recorded at collapse. The old version stored the right
-    // offset while the strip was still open and re-applied it on expand, which
-    // is only correct if nothing moved in between -- and the viewport is
-    // exactly the thing that can. Resizing the window while collapsed made the
-    // stub teleport 200px to unroll and then jump 200px back when the handback
-    // landed, moving a pill that had already finished animating.
-    //
-    // `pillPos.x` is where the left edge is going and the pill's current width
-    // is what it is going to be (update() and foldPillBody() have both run by
-    // now, so it is laid out at full width), so their sum is the right edge it
-    // is heading for -- measured against the viewport as it is at this instant.
-    const vw = window.innerWidth || 0;
-    if (!vw) return;
-    // The width the pill is GOING to be, taken in foldPillBody() while
-    // `max-width: none` was set -- so it is measured fresh, at expand, not
-    // remembered. Two earlier versions got this wrong in the same way twice:
-    //
-    //   1. Recording the right-edge COORDINATE at collapse. A coordinate goes
-    //      stale when the viewport moves; resizing while collapsed threw the
-    //      stub 200px sideways to unroll and jumped it back afterwards.
-    //   2. Recording the WIDTH at collapse. A width does not care about the
-    //      viewport -- but it cares very much what is IN the strip, and that
-    //      can change while the pill is folded away. Measured: +16px when a
-    //      stale chip appeared, -260px when the host cut the tab set, each
-    //      landing at the handback, i.e. moving a pill that had already
-    //      finished animating. Which is the exact complaint all of this
-    //      started from.
-    //
-    // Reading the live rect here does not work either: the transition starts
-    // from zero, so this early it measures the 33px stub.
-    const width = this.pillUnfoldWidth;
-    pill.style.right = `${vw - (this.pillPos.x + width)}px`;
-    pill.style.left = "";
-    // FOLD_MS + a frame, matching the unfold's own hand-back of max-width.
-    this.unfoldAnchorTimer = window.setTimeout(() => {
-      this.unfoldAnchorTimer = null;
-      if (!this.pillCollapsed) this.positionFloatPill();
-    }, FOLD_MS + 20);
   }
 
   /**
@@ -2080,10 +2003,6 @@ export class PlotpolishPanel extends HTMLElement {
     body.hidden = false;
     body.style.maxWidth = "none";
     const target = body.scrollWidth;
-    // The pill is laid out at its full width for exactly this instant, which is
-    // the only honest moment to read the width the unfold is heading for.
-    // anchorUnfoldToRightEdge() runs after this and spends it.
-    this.pillUnfoldWidth = this.ui.pill.getBoundingClientRect().width;
     body.style.maxWidth = "0px";
     void body.offsetWidth;
     body.style.maxWidth = `${target}px`;

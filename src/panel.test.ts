@@ -1314,6 +1314,15 @@ describe("draggable pill", () => {
   });
 
   it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", async () => {
+    // FLOAT, explicitly. happy-dom returns a zero rect for every element, so
+    // measureLayout() always chooses "pill" and every test in this file ran on
+    // the NON-float branch of positionFloatPill() -- including this one, which
+    // exists to guard the float branch. The review caught it: deleting the
+    // float branch's `left = ""` (the single line that fixes the bug Larry
+    // reported) left all 466 tests green. Forcing the attribute is the only
+    // way in, since the automatic choice needs a real layout.
+    panel.setAttribute("layout", "float");
+    expect(panel.layout).toBe("float");
     const grip = pillGrip(panel);
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
@@ -1334,10 +1343,10 @@ describe("draggable pill", () => {
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
-    // DURING the unfold the pill hangs off its pre-collapse RIGHT edge, so the
-    // strip unrolls right to left instead of running its right edge out across
-    // the figure. Anchoring by the dragged `left` immediately would mirror the
-    // animation purely because of a gesture the student made earlier.
+    // DURING the unfold the pill hangs off the RIGHT edge it is heading for, so
+    // the strip unrolls right to left instead of running its right edge out
+    // across the figure. Anchoring by the dragged `left` immediately would
+    // mirror the animation purely because of a gesture the student made earlier.
     expect(pill(panel).style.left).toBe("");
     expect(pill(panel).style.right).not.toBe("");
 
@@ -1345,6 +1354,36 @@ describe("draggable pill", () => {
     // Same final geometry either way -- only the edge that stays still while
     // the width changes differs -- so the swap is invisible.
     await new Promise((r) => setTimeout(r, 200));
+    expect(pill(panel).style.left).toBe(dragged);
+  });
+
+  it("does not right-anchor the unfold when the host is NOT in float mode", async () => {
+    // In "pill" mode a collapsed pill sits INLINE, so a viewport-relative
+    // `right` describes somewhere else entirely: measured on a real page, the
+    // 33px stub was thrown 536px across the viewport to unroll there and
+    // snapped back when the handback landed. positionFloatPill() checks the
+    // mode before it touches `right`; anchorUnfoldToRightEdge() has to agree.
+    panel.setAttribute("layout", "pill");
+    const grip = pillGrip(panel);
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    const dragged = pill(panel).style.left;
+    expect(dragged).not.toBe("");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // The non-float branch has to drop the dragged `left` too -- same stretch
+    // bug, waiting for a host that turns float off after a drag. This is the
+    // only test on that branch now that the float one above forces "float".
+    expect(pill(panel).style.left).toBe("");
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+
+    // No anchoring phase at all: straight back to the dragged position.
+    expect(pill(panel).style.right).toBe("");
     expect(pill(panel).style.left).toBe(dragged);
   });
 

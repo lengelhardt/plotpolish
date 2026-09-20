@@ -535,8 +535,8 @@ export class PlotpolishPanel extends HTMLElement {
   /** Pending "take the folded strip out of layout" timer, if any. */
   private foldTimer: number | null = null;
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
-  /** Distance from the viewport's right edge to the pill's, recorded at collapse. */
-  private pillRightBeforeCollapse: number | null = null;
+  /** The pill's full width, measured at collapse for the unfold to aim at. */
+  private pillWidthBeforeCollapse = 0;
   private unfoldAnchorTimer: number | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
@@ -1876,11 +1876,13 @@ export class PlotpolishPanel extends HTMLElement {
     this.pillCollapsed = !this.pillCollapsed;
     if (this.pillCollapsed) {
       this.pillPosBeforeCollapse = this.pillPos;
-      // Recorded here, while the strip is still at full width, for the unfold
-      // to anchor against -- see anchorUnfoldToRightEdge().
-      const rect = this.ui.pill.getBoundingClientRect();
-      const vw = window.innerWidth || 0;
-      this.pillRightBeforeCollapse = vw ? vw - rect.right : null;
+      // A WIDTH, recorded here because here is the only moment the strip is
+      // open and measurable. Deliberately not the right-edge COORDINATE this
+      // used to record: a coordinate goes stale the instant the viewport
+      // changes, and resizing the window while collapsed then threw the stub
+      // 200px sideways to unroll and jumped it back afterwards. A width does
+      // not care where the window's edge is.
+      this.pillWidthBeforeCollapse = this.ui.pill.getBoundingClientRect().width;
       this.pillPos = null;
       // The open category stays open. Tucking the strip away is for reclaiming
       // the figure's corner, not for putting your work away, and closing the
@@ -1922,14 +1924,20 @@ export class PlotpolishPanel extends HTMLElement {
    * 811. Same animation, mirrored, and only because of a gesture the student
    * made earlier.
    *
-   * So for the length of the fold the pill is pinned by the right edge it had
-   * BEFORE it collapsed, then handed back to the normal `left` anchoring. The
-   * final geometry is identical either way, so the swap is invisible -- it
-   * only decides which edge stays still while the width changes.
+   * So for the length of the fold the pill is pinned by the right edge it is
+   * heading for, then handed back to the normal `left` anchoring. The final
+   * geometry is identical either way, so the swap is invisible -- it only
+   * decides which edge stays still while the width changes.
+   *
+   * BEST-EFFORT, deliberately. Any scroll or resize inside those 160ms runs
+   * onWindowReflow -> positionFloatPill(), which takes the pillPos branch and
+   * puts `left` straight back, so the rest of that one animation mirrors again.
+   * (The scroll listener is `capture: true` on window, so scrolling anything on
+   * the host page does it.) Nothing is left corrupt -- the end state is the
+   * same either way -- and fighting the reflow to protect 140ms of easing is a
+   * worse trade than losing it.
    */
   private anchorUnfoldToRightEdge(): void {
-    const right = this.pillRightBeforeCollapse;
-    this.pillRightBeforeCollapse = null;
     if (this.unfoldAnchorTimer !== null) {
       clearTimeout(this.unfoldAnchorTimer);
       this.unfoldAnchorTimer = null;
@@ -1937,9 +1945,38 @@ export class PlotpolishPanel extends HTMLElement {
     // Nothing to mirror unless the pill is coming back to a dragged position:
     // without one it is already right-anchored, and overriding that would
     // fight positionFloatPill() for no gain.
-    if (right === null || !this.pillPos) return;
+    //
+    // And only in float mode. positionFloatPill() checks the mode before it
+    // touches `right` at all, and this has to agree with it: in "pill" mode a
+    // collapsed pill sits INLINE, so pinning it to a viewport-relative `right`
+    // threw the 33px stub 536px across the page to unroll there and snapped it
+    // back afterwards. Measured, on a host that forces layout="pill".
+    if (!this.pillPos || this._layoutMode !== "float") return;
     const pill = this.ui.pill;
-    pill.style.right = `${right}px`;
+    // Derived NOW, not recorded at collapse. The old version stored the right
+    // offset while the strip was still open and re-applied it on expand, which
+    // is only correct if nothing moved in between -- and the viewport is
+    // exactly the thing that can. Resizing the window while collapsed made the
+    // stub teleport 200px to unroll and then jump 200px back when the handback
+    // landed, moving a pill that had already finished animating.
+    //
+    // `pillPos.x` is where the left edge is going and the pill's current width
+    // is what it is going to be (update() and foldPillBody() have both run by
+    // now, so it is laid out at full width), so their sum is the right edge it
+    // is heading for -- measured against the viewport as it is at this instant.
+    const vw = window.innerWidth || 0;
+    if (!vw) return;
+    // The width the pill is GOING to be, not the width it is. Reading the live
+    // rect here measures the 33px stub -- foldPillBody() has only just written
+    // the target max-width and the transition starts from zero -- so the pin
+    // landed ~400px too far left and the strip unrolled off the screen edge
+    // before snapping back. Measured: x ran 320 -> -35, then jumped to 373.
+    //
+    // No bail on a zero width: a real layout never reports one, and bailing
+    // made this function a no-op under happy-dom, which would leave the anchor
+    // as untested as the float branch this review already caught.
+    const width = this.pillWidthBeforeCollapse;
+    pill.style.right = `${vw - (this.pillPos.x + width)}px`;
     pill.style.left = "";
     // FOLD_MS + a frame, matching the unfold's own hand-back of max-width.
     this.unfoldAnchorTimer = window.setTimeout(() => {
@@ -2240,6 +2277,10 @@ export class PlotpolishPanel extends HTMLElement {
       "\u203A"
     );
     collapseBtn.setAttribute("aria-label", "Tuck the panel away");
+    // No `aria-expanded`: it would be stuck on "true" forever. The control
+    // folds away WITH the body it collapses, so it does not exist in the
+    // collapsed state to report it -- the grip is the only surface then, and
+    // its title already changes to "Show the plot style controls".
     collapseBtn.addEventListener("click", () => this.togglePillCollapsed());
 
     // Everything but the grip lives in one wrapper, so collapsing is a single

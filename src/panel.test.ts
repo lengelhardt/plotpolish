@@ -1155,7 +1155,14 @@ describe("draggable pill", () => {
   function pill(p: PlotpolishPanel): HTMLElement {
     return p.shadowRoot!.querySelector(".pill") as HTMLElement;
   }
-  function pillGrip(p: PlotpolishPanel): HTMLElement {
+  /** The pill's first child that participates in LAYOUT: `.top-handle` is
+ * `position: absolute` and out of flow, so it is first in the DOM (for tab
+ * order) while sitting visually above everything, not to the left of it. */
+function firstInFlow(p: PlotpolishPanel): Element | null {
+  return [...pill(p).children].find((c) => !c.classList.contains("top-handle")) ?? null;
+}
+
+function pillGrip(p: PlotpolishPanel): HTMLElement {
     return p.shadowRoot!.querySelector(".pill .grip") as HTMLElement;
   }
 
@@ -1165,7 +1172,7 @@ describe("draggable pill", () => {
     // The grip drags the pill and, on a click that never becomes a drag,
     // collapses it. A title naming only one of those hides the other.
     expect(grip.title).toBe("Drag to move, click to tuck away");
-    expect(pill(panel).firstElementChild).toBe(grip);
+    expect(firstInFlow(panel)).toBe(grip);
   });
 
   it("the grip carries both a drag glyph and a paintbrush, and CSS decides which shows", () => {
@@ -1228,7 +1235,7 @@ describe("draggable pill", () => {
     expect(btn).not.toBeNull();
     // Immediately right of the grip means: the grip is the pill's first child,
     // and this is the first thing in the body that follows it.
-    expect(pill(panel).firstElementChild).toBe(pillGrip(panel));
+    expect(firstInFlow(panel)).toBe(pillGrip(panel));
     expect(body.firstElementChild).toBe(btn);
     // A real button, not a glyph with a click handler: the grip already fires
     // through a pointer gesture, and that path is unreachable from a keyboard.
@@ -1321,6 +1328,17 @@ describe("draggable pill", () => {
     // float branch's `left = ""` (the single line that fixes the bug Larry
     // reported) left all 466 tests green. Forcing the attribute is the only
     // way in, since the automatic choice needs a real layout.
+    // A figure rect, not just the attribute. Forcing `layout="float"` with no
+    // figureElement puts positionFloatPill() on its `rect === undefined`
+    // fallback, where `right` degenerates to the constant FLOAT_INSET_PX -- so
+    // the `vw - rect.right` term that actually positions a float pill was
+    // evaluated by no test in the suite. That is the first review's complaint
+    // one level in, and a state measureLayout() can never produce.
+    const fig = document.createElement("div");
+    fig.getBoundingClientRect = () =>
+      ({ top: 100, left: 200, right: 800, bottom: 500, width: 600, height: 400, x: 200, y: 100 }) as DOMRect;
+    document.body.appendChild(fig);
+    panel.figureElement = fig;
     panel.setAttribute("layout", "float");
     expect(panel.layout).toBe("float");
     const grip = pillGrip(panel);
@@ -1333,6 +1351,12 @@ describe("draggable pill", () => {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // The corner is the FIGURE's, not the viewport's: right = (vw - fig.right)
+    // + inset. A value, not merely non-empty, so the fallback constant cannot
+    // masquerade as a real position.
+    // 8 is FLOAT_INSET_PX. Hardcoded rather than imported: a test that reuses
+    // the constant cannot catch the constant changing.
+    expect(pill(panel).style.right).toBe(`${window.innerWidth - 800 + 8}px`);
     // The half this test was NAMED for and never checked. Dropping pillPos is
     // not enough: the dragged `left` is inline, and left beside the corner's
     // `right` it pins both edges of a positioned box, so the pill stretches
@@ -1341,14 +1365,24 @@ describe("draggable pill", () => {
     // glyph, with the body correctly folded to zero inside it.
     expect(pill(panel).style.left).toBe("");
 
+    // Stub the pill's own rect BEFORE expanding, so the width the unfold
+    // measures is a real number. happy-dom reports a zero rect for everything,
+    // so without this every width the formula could compute -- including
+    // deleting the width term outright -- passes a `!== ""` check: both
+    // mutations survived a 473-green suite before this line existed.
+    const el = pill(panel);
+    el.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, right: 300, bottom: 26, width: 300, height: 26, x: 0, y: 0 }) as DOMRect;
+
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
     // DURING the unfold the pill hangs off the RIGHT edge it is heading for, so
     // the strip unrolls right to left instead of running its right edge out
     // across the figure. Anchoring by the dragged `left` immediately would
     // mirror the animation purely because of a gesture the student made earlier.
-    expect(pill(panel).style.left).toBe("");
-    expect(pill(panel).style.right).not.toBe("");
+    // Asserted as a VALUE: `vw - (dragged left + the width it is heading for)`.
+    expect(el.style.left).toBe("");
+    expect(el.style.right).toBe(`${window.innerWidth - (parseFloat(dragged) + 300)}px`);
 
     // And it is handed back to the dragged position once the fold is over.
     // Same final geometry either way -- only the edge that stays still while
@@ -1471,6 +1505,94 @@ describe("draggable pill", () => {
     const h = topHandle(panel);
     h.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }));
     expect(pill(panel).classList.contains("collapsed")).toBe(false);
+  });
+
+  // happy-dom has no CSS layout, so NONE of the rules below are observable from
+  // a test that walks the DOM -- and three of them are load-bearing for
+  // correctness, not taste. Measured: neutering the display rule, restoring the
+  // pill's `overflow: hidden` (which erases the top handle entirely) and moving
+  // the handle's `top` all left 473 tests green. So pin them in the stylesheet
+  // itself, the same way this file already pins the stalled-border guard.
+  it("pins the top handle's load-bearing CSS, which no DOM assertion can see", () => {
+    // Read from disk rather than the `?inline` import, which vitest resolves to
+    // an empty string -- an assertion against that would pass for the wrong
+    // reason. Same reasoning as the stalled-border guard below.
+    const css = readFileSync("src/panel.css", "utf8");
+
+    // 1. The handle must be OUT of the flow and centred, or it is not a
+    //    centred handle at all.
+    expect(css).toMatch(/\.top-handle\s*\{[^}]*position:\s*absolute/);
+    expect(css).toMatch(/\.top-handle\s*\{[^}]*left:\s*50%/);
+
+    // 2. `.pill` must be a containing block. Without it, outside float mode the
+    //    handle resolves against BODY -- measured at top: -9px on the document,
+    //    off the page and still focusable.
+    expect(css).toMatch(/\.pill\s*\{[^}]*position:\s*relative/);
+
+    // 3. `.pill` must NOT clip: `overflow: hidden` there removes the handle
+    //    completely, with no trace, and the fold does not need it because
+    //    `.pill-body` carries its own.
+    expect(css).toMatch(/\.pill-body\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).not.toMatch(/\.pill\s*\{[^}]*overflow:\s*hidden/);
+
+    // 4. Hidden where it has no job, and where it would be a stray absolute box.
+    expect(css).toMatch(/\.pill:not\(\.float\)\s+\.top-handle/);
+    expect(css).toMatch(/\.pill\.collapsed\s+\.top-handle/);
+  });
+
+  // Two handles, one drag slot. A second finger on the other handle used to
+  // overwrite the first gesture silently: both fingers then drove the same drag
+  // from different origins (the pill teleported between them) and the abandoned
+  // gesture's capture was never released, because endPillDrag found a null
+  // start and returned early.
+  it("ignores a second gesture on the other handle while one is in flight", () => {
+    const grip = pillGrip(panel);
+    const handle = topHandle(panel);
+    const gave: string[] = [];
+    (grip as unknown as { releasePointerCapture: () => void }).releasePointerCapture =
+      () => { gave.push("grip"); };
+    (handle as unknown as { releasePointerCapture: () => void }).releasePointerCapture =
+      () => { gave.push("handle"); };
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
+    const afterFirst = pill(panel).style.left;
+
+    // Second finger, other handle, different id. It must not take over.
+    handle.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 500, clientY: 400, pointerId: 2, buttons: 1 }));
+    handle.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 560, clientY: 440, pointerId: 2, buttons: 1 }));
+    expect(pill(panel).style.left).toBe(afterFirst);
+
+    // The first gesture still owns the slot, so it still ends cleanly -- the
+    // grip's capture is released, not orphaned.
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
+    expect(gave).toEqual(["grip"]);
+  });
+
+  // The pill hangs off the FIGURE's right edge, so with a small or
+  // left-aligned figure the strip -- and the centred handle with it -- can be
+  // pushed off the viewport at an ordinary desktop width. Measured before the
+  // clamp: a 190px left-aligned figure at vw=1024 put every handle, the new
+  // one included, off screen.
+  it("clamps a float pill so the top handle's centre cannot leave the viewport", () => {
+    const fig = document.createElement("div");
+    fig.getBoundingClientRect = () =>
+      ({ top: 0, left: 10, right: 200, bottom: 100, width: 190, height: 100, x: 10, y: 0 }) as DOMRect;
+    document.body.appendChild(fig);
+    const el = pill(panel);
+    el.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, right: 440, bottom: 26, width: 440, height: 26, x: 0, y: 0 }) as DOMRect;
+
+    panel.figureElement = fig;
+    panel.setAttribute("layout", "float");
+
+    // Unclamped this would be (vw - 200) + 8, which puts the handle's centre at
+    // 200 - 8 - 220 = -28. The clamp caps it at vw - 8 - 440/2.
+    const vw = window.innerWidth;
+    expect(el.style.right).toBe(`${vw - 8 - 220}px`);
+    // Which puts the handle's centre exactly FLOAT_INSET_PX inside the left
+    // edge -- on screen with a margin, not merely touching it.
+    expect(vw - parseFloat(el.style.right) - 440 / 2).toBe(8);
   });
 
   it("a pointerdown on a tab button does not start a drag", () => {

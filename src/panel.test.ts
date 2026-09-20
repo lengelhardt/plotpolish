@@ -1236,6 +1236,11 @@ describe("draggable pill", () => {
     expect(btn.type).toBe("button");
     expect(btn.getAttribute("aria-label")).toBe("Tuck the panel away");
     expect(btn.title).toBe("Tuck the panel away");
+    // RIGHT-pointing, not left. The first version pointed at the grip -- at
+    // the part that stays -- which reads as "go back", not "put away". Pinned
+    // because a glyph is exactly the kind of thing that flips back silently.
+    expect(btn.textContent).toBe("\u203A");
+    expect(btn.textContent).not.toBe("\u2039");
   });
 
   it("collapses on a plain click of that chevron, with no pointer gesture at all", async () => {

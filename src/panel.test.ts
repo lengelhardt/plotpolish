@@ -1324,6 +1324,13 @@ describe("draggable pill", () => {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("collapsed")).toBe(true);
+    // The half this test was NAMED for and never checked. Dropping pillPos is
+    // not enough: the dragged `left` is inline, and left beside the corner's
+    // `right` it pins both edges of a positioned box, so the pill stretches
+    // from the drop point to the corner instead of shrinking. Larry found it
+    // by dragging and then collapsing -- 633px of empty capsule holding one
+    // glyph, with the body correctly folded to zero inside it.
+    expect(pill(panel).style.left).toBe("");
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));

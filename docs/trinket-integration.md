@@ -61,6 +61,16 @@ behind it is worse than no number):
   answers by firing Trinket's own run. Setting `canRerun: true` without a
   listener is the one way to get this wrong: the button would look pressable
   and do nothing, which is the failure the notice exists to prevent.
+* **On the worker path, answer `plotpolish-save-requested` too.** Same shape as
+  the re-run request, same reason: Save PNG goes through matplotlib's
+  `savefig` in a backend, and on the worker there is no backend, so the panel
+  asks. The adapter is the side that has the figure — the worker posts it back
+  as `img.worker-figure`, an `<img>` sitting in `#graphic` — so it takes the
+  request, calls `preventDefault()` (which is how the panel knows the ask was
+  heard) and downloads that image. It is a screen-resolution PNG and the Save
+  tab's `savefig.dpi` / `transparent` / `bbox` do NOT apply to it, which is a
+  real gap versus the main thread, not a wording problem. Before this the
+  button answered "Run your code first" forever (plotpolish #30).
 * **`session.replace` on the minimal differing range, never `setValue`.**
   `setValue(text, -1)` moves the cursor to 0,0, drops the selection, scrolls
   to the top and loses folds — on every slider tick, while the student may be

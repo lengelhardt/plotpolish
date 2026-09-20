@@ -20,7 +20,7 @@ export { PlotpolishPanel, registerPanel } from "./panel";
 export type {
   PanelFeatures, StaleNotice, ChangeEventDetail, RerunNeededEventDetail,
   RerunRequestedEventDetail, PanelErrorEventDetail,
-  AutoUpdateEventDetail, SavedEventDetail,
+  AutoUpdateEventDetail, SavedEventDetail, SaveRequestedEventDetail,
 } from "./panel";
 export { PyodideBackend } from "./adapters/pyodide";
 export type { PyodideLike } from "./adapters/pyodide";

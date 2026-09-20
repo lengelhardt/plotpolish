@@ -255,6 +255,14 @@ interface DragStart {
    * onPillGripPointerMove's `buttons === 0` comment.
    */
   captured: boolean;
+  /**
+   * The element holding the capture. There is more than one drag handle on the
+   * pill now -- the grip at its left end and the tab centred above it -- so
+   * releasing against a hardcoded `ui.pillGrip` would leave the OTHER one
+   * captured, and every later gesture anywhere on the page would be delivered
+   * to it. Null for the header drag, which still has exactly one handle.
+   */
+  handle?: HTMLElement | null;
   /** True once past the drag threshold, i.e. this is a drag and not a click. */
   moved: boolean;
 }
@@ -1797,9 +1805,12 @@ export class PlotpolishPanel extends HTMLElement {
     const target = e.target as HTMLElement | null;
     if (target?.closest("button")) return;
     const rect = this.ui.pill.getBoundingClientRect();
+    // The handle that actually received this, not `ui.pillGrip`: the top tab
+    // shares these three listeners and must hold and release its own capture.
+    const handle = (e.currentTarget as HTMLElement | null) ?? this.ui.pillGrip;
     this.pillDragStart = {
       x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
-      pointerId: e.pointerId, captured: false, moved: false,
+      pointerId: e.pointerId, captured: false, moved: false, handle,
     };
     // Capture NOW, before any movement. Without this the only pointermoves we
     // ever see are the ones that happen to stay over the grip, which biases
@@ -1807,7 +1818,7 @@ export class PlotpolishPanel extends HTMLElement {
     // does not commit to a drag: `moved` still decides whether this becomes a
     // drag or the click that tucks the pill away.
     try {
-      this.ui.pillGrip.setPointerCapture?.(e.pointerId);
+      handle.setPointerCapture?.(e.pointerId);
       this.pillDragStart.captured = true;
     } catch {
       /* not every environment supports pointer capture */
@@ -2045,7 +2056,7 @@ export class PlotpolishPanel extends HTMLElement {
     // is delivered to the grip instead.
     if (start.captured) {
       try {
-        this.ui.pillGrip.releasePointerCapture?.(pointerId ?? start.pointerId);
+        (start.handle ?? this.ui.pillGrip).releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
@@ -2248,6 +2259,50 @@ export class PlotpolishPanel extends HTMLElement {
     autoBtn.addEventListener("click", () => {
       this.autoUpdate = !this._autoUpdate;
     });
+    // A SECOND drag handle, a tab centred above the strip.
+    //
+    // The reachability fix, and it is geometric. The pill is pinned by its
+    // RIGHT edge and grows leftward, so when the strip is wider than the space
+    // it is the LEFT end that leaves the screen -- and the left end is where
+    // the grip and the collapse chevron both live. Measured in Trinket: the
+    // output pane is 410px at a 1024px viewport while the strip is 438px, so
+    // the strip already overhangs its own figure by 46px before anything goes
+    // off-screen at all. The grip leaves the viewport below about 457px.
+    //
+    // A centred handle sits at `vw - inset - W/2`, so it is on screen while
+    // `W < 2 * (vw - inset)` -- about 238px for today's strip, which is below
+    // any phone. It does not narrow the unreachable band; it removes it.
+    //
+    // Float only, and hidden while collapsed (CSS): in "pill" mode the strip
+    // is inline and nothing overflows, and a tab protruding from a 23px stub
+    // is a wart with no job. Larry's calls, both.
+    //
+    // It shares the grip's three pointer handlers verbatim rather than
+    // duplicating the threshold logic -- which is why DragStart now carries
+    // the handle that holds the capture.
+    const topHandle = el("span", {
+      class: "top-handle", title: "Drag to move, click to tuck away",
+    });
+    topHandle.setAttribute("role", "button");
+    topHandle.setAttribute("tabindex", "0");
+    topHandle.setAttribute("aria-label", "Drag to move, click to tuck away");
+    topHandle.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
+    topHandle.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
+    topHandle.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
+    topHandle.addEventListener("pointercancel", (e) => this.endPillDrag((e as PointerEvent).pointerId));
+    topHandle.addEventListener("dblclick", () => this.reanchorPill());
+    // The pointer path collapses through onPillGripPointerUp's click branch,
+    // but that path is unreachable from a keyboard -- the same gap the chevron
+    // exists to close. role/tabindex make it focusable; this makes the key do
+    // something. Space is included because a role="button" is expected to take
+    // both, and preventDefault stops Space scrolling the host page.
+    topHandle.addEventListener("keydown", (e) => {
+      const key = (e as KeyboardEvent).key;
+      if (key !== "Enter" && key !== " " && key !== "Spacebar") return;
+      e.preventDefault();
+      this.togglePillCollapsed();
+    });
+
     // The grip has doubled as the collapse toggle since the fold shipped -- a
     // press and release that never cleared the drag threshold tucks the pill
     // away -- but NOTHING SAYS SO. A student who never discovers it has no way
@@ -2287,7 +2342,7 @@ export class PlotpolishPanel extends HTMLElement {
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
     const pillBody = el("div", { class: "pill-body" }, collapseBtn, ...pillTabs, errMark, stallMark, staleMark, staleBtn, autoBtn, menuToggle);
-    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody);
+    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody, topHandle);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---

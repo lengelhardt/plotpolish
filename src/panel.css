@@ -285,7 +285,42 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
    `visibility` flips only once the fold has finished, which is what keeps a
    folded tab out of the tab order and off the accessibility tree rather than
    merely invisible. */
-.pill { overflow: hidden; transition: padding 140ms ease; }
+/* NOT `overflow: hidden`. It used to be, and that clipped anything protruding
+   from the pill -- the top handle included, completely, with no trace. Removing
+   it is safe because `.pill-body` carries its own `overflow: hidden` and that is
+   what the fold actually clips against: verified in a browser, collapse still
+   gives a 33px pill with a zero-width hidden body, expand still returns 438px. */
+.pill { transition: padding 140ms ease; }
+
+/* The second drag handle: a tab centred above the strip, so there is always a
+   grab point on screen even when the strip is wider than the space and its left
+   end (grip, chevron) has gone. Deliberately small and quiet -- it reads as a
+   drawer pull, not a control. */
+.top-handle {
+  position: absolute; left: 50%; transform: translateX(-50%); top: -9px;
+  width: 38px; height: 10px; box-sizing: border-box;
+  /* Matches `.pill.float`, which is the only state it renders in: the same
+     1.5px accent border and the same solid background, so it reads as part of
+     the same object rather than a sticker on top of it. The bottom border is
+     dropped so the tab and the pill share one continuous edge. */
+  border: 1.5px solid var(--_accent); border-bottom: 0; border-radius: 6px 6px 0 0;
+  background: var(--_bg); cursor: grab; touch-action: none;
+}
+/* The three dots are drawn, not text: a glyph at this size sits on a baseline
+   that is not the middle of a 10px box, and centering it costs more rules than
+   the dots do. */
+.top-handle::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 14px; height: 2px; transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--_muted) 1px, transparent 1px);
+  background-size: 5px 2px;
+}
+.pill.dragging .top-handle { cursor: grabbing; }
+.top-handle:hover { background: var(--_accent-tint); }
+.top-handle:focus-visible { outline: 2px solid var(--_accent); outline-offset: 1px; }
+/* Float only: inline, nothing overflows, so it would be a wart with no job.
+   And gone while collapsed -- a tab sticking out of a 23px stub is just odd. */
+.pill:not(.float) .top-handle, .pill.collapsed .top-handle { display: none; }
 /* The fold is a measured max-width, set from togglePillCollapsed. A CSS-only
    fold needs a number the stylesheet cannot know: `max-width` off a guess
    spends most of its duration above the strip's real width doing nothing, and

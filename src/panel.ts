@@ -257,12 +257,14 @@ interface DragStart {
   captured: boolean;
   /**
    * The element holding the capture. There is more than one drag handle on the
-   * pill now -- the grip at its left end and the tab centred above it -- so
+   * pill -- the grip at its left end and the tab centred above it -- so
    * releasing against a hardcoded `ui.pillGrip` would leave the OTHER one
    * captured, and every later gesture anywhere on the page would be delivered
-   * to it. Null for the header drag, which still has exactly one handle.
+   * to it. Always set by the pill's pointerdown; the header drag keeps its own
+   * `dragStart` field and its own teardown and never reaches endPillDrag, so
+   * there is no path here that leaves it unset.
    */
-  handle?: HTMLElement | null;
+  handle: HTMLElement;
   /** True once past the drag threshold, i.e. this is a drag and not a click. */
   moved: boolean;
 }
@@ -543,8 +545,12 @@ export class PlotpolishPanel extends HTMLElement {
   /** Pending "take the folded strip out of layout" timer, if any. */
   private foldTimer: number | null = null;
   private pillPosBeforeCollapse: { x: number; y: number } | null = null;
-  /** The pill's full width, measured at collapse for the unfold to aim at. */
-  private pillWidthBeforeCollapse = 0;
+  /**
+   * The pill's full width, measured during the unfold while `max-width: none`
+   * is set -- so it is the width the strip is about to BE, not a number
+   * remembered from earlier. See foldPillBody() and anchorUnfoldToRightEdge().
+   */
+  private pillUnfoldWidth = 0;
   private unfoldAnchorTimer: number | null = null;
   private _category: string | null = null;
   private _menuOpen = false;
@@ -1574,9 +1580,12 @@ export class PlotpolishPanel extends HTMLElement {
     const target = e.target as HTMLElement | null;
     if (target?.closest("button")) return;
     const rect = this.ui.popover.getBoundingClientRect();
+    // The header has exactly one drag surface, so `handle` is the header
+    // itself. Set rather than left out, so the field is genuinely always
+    // present and the release sites need no fallback to guess with.
     this.dragStart = {
       x: e.clientX ?? 0, y: e.clientY ?? 0, left: rect.left, top: rect.top,
-      pointerId: e.pointerId, captured: false, moved: false,
+      pointerId: e.pointerId, captured: false, moved: false, handle: this.ui.header,
     };
     // Capture on pointerdown, for the same reason the pill's grip does: the
     // header's grip is at its left edge, so a leftward drag can leave the
@@ -1642,7 +1651,7 @@ export class PlotpolishPanel extends HTMLElement {
     // pointerdown now, so a plain click would otherwise leave it held.
     if (start.captured) {
       try {
-        this.ui.header.releasePointerCapture?.(pointerId ?? start.pointerId);
+        start.handle.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
@@ -1793,7 +1802,20 @@ export class PlotpolishPanel extends HTMLElement {
     const rect = this._figureElement?.getBoundingClientRect();
     const vw = window.innerWidth || 0;
     const top = (rect?.top ?? 0) + FLOAT_INSET_PX;
-    const right = Math.max(0, vw - (rect?.right ?? vw)) + FLOAT_INSET_PX;
+    let right = Math.max(0, vw - (rect?.right ?? vw)) + FLOAT_INSET_PX;
+    // The pill hangs off the FIGURE's right edge, not the viewport's, so the
+    // top handle's centre sits at `fig.right - inset - W/2` and the condition
+    // for it being on screen is `fig.right > W/2 + inset`. `vw` does not
+    // appear in it -- which an earlier comment on the handle got wrong, and
+    // the error mattered: with a 190px left-aligned figure at a 1024px
+    // viewport, every handle including the new one was off screen, at a
+    // desktop width the wrong formula called safe by 1600px.
+    //
+    // So clamp. Keeping the handle's centre inside the viewport is the whole
+    // invariant the handle exists to provide, and it is cheaper to guarantee
+    // it here than to ask every host to lay its figure out considerately.
+    const pw = pill.getBoundingClientRect().width;
+    if (pw && vw) right = Math.min(right, vw - FLOAT_INSET_PX - pw / 2);
     pill.style.top = `${top}px`;
     pill.style.right = `${right}px`;
     pill.style.left = "";
@@ -1804,6 +1826,13 @@ export class PlotpolishPanel extends HTMLElement {
     // still receive their own click.
     const target = e.target as HTMLElement | null;
     if (target?.closest("button")) return;
+    // ONE gesture at a time. `pillDragStart` is a single slot, and since there
+    // are two drag handles ~200px apart a second finger on the other one used
+    // to overwrite the first gesture silently: the two fingers then drove the
+    // same drag from different origins (the pill teleported between them), and
+    // the abandoned gesture's capture was never released, because endPillDrag
+    // found a null start and returned. Measured on a two-finger sequence.
+    if (this.pillDragStart) return;
     const rect = this.ui.pill.getBoundingClientRect();
     // The handle that actually received this, not `ui.pillGrip`: the top tab
     // shares these three listeners and must hold and release its own capture.
@@ -1828,6 +1857,8 @@ export class PlotpolishPanel extends HTMLElement {
   private onPillGripPointerMove(e: PointerEvent): void {
     const start = this.pillDragStart;
     if (!start) return;
+    // Only the pointer that started it. See onPillGripPointerDown.
+    if (e.pointerId !== undefined && e.pointerId !== start.pointerId) return;
     // A move with no button held means the release happened somewhere we never
     // saw: outside the element, off the window, or a gesture the browser
     // canceled. Without this the stale start survives, and simply hovering the
@@ -1873,7 +1904,9 @@ export class PlotpolishPanel extends HTMLElement {
     // `captured`: capture is taken on pointerdown now, so `captured` is true
     // for a plain click too and testing it here suppressed the collapse
     // entirely.
-    const wasClick = !!this.pillDragStart && !this.pillDragStart.moved;
+    const start = this.pillDragStart;
+    if (start && e.pointerId !== undefined && e.pointerId !== start.pointerId) return;
+    const wasClick = !!start && !start.moved;
     this.endPillDrag(e.pointerId);
     if (wasClick) this.togglePillCollapsed();
   }
@@ -1887,13 +1920,6 @@ export class PlotpolishPanel extends HTMLElement {
     this.pillCollapsed = !this.pillCollapsed;
     if (this.pillCollapsed) {
       this.pillPosBeforeCollapse = this.pillPos;
-      // A WIDTH, recorded here because here is the only moment the strip is
-      // open and measurable. Deliberately not the right-edge COORDINATE this
-      // used to record: a coordinate goes stale the instant the viewport
-      // changes, and resizing the window while collapsed then threw the stub
-      // 200px sideways to unroll and jumped it back afterwards. A width does
-      // not care where the window's edge is.
-      this.pillWidthBeforeCollapse = this.ui.pill.getBoundingClientRect().width;
       this.pillPos = null;
       // The open category stays open. Tucking the strip away is for reclaiming
       // the figure's corner, not for putting your work away, and closing the
@@ -1908,6 +1934,10 @@ export class PlotpolishPanel extends HTMLElement {
     this.ui.pillGrip.title = this.pillCollapsed
       ? "Show the plot style controls"
       : "Drag to move, click to tuck away";
+    // The title already flips; the accessible name has to flip with it, or a
+    // screen reader is told to "click to tuck away" a pill that is tucked away.
+    this.ui.pillGrip.setAttribute("aria-label", this.ui.pillGrip.title);
+    this.ui.pillGrip.setAttribute("aria-expanded", String(!this.pillCollapsed));
     this.update();
     // After update(), not before: update() re-renders the strip, which would
     // discard an inline width set ahead of it and leave the fold a click behind.
@@ -1915,6 +1945,12 @@ export class PlotpolishPanel extends HTMLElement {
     this.measureLayout();
     this.positionFloatPill();
     if (!this.pillCollapsed) this.anchorUnfoldToRightEdge();
+    // Collapsing from the keyboard hides the control that was focused -- the
+    // chevron folds away with the body, the top handle goes display:none -- so
+    // without this the caret lands on <body> and the panel is unreachable.
+    // Only when focus WAS inside us: a collapse from a click, or from the
+    // host, must not steal the caret from wherever the student is.
+    if (this.pillCollapsed && this.shadowRoot?.activeElement) this.ui.pillGrip.focus?.();
     // The window it left open was anchored to a tab that has just folded away
     // (or come back), so it needs re-hanging either way.
     if (this._open && !this.dragPos) this.positionPopover();
@@ -1977,16 +2013,24 @@ export class PlotpolishPanel extends HTMLElement {
     // is heading for -- measured against the viewport as it is at this instant.
     const vw = window.innerWidth || 0;
     if (!vw) return;
-    // The width the pill is GOING to be, not the width it is. Reading the live
-    // rect here measures the 33px stub -- foldPillBody() has only just written
-    // the target max-width and the transition starts from zero -- so the pin
-    // landed ~400px too far left and the strip unrolled off the screen edge
-    // before snapping back. Measured: x ran 320 -> -35, then jumped to 373.
+    // The width the pill is GOING to be, taken in foldPillBody() while
+    // `max-width: none` was set -- so it is measured fresh, at expand, not
+    // remembered. Two earlier versions got this wrong in the same way twice:
     //
-    // No bail on a zero width: a real layout never reports one, and bailing
-    // made this function a no-op under happy-dom, which would leave the anchor
-    // as untested as the float branch this review already caught.
-    const width = this.pillWidthBeforeCollapse;
+    //   1. Recording the right-edge COORDINATE at collapse. A coordinate goes
+    //      stale when the viewport moves; resizing while collapsed threw the
+    //      stub 200px sideways to unroll and jumped it back afterwards.
+    //   2. Recording the WIDTH at collapse. A width does not care about the
+    //      viewport -- but it cares very much what is IN the strip, and that
+    //      can change while the pill is folded away. Measured: +16px when a
+    //      stale chip appeared, -260px when the host cut the tab set, each
+    //      landing at the handback, i.e. moving a pill that had already
+    //      finished animating. Which is the exact complaint all of this
+    //      started from.
+    //
+    // Reading the live rect here does not work either: the transition starts
+    // from zero, so this early it measures the 33px stub.
+    const width = this.pillUnfoldWidth;
     pill.style.right = `${vw - (this.pillPos.x + width)}px`;
     pill.style.left = "";
     // FOLD_MS + a frame, matching the unfold's own hand-back of max-width.
@@ -2036,6 +2080,10 @@ export class PlotpolishPanel extends HTMLElement {
     body.hidden = false;
     body.style.maxWidth = "none";
     const target = body.scrollWidth;
+    // The pill is laid out at its full width for exactly this instant, which is
+    // the only honest moment to read the width the unfold is heading for.
+    // anchorUnfoldToRightEdge() runs after this and spends it.
+    this.pillUnfoldWidth = this.ui.pill.getBoundingClientRect().width;
     body.style.maxWidth = "0px";
     void body.offsetWidth;
     body.style.maxWidth = `${target}px`;
@@ -2056,7 +2104,7 @@ export class PlotpolishPanel extends HTMLElement {
     // is delivered to the grip instead.
     if (start.captured) {
       try {
-        (start.handle ?? this.ui.pillGrip).releasePointerCapture?.(pointerId ?? start.pointerId);
+        start.handle.releasePointerCapture?.(pointerId ?? start.pointerId);
       } catch {
         /* ignore */
       }
@@ -2238,6 +2286,22 @@ export class PlotpolishPanel extends HTMLElement {
     // the step debugger's pill, which carries a bug glyph the same way.
     const pillGrip = el("span", { class: "grip", title: "Drag to move, click to tuck away" },
       el("span", { class: "grip-dots" }, "⋮⋮"), buildBrushGlyph());
+    // FOCUSABLE, and this is a real dead end rather than polish. Collapsed,
+    // the grip is the only thing left on screen -- the body is `hidden`, which
+    // takes the chevron and every tab out of the tree, and the top handle is
+    // display:none. Before this, a keyboard user who collapsed the panel had
+    // ZERO focusable controls and no way to expand it again: measured,
+    // `COLLAPSED_focusable: []`, with focus ejected to <body>. Adding a second
+    // keyboard way IN (the top handle) without a way out made that worse, in a
+    // commit whose stated point was keyboard operability.
+    pillGrip.setAttribute("role", "button");
+    pillGrip.setAttribute("tabindex", "0");
+    pillGrip.addEventListener("keydown", (e) => {
+      const key = (e as KeyboardEvent).key;
+      if (key !== "Enter" && key !== " " && key !== "Spacebar") return;
+      e.preventDefault();
+      this.togglePillCollapsed();
+    });
     pillGrip.addEventListener("pointerdown", (e) => this.onPillGripPointerDown(e as PointerEvent));
     pillGrip.addEventListener("pointermove", (e) => this.onPillGripPointerMove(e as PointerEvent));
     pillGrip.addEventListener("pointerup", (e) => this.onPillGripPointerUp(e as PointerEvent));
@@ -2342,7 +2406,10 @@ export class PlotpolishPanel extends HTMLElement {
     // grid column going 1fr -> 0fr. Animating each child's max-width instead
     // spends most of the duration above their natural width, doing nothing.
     const pillBody = el("div", { class: "pill-body" }, collapseBtn, ...pillTabs, errMark, stallMark, staleMark, staleBtn, autoBtn, menuToggle);
-    const pill = el("div", { class: "pill", role: "tablist" }, pillGrip, pillBody, topHandle);
+    // topHandle FIRST, for tab order: it is `position: absolute`, so nothing
+    // moves on screen, but it sits visually above everything and was last in
+    // the tab order as the pill's final child.
+    const pill = el("div", { class: "pill", role: "tablist" }, topHandle, pillGrip, pillBody);
     const rail = el("div", { class: "rail", role: "tablist", hidden: true }, ...railTabs);
 
     // --- Popover ---

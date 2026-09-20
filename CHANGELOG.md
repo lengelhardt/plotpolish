@@ -3,7 +3,61 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
-## Unreleased
+## 0.3.5 — 2026-09-20
+
+The headline is that **Save PNG worked on one of the two runtimes it ships to**,
+and said so in a way nobody could act on. The rest is the backlog that had
+accumulated behind v0.3.4.
+
+- **The collapsed pill shows a paintbrush, not "⋮⋮".** Collapsed, the pill is
+  23 px of grip in the figure's corner, and on a phone it is the only surface
+  the panel has -- the tab strip needs more than 418 px -- so the glyph is the
+  whole affordance rather than decoration. Inline SVG, because a shadow root
+  cannot reach the host page's icon font and a missing glyph fails silently;
+  handle, ferrule and head take `currentColor`, `--_muted` and `--_accent`, so
+  it theme-switches with everything else. Both glyphs stay in the DOM and CSS
+  swaps them, since building the SVG on collapse would rebuild it inside the
+  140 ms fold.
+
+- **Fixed: Save PNG was structurally dead on a host with no backend, and blamed
+  the student for it.** The button gated on `!client` and answered "Run your
+  code first". `client` is set once, from whatever the host attached, and says
+  nothing whatever about whether the code ran -- so on a host that attaches
+  none it is null for the entire session. That is Trinket's Web Worker runtime
+  on every run: the program runs off the main thread and there is nothing on
+  the page to call into. The button could never save there, and the message
+  named the one action that could never help. (#30)
+
+  With no backend the panel now **asks the host**, the same shape as the
+  existing re-run request: a cancelable **`plotpolish-save-requested`** carrying
+  `{ format, filename }`. A host that takes it calls `preventDefault()` and
+  delivers the file from the figure it holds; the panel then says "Saved".
+  Nothing listening leaves the event uncanceled and the panel says "Saving
+  isn't available here" rather than sending the student back to Run.
+
+  No new `features` flag, deliberately, and the contrast with `canRerun` is the
+  reason: `canRerun` exists only because a non-cancelable request cannot be
+  detected, and a cancelable one tells the panel by itself whether anyone
+  listened. `SaveRequestedEventDetail` is exported from the public barrel.
+
+  **Known gap:** a host-answered save is whatever image the host has, which on
+  a worker runtime is a screen-resolution PNG. The Save tab's `savefig.dpi`,
+  `transparent` and `bbox` do **not** apply to it, because there is no
+  matplotlib in the page to run `savefig` in. The button now works everywhere;
+  it honors the Save category only where a backend exists.
+
+- **Tests: the suite pinned this bug rather than the requirement.** It asserted
+  `said(panel)` was exactly "Run your code first" for the no-backend case, so
+  the defect read as intended behavior and any fix looked like a regression.
+  Replaced by two tests covering the ask and the honest message, plus a
+  compile-time guard keeping the new type on `src/index.ts`. Both new
+  assertions were mutation-tested against the old handler and fail against it.
+
+- **Fixed: the transient message rendered on the side of the button with no
+  room.** `.row .control` is a flex row with `justify-content: flex-end`, so a
+  span appended after the button laid out past its right edge against the
+  panel's border, where it was clipped. The span now precedes the button. This
+  affected the success path too, not only the error one. (#31)
 
 - **Fixed: the "saved in your code" clause could appear before anything was
   written.** v0.3.4 narrowed its gate from "a sink exists" to "a readable source

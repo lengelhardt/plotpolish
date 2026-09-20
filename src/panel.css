@@ -116,6 +116,13 @@ button.small { padding: 0 6px; font-size: 11px; line-height: 20px; }
   color: var(--_muted); border-radius: 4px;
 }
 .pill-collapse:hover { background: var(--_field-bg); color: var(--_fg); }
+/* It sets `border: 0; background: none`, so a keyboard user gets nothing but
+   the UA outline on a borderless 16px target -- next to tabs that do have a
+   focus style. Same treatment as :hover, plus the ring. */
+.pill-collapse:focus-visible {
+  background: var(--_field-bg); color: var(--_fg);
+  outline: 2px solid var(--_accent); outline-offset: 1px;
+}
 
 button.tab {
   position: relative; height: 22px; padding: 0 9px; border: 0; border-radius: 999px;

@@ -272,6 +272,15 @@ interface DragStart {
 const APPLY_DEBOUNCE_MS = 60;
 const RAIL_WIDTH = 50;
 const FLOAT_INSET_PX = 8;
+/**
+ * The top handle appears once the strip's left edge is within this much of the
+ * viewport's, and goes away again only past TOP_HANDLE_HIDE_PX. The band is
+ * hysteresis: equal values would flicker the handle on a one-pixel wobble.
+ * SHOW is generous on purpose -- the grip is ~11px wide and the chevron 16, so
+ * by 24px the pair is already most of the way out of reach.
+ */
+const TOP_HANDLE_SHOW_PX = 24;
+const TOP_HANDLE_HIDE_PX = 48;
 
 /** How long the tab strip takes to fold away or come back. Matches panel.css. */
 const FOLD_MS = 140;
@@ -1711,6 +1720,7 @@ export class PlotpolishPanel extends HTMLElement {
     this.measureLayout();
     this.positionRail();
     this.positionFloatPill();
+    this.syncTopHandle();
     if (this._open && !this.dragPos) this.positionPopover();
     if (this._menuOpen) this.positionMenu();
   };
@@ -1824,6 +1834,57 @@ export class PlotpolishPanel extends HTMLElement {
     pill.style.top = `${top}px`;
     pill.style.right = `${right}px`;
     pill.style.left = "";
+  }
+
+  /**
+   * Show the top handle only when the strip's LEFT end has left the viewport,
+   * i.e. exactly when the grip and the chevron stop being reachable.
+   *
+   * Larry's call, and the reason is that the panel looks better without it:
+   * a tab protruding from the strip is a cost paid for a capability, so it
+   * should appear when the capability is needed and not before. On Trinket's
+   * own geometry at a 1024px viewport the pill's left edge sits around x=568,
+   * so this is hidden on an ordinary desktop.
+   *
+   * SAFE because the handle is `position: absolute` and out of flow: showing
+   * or hiding it cannot change the pill's width, so there is no feedback loop
+   * between "how wide is the strip" and "do we need the handle". Verified
+   * rather than assumed -- see the test that toggles it and re-measures.
+   *
+   * Two things this has to avoid, both learned the hard way in this file:
+   *
+   *  - NEVER decide from a transient width. While collapsed the pill is 33px
+   *    and mid-fold it is somewhere in between, so deciding then would flicker
+   *    the handle on every collapse. Collapsed, the handle is hidden by CSS
+   *    anyway, so the last decision simply stands until the strip is back.
+   *  - HYSTERESIS, or a 1px wobble at the boundary flickers it: it appears
+   *    while there is still a small margin and only goes away once there is
+   *    comfortably room, which also satisfies "slightly before it is needed
+   *    rather than slightly after".
+   */
+  private syncTopHandle(): void {
+    const pill = this.ui?.pill;
+    if (!pill) return;
+    // Outside float the answer is a definite NO, so say so rather than leaving
+    // whatever the last float answer was on the element. The CSS gates on
+    // `.float` too, so a stale class showed nothing -- but a class that
+    // contradicts the state is a trap for the next reader.
+    if (this._layoutMode !== "float") {
+      pill.classList.remove("needs-handle");
+      return;
+    }
+    // Collapsed or mid-fold is the one case where we decline to ANSWER rather
+    // than answering no: the width is transient, and the last decision stands
+    // until the strip is back. CSS hides the handle while folded regardless.
+    if (this.pillCollapsed) return;
+    const vw = window.innerWidth || 0;
+    const rect = pill.getBoundingClientRect();
+    if (!vw || !rect.width) return;
+    const showing = pill.classList.contains("needs-handle");
+    // `rect.left` is the strip's real left edge. Appear at 24px of margin,
+    // disappear only past 48 -- the gap is the hysteresis.
+    const next = showing ? rect.left < TOP_HANDLE_HIDE_PX : rect.left < TOP_HANDLE_SHOW_PX;
+    if (next !== showing) pill.classList.toggle("needs-handle", next);
   }
 
   private onPillGripPointerDown(e: PointerEvent): void {
@@ -3359,6 +3420,13 @@ export class PlotpolishPanel extends HTMLElement {
 
     // Controls.
     for (const view of this.views.values()) this.updateControl(view);
+
+    // LAST, and from here rather than only from the reflow listener: the strip's
+    // width is content-dependent, so a stale chip appearing (+16px measured) or
+    // a host cutting the tab set (-244px measured) changes whether the top
+    // handle is needed without the window doing anything at all. This is the
+    // only place that runs on every re-render.
+    this.syncTopHandle();
   }
 
   private updateControl(view: ControlView): void {

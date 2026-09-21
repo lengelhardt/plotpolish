@@ -1977,6 +1977,19 @@ export class PlotpolishPanel extends HTMLElement {
     this.ui.pill.style.right = `${this.pillPos.right}px`;
     this.ui.pill.style.left = "";
     this.ui.pill.style.top = `${top}px`;
+    // A DRAG MOVES THE STRIP'S LEFT EDGE, so it can make the top handle
+    // necessary -- and this path writes the position itself instead of going
+    // through positionFloatPill(), so nothing else here re-decides.
+    //
+    // Without this the handle stayed hidden through the whole gesture and
+    // appeared only at the next unrelated re-render. Measured on the shipped
+    // v0.4.0: drag the pill hard left and it parks with its left edge at
+    // -203, the grip unreachable (elementFromPoint returns nothing) and the
+    // handle still display:none -- stranded, which is the one state the
+    // handle exists to prevent. Copilot caught this on a branch three local
+    // review rounds had signed off; all three attacked the state machine and
+    // none asked whether the DRAG reaches it.
+    this.syncTopHandle();
     // The pill moved: the open popover follows its tab, unless it was itself dragged.
     if (this._open && !this.dragPos) this.positionPopover();
   }

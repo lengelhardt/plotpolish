@@ -1675,6 +1675,32 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
       expect(showing()).toBe(true);
     });
 
+    // THE ONE THREE LOCAL ROUNDS MISSED, and Copilot caught on a Lite pass.
+    // The drag path writes the pill's position itself rather than going
+    // through positionFloatPill(), so nothing in it re-decided whether the
+    // handle is needed: dragging the strip until its left end left the
+    // viewport left the handle hidden until some unrelated re-render. Measured
+    // on the shipped v0.4.0 at left = -203 with the grip unreachable --
+    // stranded, which is the single state this handle exists to prevent.
+    it("appears DURING a drag that pushes the strip off the left edge", () => {
+      atLeftEdge(300);
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(false);
+
+      const el = pill(panel);
+      const grip = pillGrip(panel);
+      grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 600, clientY: 300, pointerId: 1, buttons: 1 }));
+      // The rect follows the drag, as a real layout would.
+      el.getBoundingClientRect = () =>
+        ({ top: 0, left: -200, right: 240, bottom: 26, width: 440, height: 26, x: -200, y: 0 }) as DOMRect;
+      grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 100, clientY: 320, pointerId: 1, buttons: 1 }));
+
+      // Mid-gesture, with no re-render and no reflow of any other kind.
+      expect(showing()).toBe(true);
+      grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 100, clientY: 320, pointerId: 1, buttons: 0 }));
+      expect(showing()).toBe(true);
+    });
+
     it("is not offered at all outside float mode", () => {
       atLeftEdge(4);
       panel.setAttribute("layout", "pill");

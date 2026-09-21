@@ -1953,8 +1953,22 @@ export class PlotpolishPanel extends HTMLElement {
     const ph = pillRect.height || 26;
     const vw = window.innerWidth || 0;
     const vh = window.innerHeight || 0;
-    // Clamp so at least 40px of the pill stays within the viewport.
-    if (vw > 0) left = Math.max(40 - pw, Math.min(left, vw - 40));
+    // Clamp so a DRAG HANDLE stays on screen -- not merely 40px of pill.
+    //
+    // "40px of the pill" said nothing about WHICH 40px, and right-anchored the
+    // surviving sliver is the right end: the auto-update switch and the reset
+    // menu, while the grip, the chevron and the top handle are all off the
+    // left. Measured before this: a leftward throw parked the pill at
+    // [-525.8, 40] with its handle centre at -242.9 and nothing collapsible
+    // reachable, so the only way back was reloading the page.
+    //
+    // The floor is the same one positionFloatPill() already applies to an
+    // un-dragged pill -- keep the top handle's centre inside the viewport --
+    // so the two paths now agree instead of one of them being an exception.
+    // The ceiling is unchanged: dragging right is bounded by the grip, which
+    // is at the left end and cannot leave that way.
+    const handleFloor = FLOAT_INSET_PX + pw / 2 - pw;
+    if (vw > 0) left = Math.max(handleFloor, Math.min(left, vw - 40));
     if (vh > 0) top = Math.max(40 - ph, Math.min(top, vh - 40));
     // Converted to a right offset here, while `left` and the width are both
     // known and current -- the one moment they reliably are.

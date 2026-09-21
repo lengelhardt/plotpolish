@@ -3,6 +3,74 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.4.0 — 2026-09-20
+
+A minor rather than a patch: two new controls, a changed fold animation, and a
+changed position model for a dragged pill. Nothing in the public API breaks.
+
+- **The collapsed pill can be reached, and the expanded one can be put away.**
+  Collapsing has been a click on the grip since the fold shipped, and nothing
+  ever said so. There is now a **chevron** immediately right of the drag dots
+  pointing the way the strip folds, and the grip itself is a proper keyboard
+  control (`role="button"`, Enter/Space, an `aria-label` that follows its
+  title). Before this a keyboard user who collapsed the panel had **zero**
+  focusable controls left and no way back; focus now lands on the grip when a
+  fold takes the focused control away.
+
+- **A second drag handle, centred above the strip, when the strip does not
+  fit.** The pill is pinned by its right edge and grows leftward, so when it is
+  wider than the space it is the LEFT end that leaves the screen -- and the
+  grip and chevron both live there. A centred handle is reachable while
+  `strip width < 2 x (space - inset)`, which is below any phone. Measured at a
+  400px viewport: the grip and the chevron were both unreachable, the handle
+  was not.
+
+  It appears **only when it is needed** -- when the strip's left end has left
+  the viewport -- because a tab protruding from the strip is a cost paid for a
+  capability. On a 1024px desktop with Trinket's own geometry it is hidden.
+
+- **A dragged pill is stored as an offset from the right edge, not a left
+  coordinate.** Everything else about a floating pill is right-anchored, and
+  that one exception forced a temporary anchor swap during the unfold to exist
+  at all. Stored this way the strip unrolls right to left by construction, and
+  the swap, its timer and the width it needed all delete.
+
+  The width is worth naming because it produced three bugs: a coordinate that
+  went stale when the viewport moved (a 200px jump), a width that went stale
+  when the strip's contents changed (+16px and -260px), and a live rect read
+  mid-transition that measured the 33px stub (the strip unrolled off screen).
+  There is no such number any more.
+
+  Two side effects, both improvements. A dragged pill now keeps its distance
+  from the right edge when the viewport shrinks instead of hanging off it --
+  measured 54px off screen before, fully on screen after. And a scroll or
+  resize mid-unfold can no longer cancel the animation's direction, because
+  there is nothing left to cancel.
+
+- **Fixed: collapsing after a drag left the pill stretched to full width.** A
+  dragged inline `left` survived alongside the corner's `right`, pinning both
+  edges of a positioned box, so the capsule could not narrow -- 633px wide with
+  its body at zero, holding one glyph. True of every release that could drag
+  and fold.
+
+- **Fixed: a drag could strand every handle off the left edge.** The clamp kept
+  "40px of the pill" on screen without regard to which 40px; right-anchored,
+  the survivors were the auto switch and the reset menu, neither of which
+  collapses or re-anchors. The only way back was reloading the page. The floor
+  is now the same one an un-dragged pill uses: keep a handle reachable.
+
+- **Fixed: the transient Save message rendered on the cramped side.** Moved to
+  the side with room, and the button's `:focus-visible` ring is no longer
+  clipped by the pill.
+
+- **Two adversarial review rounds went into this release.** The first found
+  that the single line fixing the drag-then-collapse bug was covered by no
+  test at all -- deleting it left the whole suite green, because happy-dom
+  never enters float mode. The second found that the fix for its own headline
+  finding had merely re-shaped the problem. Both are why the suite now stubs
+  layout rects and asserts values rather than non-emptiness, and why the CSS
+  rules that carry correctness are pinned by reading the stylesheet from disk.
+
 ## 0.3.5 — 2026-09-20
 
 The headline is that **Save PNG worked on one of the two runtimes it ships to**,

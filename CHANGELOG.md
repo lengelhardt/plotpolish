@@ -3,6 +3,31 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## 0.4.1 — 2026-09-21
+
+- **Fixed: the top handle did not appear while you dragged the panel off the
+  left edge.** It is shown only when the strip's left end has left the
+  viewport, and that decision is made in `positionFloatPill()` and on every
+  re-render -- but the DRAG path writes the pill's position itself and went
+  through neither. So the one gesture most likely to push the strip off screen
+  was the one that never re-decided.
+
+  Measured on v0.4.0: drag the pill hard left and it parks with its left edge
+  at -203px, `needs-handle` unset and the handle still `display: none`, while a
+  hit test at the grip's centre returns nothing. Stranded -- with the grip and
+  the chevron both off screen and the control that exists to rescue exactly
+  that situation hidden. It appeared only at the next unrelated re-render.
+
+  One call in the drag path. The test asserts MID-GESTURE, before the pointer
+  is released: a test that checked after the drop would pass on the next render
+  and prove nothing.
+
+  Found by a Copilot pass over the vendored bundle, on a branch three local
+  adversarial rounds had signed off. All three examined `syncTopHandle`'s
+  guards and its two call sites and found them correct, which they are. The gap
+  was a third path that never calls it -- "which paths move this element" being
+  a different question from "is this function right".
+
 ## 0.4.0 — 2026-09-20
 
 A minor rather than a patch: two new controls, a changed fold animation, and a

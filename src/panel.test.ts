@@ -1683,6 +1683,30 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     });
   });
 
+  // Throwing the pill leftward used to park it with only its RIGHT end on
+  // screen -- the auto switch and the reset menu -- while the grip, the
+  // chevron and the top handle were all off the left. Neither survivor
+  // collapses or re-anchors, so the only way back was reloading the page, and
+  // in an embed that costs the student their unsaved code.
+  it("cannot be thrown so far left that no drag handle is left on screen", () => {
+    const el = pill(panel);
+    el.getBoundingClientRect = () =>
+      ({ top: 0, left: 0, right: 440, bottom: 26, width: 440, height: 26, x: 0, y: 0 }) as DOMRect;
+    const grip = pillGrip(panel);
+
+    grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 500, clientY: 200, pointerId: 1, buttons: 1 }));
+    // Far past any sane position, in one throw.
+    grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: -4000, clientY: 200, pointerId: 1, buttons: 1 }));
+    grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: -4000, clientY: 200, pointerId: 1, buttons: 0 }));
+
+    // The floor keeps the top handle's centre inside the viewport -- the same
+    // floor positionFloatPill() applies to an un-dragged pill, so the dragged
+    // path is no longer the exception.
+    const leftEdge = pillX(panel) - 440;
+    expect(leftEdge).toBe(8 - 440 / 2);
+    expect(leftEdge + 440 / 2).toBeGreaterThanOrEqual(0);
+  });
+
   it("a pointerdown on a tab button does not start a drag", () => {
     const tab = pillTab(panel, "text");
     const before = pill(panel).style.right;

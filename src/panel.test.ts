@@ -1158,6 +1158,15 @@ describe("draggable pill", () => {
   /** The pill's first child that participates in LAYOUT: `.top-handle` is
  * `position: absolute` and out of flow, so it is first in the DOM (for tab
  * order) while sitting visually above everything, not to the left of it. */
+/** The pill's position in left-to-right screen terms, read from its RIGHT
+ * anchor. A dragged pill stores an offset from the viewport's right edge, so a
+ * bigger `right` means further LEFT; this flips it back, so "moved right"
+ * still reads as "bigger" the way it did when a drag stored a left coordinate. */
+function pillX(p: PlotpolishPanel): number {
+  const r = pill(p).style.right;
+  return r === "" ? NaN : window.innerWidth - parseFloat(r);
+}
+
 function firstInFlow(p: PlotpolishPanel): Element | null {
   return [...pill(p).children].find((c) => !c.classList.contains("top-handle")) ?? null;
 }
@@ -1317,7 +1326,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
     expect(pill(panel).classList.contains("dragging")).toBe(false);
     expect(pill(panel).classList.contains("collapsed")).toBe(false);
-    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.right).not.toBe("");
   });
 
   it("collapsing tucks the pill back into the corner, and expanding restores where it was dragged to", async () => {
@@ -1345,7 +1354,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
-    const dragged = pill(panel).style.left;
+    const dragged = pill(panel).style.right;
     expect(dragged).not.toBe("");
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
@@ -1365,44 +1374,33 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     // glyph, with the body correctly folded to zero inside it.
     expect(pill(panel).style.left).toBe("");
 
-    // Stub the pill's own rect BEFORE expanding, so the width the unfold
-    // measures is a real number. happy-dom reports a zero rect for everything,
-    // so without this every width the formula could compute -- including
-    // deleting the width term outright -- passes a `!== ""` check: both
-    // mutations survived a 473-green suite before this line existed.
     const el = pill(panel);
-    el.getBoundingClientRect = () =>
-      ({ top: 0, left: 0, right: 300, bottom: 26, width: 300, height: 26, x: 0, y: 0 }) as DOMRect;
-
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
-    // DURING the unfold the pill hangs off the RIGHT edge it is heading for, so
-    // the strip unrolls right to left instead of running its right edge out
-    // across the figure. Anchoring by the dragged `left` immediately would
-    // mirror the animation purely because of a gesture the student made earlier.
-    // Asserted as a VALUE: `vw - (dragged left + the width it is heading for)`.
-    expect(el.style.left).toBe("");
-    expect(el.style.right).toBe(`${window.innerWidth - (parseFloat(dragged) + 300)}px`);
 
-    // And it is handed back to the dragged position once the fold is over.
-    // Same final geometry either way -- only the edge that stays still while
-    // the width changes differs -- so the swap is invisible.
+    // The dragged position IS a right offset now, so the unfold keeps the
+    // right edge still by construction: no anchoring phase, no temporary
+    // swap, no handback timer, and no need to know the width the strip is
+    // heading for -- which is the number three separate bugs came from. It is
+    // back at the dragged offset immediately, and it stays there.
+    expect(el.style.right).toBe(dragged);
+    expect(el.style.left).toBe("");
     await new Promise((r) => setTimeout(r, 200));
-    expect(pill(panel).style.left).toBe(dragged);
+    expect(el.style.right).toBe(dragged);
+    expect(el.style.left).toBe("");
   });
 
-  it("does not right-anchor the unfold when the host is NOT in float mode", async () => {
-    // In "pill" mode a collapsed pill sits INLINE, so a viewport-relative
-    // `right` describes somewhere else entirely: measured on a real page, the
-    // 33px stub was thrown 536px across the viewport to unroll there and
-    // snapped back when the handback landed. positionFloatPill() checks the
-    // mode before it touches `right`; anchorUnfoldToRightEdge() has to agree.
+  it("keeps a dragged position across a fold in NON-float mode too", async () => {
+    // The non-float branch of positionFloatPill() is the one that clears the
+    // corner styles, and it is reachable only here -- the float test above
+    // forces the attribute. A dragged pill is `position: fixed` whatever the
+    // layout mode says, so its offset has to survive a collapse and come back.
     panel.setAttribute("layout", "pill");
     const grip = pillGrip(panel);
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
-    const dragged = pill(panel).style.left;
+    const dragged = pill(panel).style.right;
     expect(dragged).not.toBe("");
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
@@ -1416,9 +1414,9 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 0 }));
 
-    // No anchoring phase at all: straight back to the dragged position.
-    expect(pill(panel).style.right).toBe("");
-    expect(pill(panel).style.left).toBe(dragged);
+    // Straight back to the dragged offset, and never both edges at once.
+    expect(pill(panel).style.right).toBe(dragged);
+    expect(pill(panel).style.left).toBe("");
   });
 
   // The top handle exists because of WHICH END overflows. The pill is pinned by
@@ -1452,7 +1450,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     h.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 40, clientY: 30, pointerId: 1, buttons: 0 }));
 
     expect(pill(panel).classList.contains("collapsed")).toBe(false);
-    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.right).not.toBe("");
   });
 
   it("collapses on a click of the top handle that never became a drag", () => {
@@ -1535,9 +1533,12 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     expect(css).toMatch(/\.pill-body\s*\{[^}]*overflow:\s*hidden/);
     expect(css).not.toMatch(/\.pill\s*\{[^}]*overflow:\s*hidden/);
 
-    // 4. Hidden where it has no job, and where it would be a stray absolute box.
-    expect(css).toMatch(/\.pill:not\(\.float\)\s+\.top-handle/);
-    expect(css).toMatch(/\.pill\.collapsed\s+\.top-handle/);
+    // 4. Hidden by default, and shown only under the positive condition that
+    //    syncTopHandle() controls -- float, not collapsed, and the strip's
+    //    left end actually off the viewport. If the default ever flips to
+    //    visible, the handle is back on every panel at every width.
+    expect(css).toMatch(/\.top-handle\s*\{\s*display:\s*none/);
+    expect(css).toMatch(/\.pill\.float\.needs-handle:not\(\.collapsed\)\s+\.top-handle/);
   });
 
   // Two handles, one drag slot. A second finger on the other handle used to
@@ -1556,12 +1557,12 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 60, clientY: 40, pointerId: 1, buttons: 1 }));
-    const afterFirst = pill(panel).style.left;
+    const afterFirst = pill(panel).style.right;
 
     // Second finger, other handle, different id. It must not take over.
     handle.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 500, clientY: 400, pointerId: 2, buttons: 1 }));
     handle.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 560, clientY: 440, pointerId: 2, buttons: 1 }));
-    expect(pill(panel).style.left).toBe(afterFirst);
+    expect(pill(panel).style.right).toBe(afterFirst);
 
     // The first gesture still owns the slot, so it still ends cleanly -- the
     // grip's capture is released, not orphaned.
@@ -1595,15 +1596,102 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     expect(vw - parseFloat(el.style.right) - 440 / 2).toBe(8);
   });
 
+  // The handle is a cost paid for a capability -- a tab protruding from the
+  // strip -- so it appears only when the strip's LEFT end has left the
+  // viewport, which is exactly when the grip and chevron stop being reachable.
+  describe("the top handle appears only when it is needed", () => {
+    /** Put the pill in float mode with a stubbed rect whose left edge is `left`. */
+    function atLeftEdge(left: number): HTMLElement {
+      const el = pill(panel);
+      el.getBoundingClientRect = () =>
+        ({ top: 0, left, right: left + 440, bottom: 26, width: 440, height: 26, x: left, y: 0 }) as DOMRect;
+      panel.setAttribute("layout", "float");
+      return el;
+    }
+    const showing = () => pill(panel).classList.contains("needs-handle");
+
+    it("stays away while the whole strip is on screen", () => {
+      atLeftEdge(300);
+      panel.autoUpdate = !panel.autoUpdate;   // force an update()
+      expect(showing()).toBe(false);
+    });
+
+    it("appears once the strip's left end is about to leave the viewport", () => {
+      atLeftEdge(4);
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+    });
+
+    // Equal thresholds would flicker the handle on a one-pixel wobble, and the
+    // strip's width wobbles on its own as chips come and go.
+    it("has hysteresis: it does not vanish the moment it is barely unneeded", () => {
+      atLeftEdge(4);
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+
+      atLeftEdge(30);                          // past SHOW, short of HIDE
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+
+      atLeftEdge(60);                          // comfortably clear
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(false);
+    });
+
+    // The claim the whole design rests on: the handle is out of flow, so
+    // showing it cannot widen the strip and re-trigger its own condition.
+    it("cannot feed back into the width that decides it", () => {
+      const el = atLeftEdge(4);
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+      const handle = topHandle(panel);
+      expect(handle.style.position || "absolute").toBe("absolute");
+      // Its box is not a child of the flex row that sizes the strip.
+      expect(handle.closest(".pill-body")).toBeNull();
+      // And the decision is stable: re-running it with the same rect does not
+      // oscillate, which a feedback loop would show up as.
+      for (let i = 0; i < 5; i++) panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+      expect(el.classList.contains("needs-handle")).toBe(true);
+    });
+
+    // Collapsed the pill is 33px, so its left edge is nowhere near the viewport
+    // edge -- deciding from that width would drop the handle on every fold and
+    // bring it back on every unfold.
+    it("does not re-decide from the collapsed width", () => {
+      atLeftEdge(4);
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(true);
+
+      // A real collapsed pill is 33px in the corner, so its left edge is
+      // nowhere near the viewport's -- the stub has to say so, or this test
+      // cannot tell a guarded decision from an unguarded one.
+      atLeftEdge(900);
+      const grip = pillGrip(panel);
+      grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 5, clientY: 5, pointerId: 1, buttons: 1 }));
+      grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 5, clientY: 5, pointerId: 1, buttons: 0 }));
+      expect(pill(panel).classList.contains("collapsed")).toBe(true);
+      // The decision stands; CSS is what hides the handle while folded.
+      expect(showing()).toBe(true);
+    });
+
+    it("is not offered at all outside float mode", () => {
+      atLeftEdge(4);
+      panel.setAttribute("layout", "pill");
+      panel.autoUpdate = !panel.autoUpdate;
+      expect(showing()).toBe(false);
+    });
+  });
+
   it("a pointerdown on a tab button does not start a drag", () => {
     const tab = pillTab(panel, "text");
-    const before = pill(panel).style.left;
+    const before = pill(panel).style.right;
 
     tab.dispatchEvent(Object.assign(new Event("pointerdown", { bubbles: true }), { clientX: 10, clientY: 10, pointerId: 1 }));
     tab.dispatchEvent(Object.assign(new Event("pointermove", { bubbles: true }), { clientX: 60, clientY: 60, pointerId: 1 }));
 
     expect(pill(panel).classList.contains("dragging")).toBe(false);
-    expect(pill(panel).style.left).toBe(before);
+    expect(pill(panel).style.right).toBe(before);
     // The tab itself still works normally.
     tab.click();
     expect(panel.category).toBe("text");
@@ -1611,7 +1699,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
   it("a hover after a release that missed the grip does not resume the drag", () => {
     const grip = pillGrip(panel);
-    const before = pill(panel).style.left;
+    const before = pill(panel).style.right;
 
     // Press the grip, then release somewhere the grip never sees -- the common
     // case when a drag ends outside the pill, or the pointer leaves the window.
@@ -1625,7 +1713,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 90, clientY: 90, pointerId: 1, buttons: 0 }));
 
     expect(pill(panel).classList.contains("dragging")).toBe(false);
-    expect(pill(panel).style.left).toBe(before);
+    expect(pill(panel).style.right).toBe(before);
   });
 
   it("pointercancel ends a drag, and a later hover does not resume it", () => {
@@ -1634,19 +1722,19 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 1 }));
     expect(pill(panel).classList.contains("dragging")).toBe(true);
-    const moved = pill(panel).style.left;
+    const moved = pill(panel).style.right;
 
     // A canceled gesture never sends pointerup.
     grip.dispatchEvent(Object.assign(new Event("pointercancel"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 0 }));
     expect(pill(panel).classList.contains("dragging")).toBe(false);
 
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 300, clientY: 300, pointerId: 1, buttons: 0 }));
-    expect(pill(panel).style.left).toBe(moved);
+    expect(pill(panel).style.right).toBe(moved);
   });
 
   it("a held drag still moves the pill in both directions", () => {
     const grip = pillGrip(panel);
-    const px = () => parseFloat(pill(panel).style.left || "0");
+    const px = () => pillX(panel);
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 100, clientY: 100, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 160, clientY: 100, pointerId: 1, buttons: 1 }));
@@ -1710,7 +1798,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
   it("drags LEFT as the first movement, with no rightward move to unstick it", () => {
     const grip = pillGrip(panel);
-    const px = () => parseFloat(pill(panel).style.left || "NaN");
+    const px = () => pillX(panel);
 
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 300, clientY: 100, pointerId: 1, buttons: 1 }));
     // Straight left, past the 4px threshold, as the very first move. Small
@@ -1721,10 +1809,13 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     // rather than of the clamp.
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 290, clientY: 100, pointerId: 1, buttons: 1 }));
 
+    // The regression is about the FIRST move being leftward, not about where
+    // the pill lands, so this asserts movement rather than a sign: the old
+    // absolute-left reading happened to go negative here only because
+    // happy-dom starts the pill at x=0.
     expect(pill(panel).classList.contains("dragging")).toBe(true);
     const afterLeft = px();
     expect(Number.isNaN(afterLeft)).toBe(false);
-    expect(afterLeft).toBeLessThan(0);
 
     // And keeps going left.
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 275, clientY: 100, pointerId: 1, buttons: 1 }));
@@ -1739,7 +1830,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1, buttons: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1, buttons: 1 }));
     expect(pill(panel).classList.contains("dragging")).toBe(true);
-    const during = pill(panel).style.left;
+    const during = pill(panel).style.right;
 
     // An unrelated pointer 2 ends somewhere on the page -- a second finger
     // lifting, or a stylus. The window-level safety net must ignore it.
@@ -1750,7 +1841,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
     // Pointer 1 keeps dragging normally.
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 80, clientY: 20, pointerId: 1, buttons: 1 }));
-    expect(pill(panel).style.left).not.toBe(during);
+    expect(pill(panel).style.right).not.toBe(during);
 
     // And its own release still ends it.
     window.dispatchEvent(
@@ -1768,13 +1859,13 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
 
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 30, clientY: 20, pointerId: 1 }));
     expect(pill(panel).classList.contains("dragging")).toBe(true);
-    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.right).not.toBe("");
     expect(pill(panel).style.top).not.toBe("");
 
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 30, clientY: 20, pointerId: 1 }));
     expect(pill(panel).classList.contains("dragging")).toBe(false);
     // The dragged position sticks after pointerup.
-    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.right).not.toBe("");
   });
 
   it("double-clicking the grip clears the dragged position and re-anchors", () => {
@@ -1782,7 +1873,7 @@ function pillGrip(p: PlotpolishPanel): HTMLElement {
     grip.dispatchEvent(Object.assign(new Event("pointerdown"), { clientX: 0, clientY: 0, pointerId: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointermove"), { clientX: 50, clientY: 50, pointerId: 1 }));
     grip.dispatchEvent(Object.assign(new Event("pointerup"), { clientX: 50, clientY: 50, pointerId: 1 }));
-    expect(pill(panel).style.left).not.toBe("");
+    expect(pill(panel).style.right).not.toBe("");
 
     grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(pill(panel).style.left).toBe("");

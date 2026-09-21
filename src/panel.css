@@ -331,9 +331,16 @@ input[type="range"] { width: 96px; accent-color: var(--_accent); }
 .pill.dragging .top-handle { cursor: grabbing; }
 .top-handle:hover { background: var(--_accent-tint); }
 .top-handle:focus-visible { outline: 2px solid var(--_accent); outline-offset: 1px; }
-/* Float only: inline, nothing overflows, so it would be a wart with no job.
-   And gone while collapsed -- a tab sticking out of a 23px stub is just odd. */
-.pill:not(.float) .top-handle, .pill.collapsed .top-handle { display: none; }
+/* Hidden by default, and shown only when the strip's left end has actually
+   left the viewport -- see syncTopHandle(), which owns `.needs-handle`. The
+   panel looks better without a tab protruding from it, so the tab is a cost
+   paid for a capability: it appears when the capability is needed.
+
+   Float only (inline, nothing overflows) and never while collapsed (a tab
+   sticking out of a 23px stub is just odd), both expressed as the positive
+   condition rather than as exceptions to it. */
+.top-handle { display: none; }
+.pill.float.needs-handle:not(.collapsed) .top-handle { display: block; }
 /* The fold is a measured max-width, set from togglePillCollapsed. A CSS-only
    fold needs a number the stylesheet cannot know: `max-width` off a guess
    spends most of its duration above the strip's real width doing nothing, and

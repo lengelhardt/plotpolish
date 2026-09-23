@@ -3,6 +3,18 @@
 All notable changes to plotpolish. The format follows Keep a Changelog; the
 project is pre-1.0, so minor versions may change behavior.
 
+## Unreleased
+
+- **Fixed: a change made while the program was running was marked as applied
+  when the run ended (#36).** `refresh()` cleared every pending mark after any
+  run, but the run had read the source when it started. It now takes an
+  optional `figureSource`, the source the run executed. Keys whose values
+  differ between that block and the current one stay pending on a host
+  without live preview. On a host with live preview, where the change was
+  refused while the program ran, they are applied now. Without the argument,
+  behavior is unchanged. A malformed fence in `figureSource` counts as no
+  block rather than rejecting `refresh()`.
+
 ## 0.4.1 — 2026-09-21
 
 - **Fixed: the top handle did not appear while you dragged the panel off the

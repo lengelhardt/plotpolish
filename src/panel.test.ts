@@ -4750,3 +4750,96 @@ describe("features setter: an explicit undefined must not erase a default", () =
     expect(panel.features.groups).toEqual(["look"]);
   });
 });
+
+// #36: refresh() used to clear every pending mark after any run -- including
+// a change the student made WHILE the program ran, which the run never read.
+// The host now passes the source the run executed, and the panel keeps
+// whatever that block does not match.
+describe("refresh(figureSource): a change made during a run stays pending (#36)", () => {
+  const PROGRAM = "import matplotlib.pyplot as plt\nplt.plot([1, 2])\n";
+  const rerunBadge = () => ctl(panel, "linewidth").querySelector(".badge.rerun");
+  function setLinewidth(v: number): void {
+    const el = input(panel, "linewidth") as HTMLInputElement;
+    el.value = String(v);
+    fireInput(el);
+  }
+  function noPreviewHost(): MemorySink {
+    const sink = new MemorySink(PROGRAM);
+    panel.sink = sink;
+    panel.features = { livePreview: false, canRerun: true };
+    return sink;
+  }
+
+  it("keeps a mid-run change marked, and clears it once a run has drawn it", async () => {
+    const sink = noPreviewHost();
+    setLinewidth(2);
+    const ran = sink.getSource();          // the run starts and reads lw=2
+    setLinewidth(3);                       // the student moves the slider mid-run
+    await panel.refresh(ran);              // that run ends
+    expect(rerunBadge(), "lw=3 was never drawn").not.toBeNull();
+    await panel.refresh(sink.getSource()); // a run that read lw=3 ends
+    expect(rerunBadge()).toBeNull();
+  });
+
+  it("without figureSource, keeps today's behavior: the run is assumed to have drawn the block", async () => {
+    noPreviewHost();
+    setLinewidth(2);
+    setLinewidth(3);
+    await panel.refresh();
+    expect(rerunBadge()).toBeNull();
+  });
+
+  // A value diff, not an edit log: a change undone before the run ended
+  // leaves the block matching the figure, and nothing is pending.
+  it("an edit reverted before the run ends leaves nothing pending", async () => {
+    const sink = noPreviewHost();
+    setLinewidth(2);
+    const ran = sink.getSource();
+    setLinewidth(3);
+    setLinewidth(2);
+    await panel.refresh(ran);
+    expect(rerunBadge()).toBeNull();
+  });
+
+  it("a style changed mid-run marks the panel stale", async () => {
+    const sink = noPreviewHost();
+    setLinewidth(2);
+    const ran = sink.getSource();
+    (panel as unknown as { setStyle(s: string): void }).setStyle("ggplot");
+    await panel.refresh(ran);
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+  });
+
+  // parseBlock throws FenceError on a malformed fence; a run of broken source
+  // must not make refresh() reject. It is treated as a run that drew no block.
+  it("a malformed fence in the source that ran does not reject, and counts as no block", async () => {
+    noPreviewHost();
+    setLinewidth(3);
+    // An indented marker is one of the shapes parseBlock throws on.
+    const broken = "  " + FENCE_START + "\n" + PROGRAM;
+    expect(() => parseBlock(broken)).toThrow();
+    await expect(panel.refresh(broken)).resolves.toBeUndefined();
+    expect(rerunBadge(), "no block drew lw=3").not.toBeNull();
+  });
+
+  // The main-thread half: a host that CAN preview refuses live applies while
+  // the program runs, so a mid-run change was lost there too. refresh() now
+  // applies what the run missed.
+  it("on a preview host, applies live what the run missed while the backend was busy", async () => {
+    const sink = new MemorySink(PROGRAM);
+    panel.sink = sink;
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const ran = sink.getSource();
+    backend.rejectWith = new Error("A program is running.");
+    setLinewidth(3);
+    await panel.settle();
+    backend.rejectWith = null;
+    const before = backend.calls.length;
+    await panel.refresh(ran);
+    await panel.settle();
+    const applied = backend.calls.slice(before).filter((c) => c.fn === "apply_live")
+      .map((c) => (c.args as { rc: Record<string, unknown> }).rc["lines.linewidth"]);
+    expect(applied).toContain(3);
+  });
+});

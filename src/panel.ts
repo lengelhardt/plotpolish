@@ -270,6 +270,21 @@ interface DragStart {
 }
 
 const APPLY_DEBOUNCE_MS = 60;
+
+/**
+ * The keys (and "style") whose values differ between two settings. Used by
+ * refresh() to find what a finished run did NOT draw: a change made while the
+ * program was running is in the block but not in the figure (#36).
+ */
+export function settingsDiff(a: StyleSettings, b: StyleSettings): string[] {
+  const out: string[] = [];
+  if (a.style !== b.style) out.push("style");
+  for (const k of new Set([...Object.keys(a.rc), ...Object.keys(b.rc)])) {
+    const av = a.rc[k], bv = b.rc[k];
+    if (av === undefined || bv === undefined ? av !== bv : !rcEqual(av, bv)) out.push(k);
+  }
+  return out;
+}
 const RAIL_WIDTH = 50;
 const FLOAT_INSET_PX = 8;
 /**
@@ -856,15 +871,34 @@ export class PlotpolishPanel extends HTMLElement {
   /**
    * Re-read the source and, when a backend is attached, the style list and the
    * live figure. Hosts call this after every run.
+   *
+   * `figureSource`, optional: the source the finished run EXECUTED, as the
+   * host read it when the run started. Without it the panel has to assume the
+   * run drew the current block, and a change made while the program was
+   * running is then marked as applied when it was not (#36). With it, every
+   * key whose value differs between that block and the current one stays
+   * pending -- or, on a host that can preview, is applied live now.
    */
-  async refresh(): Promise<void> {
+  async refresh(figureSource?: string | null): Promise<void> {
     this.loadFromSink();
-    // A run has just completed, so nothing is pending a re-run any more. This
-    // is true whether or not a backend is attached: on a host that runs the
-    // program off the main thread there is no client to introspect with, and
-    // leaving the marks set would strand them on permanently.
+    // A run has just completed. Without `figureSource`, assume it drew the
+    // current block, so nothing is pending a re-run any more. This is true
+    // whether or not a backend is attached: on a host that runs the program
+    // off the main thread there is no client to introspect with, and leaving
+    // the marks set would strand them on permanently.
     this.stale = false;
     this.rerunKeys.clear();
+    let behind: string[] = [];
+    if (typeof figureSource === "string") {
+      let drawn = defaultSettings();
+      // parseBlock THROWS on a malformed fence. A run of broken source must
+      // not reject refresh(); treat it as a run that drew no block.
+      try { drawn = parseBlock(figureSource)?.settings ?? drawn; } catch { /* no block */ }
+      behind = settingsDiff(drawn, this.settings);
+      if (!this.canPreview) {
+        for (const k of behind) this.rerunKeys.add(k);
+      }
+    }
     if (this.client) {
       try {
         const [styles, intro] = await Promise.all([this.client.listStyles(), this.client.introspect()]);
@@ -908,6 +942,16 @@ export class PlotpolishPanel extends HTMLElement {
       } catch (e) {
         this.noteBackendFailure(e, "refresh");
       }
+    }
+    // On a host that CAN preview, a change the run missed was refused while
+    // the program ran (the backend is busy then), so nothing applied it. Apply
+    // it now, against the baseline just re-read.
+    if (behind.length && this.canPreview) {
+      const rcKeys = behind.filter((k) => k !== "style");
+      const rc: Record<string, RcValue> = { ...this.baselineFor(rcKeys) };
+      for (const k of rcKeys) if (this.settings.rc[k] !== undefined) rc[k] = this.settings.rc[k]!;
+      if (behind.includes("style")) this.applyStyle(this.settings.style, rcKeys);
+      else if (Object.keys(rc).length) this.scheduleApply(rc);
     }
     this.update();
   }

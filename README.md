@@ -167,7 +167,11 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   into the interpreter.
 * **After every run, call `panel.refresh()`** so the panel re-reads the style
   list, the effective rcParams and the live figure (and clears the "re-run to
-  see" hint).
+  see" hint). **Pass the source the run executed**, read when the run started:
+  `panel.refresh(ranSource)`. Without it the panel assumes the run drew the
+  current block, so a change the student made while the program was running
+  is marked as applied when it was not. With it, those changes stay marked
+  (or, on a host with live preview, are applied now).
 * **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
   figure transport needs pumping (a worker with Agg plus a hand-rolled
   webagg_core bridge, say) should trigger their redraw on `plotpolish-change`.

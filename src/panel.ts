@@ -891,13 +891,23 @@ export class PlotpolishPanel extends HTMLElement {
     let behind: string[] = [];
     if (typeof figureSource === "string") {
       let drawn = defaultSettings();
-      // parseBlock THROWS on a malformed fence. A run of broken source must
-      // not reject refresh(); treat it as a run that drew no block.
-      try { drawn = parseBlock(figureSource)?.settings ?? drawn; } catch { /* no block */ }
-      behind = settingsDiff(drawn, this.settings);
-      if (!this.canPreview) {
-        for (const k of behind) this.rerunKeys.add(k);
+      // parseBlock THROWS FenceError on a malformed fence. A run of broken
+      // source must not reject refresh(); treat it as a run that drew no
+      // block. Anything else is a parser bug, and is not swallowed.
+      try {
+        drawn = parseBlock(figureSource)?.settings ?? drawn;
+      } catch (e) {
+        if (!(e instanceof FenceError)) throw e;
       }
+      behind = settingsDiff(drawn, this.settings);
+      // Through noteRerun(), not straight into rerunKeys: it also emits
+      // plotpolish-rerun-needed, and a host that ignored the original edit
+      // while its run was busy needs to hear about it again now. On a preview
+      // host only the style is pending -- rc keys are applied live below, but
+      // set_style() does not redraw the artists already drawn, so the style
+      // needs a run there exactly as setStyle() marks it.
+      const pending = this.canPreview ? behind.filter((k) => k === "style") : behind;
+      if (pending.length) this.noteRerun(pending);
     }
     if (this.client) {
       try {

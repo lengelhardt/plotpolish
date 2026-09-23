@@ -4822,6 +4822,37 @@ describe("refresh(figureSource): a change made during a run stays pending (#36)"
     expect(rerunBadge(), "no block drew lw=3").not.toBeNull();
   });
 
+  // The host has to HEAR that something is still pending: it may have ignored
+  // the original edit's event because its run was busy then.
+  it("fires plotpolish-rerun-needed again for what the run missed", async () => {
+    const sink = noPreviewHost();
+    setLinewidth(2);
+    const ran = sink.getSource();
+    setLinewidth(3);
+    const heard: string[][] = [];
+    panel.addEventListener("plotpolish-rerun-needed", (e) =>
+      heard.push((e as CustomEvent<{ keys: string[] }>).detail.keys));
+    await panel.refresh(ran);
+    expect(heard.length).toBe(1);
+    expect(heard[0]).toContain("lines.linewidth");
+  });
+
+  // set_style() changes rcParams but does not redraw the artists already
+  // drawn, so on a preview host a style change still needs a run, exactly as
+  // setStyle() marks it -- and a mid-run one must stay marked.
+  it("on a preview host, a style changed mid-run stays marked for a run", async () => {
+    const sink = new MemorySink(PROGRAM);
+    panel.sink = sink;
+    const backend = new MockBackend();
+    await attachBackend(panel, backend);
+    const ran = sink.getSource();
+    (panel as unknown as { setStyle(s: string): void }).setStyle("ggplot");
+    await panel.settle();
+    await panel.refresh(ran);
+    await panel.settle();
+    expect(tabRerun(panel, "look").hidden).toBe(false);
+  });
+
   // The main-thread half: a host that CAN preview refuses live applies while
   // the program runs, so a mid-run change was lost there too. refresh() now
   // applies what the run missed.
@@ -4836,10 +4867,15 @@ describe("refresh(figureSource): a change made during a run stays pending (#36)"
     await panel.settle();
     backend.rejectWith = null;
     const before = backend.calls.length;
+    const heard: string[][] = [];
+    panel.addEventListener("plotpolish-rerun-needed", (e) =>
+      heard.push((e as CustomEvent<{ keys: string[] }>).detail.keys));
     await panel.refresh(ran);
     await panel.settle();
     const applied = backend.calls.slice(before).filter((c) => c.fn === "apply_live")
       .map((c) => (c.args as { rc: Record<string, unknown> }).rc["lines.linewidth"]);
     expect(applied).toContain(3);
+    // Applied live, so not announced to the host as needing a run.
+    expect(heard.flat()).not.toContain("lines.linewidth");
   });
 });

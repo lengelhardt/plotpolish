@@ -153,7 +153,11 @@ panel.sink = new MemorySink(editor.getValue(), (s) => editor.setValue(s));
 panel.backend = new PyodideBackend(pyodide);        // host already loaded pyodide
 panel.addEventListener("plotpolish-rerun-needed", () => showRerunHint());
 panel.addEventListener("plotpolish-change", (e) => console.log(e.detail.block));
-runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
+runButton.onclick = async () => {
+  const ran = panel.sink!.getSource();   // what this run will execute
+  await runUserCode();
+  await panel.refresh(ran);
+};
 ```
 
 * **Sink.** `getSource()` / `setSource()` over your editor buffer. If your sink
@@ -170,8 +174,9 @@ runButton.onclick = async () => { await runUserCode(); await panel.refresh(); };
   see" hint). **Pass the source the run executed**, read when the run started:
   `panel.refresh(ranSource)`. Without it the panel assumes the run drew the
   current block, so a change the student made while the program was running
-  is marked as applied when it was not. With it, those changes stay marked
-  (or, on a host with live preview, are applied now).
+  is marked as applied when it was not. With it, those changes stay marked.
+  On a host with live preview, rc changes are applied now; a style change
+  still needs a run, as it always does, and stays marked.
 * **Live preview.** `apply_live` calls `fig.canvas.draw_idle()`. Hosts whose
   figure transport needs pumping (a worker with Agg plus a hand-rolled
   webagg_core bridge, say) should trigger their redraw on `plotpolish-change`.
